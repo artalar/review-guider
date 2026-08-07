@@ -67,10 +67,23 @@ export const gitWatchToken = atom(0, 'git.watchToken')
 // Probes
 // ---------------------------------------------------------------------------
 
+const NO_WORKSPACE: GitCapability = {
+  ok: false,
+  reason: 'no-workspace',
+  message: 'Open a folder to use Guide Reviewer.',
+}
+
+/**
+ * Deliberately *not* a dependant of `gitWatchToken`: re-probing on every write
+ * under `.git/` would spawn a probe storm during isolation, when the extension
+ * is itself the one writing refs. The cost is that this value is only as fresh
+ * as the last workspace change, so anything that gates a mutation probes again
+ * for itself — see `startSession`.
+ */
 export const gitCapability = computed(async (): Promise<GitCapability | null> => {
   const root = workspaceRoot()
   if (root === null)
-    return { ok: false, reason: 'no-workspace', message: 'Open a folder to use Guide Reviewer.' }
+    return NO_WORKSPACE
 
   return await wrap(probeGit(root, { signal: abortVar.require().signal }))
 }, 'git.capability').extend(withAsyncData({ initState: null }))
@@ -212,12 +225,22 @@ export const recoveryToken = computed(async (): Promise<SessionToken | null> => 
   const store = ports().store
   recoveryEpoch()
 
-  const capability = await wrap(capabilityPromise)
-  if (capability === null || !capability.ok)
+  // Not gated on `capability.ok`. A repository that is mid-rebase, or whose
+  // HEAD is unborn, is a repository Guide Reviewer will not *start* in — but it
+  // may still be holding a stash of the user's work, and refusing to look would
+  // hide exactly the thing this subsystem exists to surface.
+  const root = capabilityRepoRoot(await wrap(capabilityPromise))
+  if (root === null)
     return null
 
-  return await wrap(store.readToken(capability.repoRoot))
+  return await wrap(store.readToken(root))
 }, 'recovery.token').extend(withAsyncData({ initState: null }))
+
+function capabilityRepoRoot(capability: GitCapability | null): string | null {
+  if (capability === null)
+    return null
+  return capability.ok ? capability.repoRoot : capability.repoRoot ?? null
+}
 
 export const recoveryPending = computed(() => isRecoverable(recoveryToken.data()), 'recovery.pending')
 
@@ -388,8 +411,16 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
   if (peek(sessionStatus) !== 'idle')
     throw new SessionAlreadyActiveError(peek(sessionStatus))
 
-  const capability = await wrap(gitCapability())
-  if (capability === null || !capability.ok)
+  const signal = abortVar.require().signal
+
+  // A fresh probe, not `gitCapability()`. The cached one is as old as the last
+  // workspace change, so a rebase or merge begun after the window opened still
+  // reads `ok` — and this is the last check before a `git stash push`. Nothing
+  // downstream re-tests it: `planIsolation` reads the unmerged paths but does
+  // not refuse them, and `isolate` would stash straight over MERGE_HEAD.
+  const root = peek(workspaceRoot)
+  const capability = root === null ? NO_WORKSPACE : await wrap(probeGit(root, { signal }))
+  if (!capability.ok)
     throw new GitUnavailableError(capability)
 
   const { repoRoot } = capability
@@ -400,7 +431,6 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
   if (isRecoverable(await wrap(peek(ports).store.readToken(repoRoot))))
     throw new RecoveryPendingError()
 
-  const signal = abortVar.require().signal
   const includeUntracked = peek(stashIncludeUntracked)
 
   // An early, honest refusal. The compare-and-swap in `isolate` is still the

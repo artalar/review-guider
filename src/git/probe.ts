@@ -41,6 +41,13 @@ export interface GitCapabilityFail {
   readonly reason: GitCapabilityReason
   readonly message: string
   readonly hint?: string
+  /**
+   * Set whenever the repository was located before the probe refused it. A
+   * refusal is not a reason to forget a pending restore, and the journal is
+   * keyed on this path — without it, recovery for a repository that is mid
+   * rebase silently never fires.
+   */
+  readonly repoRoot?: string
 }
 
 export type GitCapability = GitCapabilityOk | GitCapabilityFail
@@ -170,6 +177,7 @@ export async function probeGit(root: string, options: ProbeOptions = {}): Promis
       reason: 'rebase-or-merge-in-progress',
       message: `Finish or abort ${IN_PROGRESS_LABEL[inProgress] ?? 'the operation'} in progress first.`,
       hint: 'Guide Reviewer refuses to stash on top of an unfinished git operation.',
+      repoRoot,
     }
   }
 
@@ -181,6 +189,7 @@ export async function probeGit(root: string, options: ProbeOptions = {}): Promis
       reason: 'unborn-head',
       message: 'This repository has no commits yet.',
       hint: 'Make a first commit — Guide Reviewer anchors every backup to HEAD.',
+      repoRoot,
     }
   }
 

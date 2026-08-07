@@ -15,6 +15,7 @@ import {
   discardRecovery,
   EmptyDiffError,
   gitCapability,
+  GitUnavailableError,
   isolation,
   ports,
   preflightAnswer,
@@ -249,6 +250,38 @@ describe('session lifecycle over the real protocol', () => {
     expect(harness.notifications.at(-1)?.message).toContain('Another window')
   })
 
+  /**
+   * `gitCapability` is probed when the workspace root is set and never again,
+   * so a merge begun after that still reads `ok`. Nothing downstream catches
+   * it — `planIsolation` reads the unmerged paths without refusing them — and
+   * stashing over `MERGE_HEAD` is the P0 edge row the product spec refuses.
+   */
+  it('refuses to start on a merge that began after the window opened', async () => {
+    const repo = await makeTempRepo({ files: { 'conflict.txt': 'base\n' } })
+    await repo.git('checkout', '--quiet', '-b', 'other')
+    await repo.write('conflict.txt', 'theirs\n')
+    await repo.git('add', '-A')
+    await repo.commit('theirs')
+    await repo.git('checkout', '--quiet', 'main')
+    await repo.write('conflict.txt', 'ours\n')
+    await repo.git('add', '-A')
+    await repo.commit('ours')
+
+    const harness = await bootstrap(repo)
+    expect(peek(canStart)).toBe(true)
+
+    expect((await repo.tryGit('merge', '--no-edit', 'other')).code).not.toBe(0)
+    const before = await repo.fingerprint()
+
+    await expect(start(harness)).rejects.toBeInstanceOf(GitUnavailableError)
+
+    expect(peek(sessionStatus)).toBe('idle')
+    expect(await repo.fingerprint()).toEqual(before)
+    expect(await listStash(repo.root)).toEqual([])
+    expect(await readLock(repo.root)).toBeNull()
+    expect(await harness.store.readToken(repo.root)).toBeNull()
+    expect(harness.notifications.at(-1)?.message).toContain('merge')
+  })
 })
 
 describe('recovery', () => {
@@ -370,6 +403,27 @@ describe('recovery', () => {
     // Nothing was destroyed — the backup is still there to recover by hand.
     expect(await listStash(repo.root)).toHaveLength(1)
     expect(await resolveRef(repo.root, backupRefName('model-session'))).not.toBeNull()
+  })
+
+  /**
+   * A repository Guide Reviewer will not start in may still be holding the
+   * user's work. Keying the journal lookup on a capability that has to be `ok`
+   * would drop the reminder precisely when it matters most.
+   */
+  it('still finds a pending restore in a repository git refuses to start in', async () => {
+    const repo = await dirtyRepo()
+    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'ghost' })
+
+    // What git itself writes when a merge stops for conflicts. The tree is
+    // already stashed at this point, so there is no conflict to stage.
+    await repo.write('.git/MERGE_HEAD', `${await repo.head()}\n`)
+
+    await bootstrapAt(repo.root, store)
+
+    expect(peek(canStart)).toBe(false)
+    expect(peek(startBlockedReason)).toContain('merge')
+    expect(peek(recoveryPending)).toBe(true)
+    expect((await recoveryToken())?.sessionId).toBe('ghost')
   })
 
   it('cleans up orphan refs but never while a restore is pending', async () => {
