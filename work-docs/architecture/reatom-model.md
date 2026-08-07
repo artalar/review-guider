@@ -24,7 +24,7 @@
 | No identity actions | The bridge writes `gitWatchToken.set(v => v + 1)` directly — there is no `bumpWatchToken` action |
 | Queries are `computed` + `withAsyncData` | `git.capability`, `git.repoStatus`, `…baseText`, `recovery.token` |
 | Mutations are `action` + `withAsync` | `session.start`, `session.finish`, `session.cancel`, `recovery.restore` |
-| Every async boundary uses `wrap` | §7 |
+| Every async boundary uses `wrap` | §8 |
 | Immutable data stays plain | `Guide`, `GuideStep`, `DiffFile`, `LineGroup` are frozen values; only live state is atoms |
 
 **Atomization boundary.** Reatom's rule is "mutable properties → atoms, readonly properties → primitives". A session's *plan* is plain data computed once (entry, base and after revisions, parsed diff, merged guide); its *live state* is atoms (`sessionStatus`, `cursor`, per-file async base text). Individual steps are deliberately **not** atomized: a step is immutable, and revealing is a cursor move, not a per-step mutation.
@@ -126,7 +126,7 @@ export const gitCapability = computed(async (): Promise<GitCapability | null> =>
 }, 'git.capability').extend(withAsyncData({ initState: null }))
 
 export const repoStatus = computed(async (): Promise<RepoStatus | null> => {
-  // Hoist every reactive read above the first await — rule W5 in §7.
+  // Hoist every reactive read above the first await — rule W5 in §8.
   const capabilityPromise = gitCapability()
   gitWatchToken()
 
@@ -162,9 +162,9 @@ export type SessionStatus =
 const LEGAL: Readonly<Record<SessionStatus, readonly SessionStatus[]>> = {
   idle: ['preflight'],
   preflight: ['stashing', 'idle', 'error'],
-  stashing: ['active', 'restoring', 'error'],
+  stashing: ['active', 'restoring', 'idle', 'error'],  // idle: isolate unwound itself
   active: ['restoring'],
-  restoring: ['idle', 'blocked'],
+  restoring: ['idle', 'blocked', 'error'],
   blocked: ['restoring', 'idle'],
   error: ['idle'],
 }
@@ -337,7 +337,7 @@ Three properties make Tab feel instant:
 
 1. `revealText` is a **pure fold over immutable data** — nothing on the Tab path does I/O.
 2. `baseText` is fetched **lazily, once per file**, triggered by connection (reading `.data()` from a connected computed) and cached by `withAsyncData`.
-3. The bridge subscribes to `ui.reviewViewModel`, which also reads the *next* step's file base text (§6). Connection starts that fetch, so the next file is warm before the cursor arrives. No prefetch scheduler, no imperative cache — the dependency graph does it.
+3. The bridge subscribes to `ui.reviewViewModel`, which also reads the *next* step's file base text (§7). Connection starts that fetch, so the next file is warm before the cursor arrives. No prefetch scheduler, no imperative cache — the dependency graph does it.
 
 ---
 
@@ -427,16 +427,22 @@ Why `{ status: true }`: the bridge drives a progress notification from `startSes
 ```ts
 const startFailed = action(async (error: unknown) => {
   const handle = peek(isolation)
+
   if (handle) {
     sessionStatus.to('restoring')
-    // No signal — see §8.
-    await wrap(restore(handle, { store: peek(ports).store }))
-    isolation.set(null)
+    // No signal — see §9.
+    const outcome = await wrap(restore(handle, { store: peek(ports).store }))
+    if (outcome.kind === 'restored')
+      isolation.set(null)
+    sessionStatus.to(outcome.kind === 'restored' ? 'idle' : 'blocked')
   }
+  else {
+    // Nothing was mutated: isolate unwound itself, or it never ran.
+    sessionStatus.to('idle')
+  }
+
   session.set(null)
   preflightRequest.set(null)
-  sessionStatus.to(peek(sessionStatus) === 'restoring' ? 'idle' : 'error')
-  sessionStatus.to('idle')
 
   // Aborts are a user choice (declined pre-flight, superseded call), not a business error.
   if (!isAbortError(error))

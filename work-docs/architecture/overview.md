@@ -74,7 +74,7 @@ Two consequences worth stating out loud:
 - The **session model is unit-testable in plain vitest** against a temp git repo, with no extension host. That is where the safety tests live.
 - The **pure layer is testable with string fixtures**. Diff parsing and ordering never touch a filesystem.
 
-Anything the model needs from VS Code — confirmation modals, persistence, opening editors — crosses the boundary through a small **ports interface** that the bridge implements at activation (§6.3). This is also what makes `git/exec.ts` injectable, as the plan requires.
+Anything the model needs from VS Code — confirmation modals, persistence, opening editors — crosses the boundary through a small **ports interface** that the bridge implements at activation (§5.2). This is also what makes `git/exec.ts` injectable, as the plan requires.
 
 ### 2.1 Conceptual modules → directories
 
@@ -374,14 +374,14 @@ sequenceDiagram
   S->>G: update-ref refs/guide-reviewer/lock  (CAS against zero oid)
   Note over S,G: fails if another window owns this repo
   S->>P: token {stage:'planned'}
-  S->>G: temp-index snapshot -> afterCommit; update-ref .../after/<id>
+  S->>G: temp-index snapshot to afterCommit; update-ref .../after/[id]
   S->>P: token {stage:'captured'}
   Note over S,P: a crash here loses nothing — the tree was never modified
-  S->>G: git stash push --include-untracked -m "guide-reviewer:<id>"
-  S->>G: rev-parse refs/stash; update-ref .../backup/<id>
+  S->>G: git stash push --include-untracked -m "guide-reviewer:[id]"
+  S->>G: rev-parse refs/stash; update-ref .../backup/[id]
   S->>P: token {stage:'stashed'}
   S->>G: status --porcelain  (assert clean, else unwind)
-  S->>G: git checkout --detach <after>        %% skipped for the working-tree entry
+  S->>G: git checkout --detach afterRev (skipped for the working-tree entry)
   S->>P: token {stage:'checkedout'}
   S-->>M: IsolationHandle
 ```
@@ -400,8 +400,8 @@ flowchart TD
   B -->|checkedout or reviewing| C["git checkout headBefore"]
   C --> D
   B -->|stashed| D["locate stash entry by message"]
-  D -->|found| E["git stash apply <entry>"]
-  D -->|missing| F["git stash apply <backupRef>"]
+  D -->|found| E["git stash apply the stash entry"]
+  D -->|missing| F["git stash apply the backup ref"]
   E --> V{"verify against afterRef"}
   F --> V
   V -->|match| K["git stash drop; delete after+backup refs; release lock; delete token"]
@@ -457,8 +457,8 @@ sequenceDiagram
   M->>G: resolve base/after, count changed lines
   M->>M: preflight.request.set(summary)
   B-->>U: modal — what will be stashed, how to abort (Cancel is default)
-  U-->>M: preflight.answer(true)          %% awaited via take(...)
-  M->>S: isolate(plan)                    %% §3.5.4, capture-first, journal-first
+  U-->>M: preflight.answer(true) — awaited via take
+  M->>S: isolate(plan) — capture-first, journal-first, see 3.5.4
   S-->>M: IsolationHandle
   M->>G: diff --name-status + --patch  (base..after)
   M->>G: read .guide.json at base (if present)
@@ -466,7 +466,7 @@ sequenceDiagram
   M->>M: session.set(reatomSession(...)); status -> active; cursor = -1
   M-->>B: reviewViewModel changed
   B->>B: open vscode.diff(base, reveal), set context keys, show status bar
-  B->>M: next()                           %% auto-reveal the first step
+  B->>M: next() — auto-reveal the first step
 ```
 
 Time-to-first-reveal budget (<3 s on a ≤500-line diff): probe ~50 ms, capture + stash ~200–600 ms, diff read ~100 ms, parse + order <50 ms; base blobs are read lazily per file. The dominant cost is `checkout`, which the working-tree entry skips entirely — the fastest path and the natural demo.
@@ -482,14 +482,14 @@ sequenceDiagram
 
   U->>B: Tab (when: sessionActive && reviewEditorFocused && !suggestWidgetVisible && …)
   B->>M: session().next()
-  M->>M: cursor.set(k + 1)                %% synchronous; no I/O, no await
+  M->>M: cursor.set(k + 1) — synchronous, no I/O, no await
   M-->>V: revealText computed changed
   V->>V: onDidChange(uri)
   V-->>B: VS Code re-reads; the native diff re-renders
   M-->>B: statusText changed -> status bar; ranges changed -> decoration
 ```
 
-Tab is **synchronous state movement**. No subprocess, no I/O, no await — base texts were fetched lazily on first need and cached, and the next file is warmed by the dependency graph (see reatom-model.md §6). That is what makes the loop feel like AI-tab completion rather than a tool.
+Tab is **synchronous state movement**. No subprocess, no I/O, no await — base texts were fetched lazily on first need and cached, and the next file is warmed by the dependency graph (see reatom-model.md §7). That is what makes the loop feel like AI-tab completion rather than a tool.
 
 Past the last step, `next()` is a no-op that flips `isComplete`; the bridge shows a subtle "Review complete" message offering Finish. No score, no timer, no gate.
 
@@ -567,7 +567,7 @@ export interface UiPort {
 export interface ClockPort { now: () => number, sessionId: () => string }
 ```
 
-Ports are installed once at activation into a `ports` atom; tests substitute in-memory implementations. User confirmation is *additionally* modelled Reatom-natively as an action event (`take(preflightAnswer)`) rather than a port call — see [reatom-model.md §5](reatom-model.md).
+Ports are installed once at activation into a `ports` atom; tests substitute in-memory implementations. User confirmation is *additionally* modelled Reatom-natively as an action event (`take(preflightAnswer)`) rather than a port call — see [reatom-model.md §6](reatom-model.md).
 
 ---
 
@@ -643,7 +643,7 @@ guideReviewer.sessionActive
 
 ## 8. Cancellation policy
 
-Cancellation is a safety feature on the read path and a hazard on the write path. **Anything that can leave git half-applied runs without a signal.** The per-action table is in [reatom-model.md §8](reatom-model.md); the rule for the git layer is: `exec` accepts `{ signal }`, and `stash.ts` / `snapshot.ts` never pass one on the restore path.
+Cancellation is a safety feature on the read path and a hazard on the write path. **Anything that can leave git half-applied runs without a signal.** The per-action table is in [reatom-model.md §9](reatom-model.md); the rule for the git layer is: `exec` accepts `{ signal }`, and `stash.ts` / `snapshot.ts` never pass one on the restore path.
 
 ---
 
