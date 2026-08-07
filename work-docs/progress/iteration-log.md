@@ -196,8 +196,9 @@ The interesting part is `test/unit/published-schema.test.ts`, which exists becau
 
 `pnpm lint && typecheck && test:ci` green — 418 tests before, 423 after. Full findings in
 [`reviews/001.md`](reviews/001.md): four blockers, eight majors, six minors, three nits.
-Eleven of them are fixed here; three are open, and two of those three are the same problem
-seen from different angles.
+Every blocker and five of the eight majors are fixed here, along with two of the minors.
+Three majors are open, and two of those three are the same problem seen from different
+angles; the rest of what is open is minor or a nit.
 
 **The protocol is not where the bugs were.** I went looking for them in `src/git` — apply →
 verify → drop, the write-ahead journal, the crash matrix — and found nothing to report. The
