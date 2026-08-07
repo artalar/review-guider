@@ -1,3 +1,4 @@
+import type { ReviewTarget } from '../git/types'
 import { peek, wrap } from '@reatom/core'
 import { useCommands } from 'reactive-vscode'
 import { window } from 'vscode'
@@ -8,9 +9,12 @@ import {
   cleanupBackups,
   finishSession,
   recoverBackup,
+  session,
   startBlockedReason,
   startSession,
 } from '../model/session'
+import { revealCurrentStep } from '../ui/documents'
+import { pickCommitEntry, promptRangeEntry } from '../ui/entry'
 import { logger } from '../utils'
 
 /**
@@ -20,13 +24,12 @@ import { logger } from '../utils'
  */
 export function useGuideCommands(): void {
   useCommands({
-    [Commands.guideReviewerStart]: wrap(() => guard('start', async () => {
-      if (!peek(canStart)) {
-        await window.showWarningMessage(peek(startBlockedReason) ?? 'Guide Reviewer cannot start right now.')
-        return
-      }
-      await wrap(startSession({ entry: { kind: 'workingTree' } }))
-    })),
+    [Commands.guideReviewerStart]: wrap(() => guard('start', () => begin(async () => ({ kind: 'workingTree' })))),
+    [Commands.guideReviewerStartFromCommit]: wrap(() => guard('startFromCommit', () => begin(pickCommitEntry))),
+    [Commands.guideReviewerStartFromRange]: wrap(() => guard('startFromRange', () => begin(promptRangeEntry))),
+    [Commands.guideReviewerNext]: wrap(() => guard('next', advance)),
+    [Commands.guideReviewerPrevious]: wrap(() => guard('previous', retreat)),
+    [Commands.guideReviewerShowStepDetail]: wrap(() => guard('showStepDetail', revealCurrentStep)),
     [Commands.guideReviewerFinish]: wrap(() => guard('finish', () => finishSession())),
     [Commands.guideReviewerCancel]: wrap(() => guard('cancel', () => cancelSession('cancel'))),
     [Commands.guideReviewerRestoreBackup]: wrap(() => guard('restoreBackup', () => recoverBackup())),
@@ -39,6 +42,40 @@ export function useGuideCommands(): void {
       )
     })),
   })
+}
+
+/**
+ * Every entry point shares one shape: refuse with the model's own reason, ask
+ * the user what to review, then hand the target over. The three differ only in
+ * the question.
+ */
+async function begin(pick: () => Promise<ReviewTarget | null>): Promise<void> {
+  if (!peek(canStart)) {
+    await window.showWarningMessage(peek(startBlockedReason) ?? 'Guide Reviewer cannot start right now.')
+    return
+  }
+  const entry = await wrap(pick())
+  if (entry === null)
+    return
+  await wrap(startSession({ entry }))
+}
+
+/**
+ * Tab past the last step is a no-op plus a subtle offer to finish — no score,
+ * no timer, no gate (the PO's UX guardrail for this phase).
+ */
+async function advance(): Promise<void> {
+  const model = peek(session)
+  if (model === null || model.next())
+    return
+
+  const answer = await wrap(window.showInformationMessage('Review complete.', 'Finish Review'))
+  if (answer === 'Finish Review')
+    await wrap(finishSession())
+}
+
+async function retreat(): Promise<void> {
+  peek(session)?.prev()
 }
 
 /**

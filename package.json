@@ -50,6 +50,36 @@
         "enablement": "guideReviewer.canStart"
       },
       {
+        "command": "guide-reviewer.startFromCommit",
+        "title": "Start Review from Commit...",
+        "category": "Guide Reviewer",
+        "enablement": "guideReviewer.canStart"
+      },
+      {
+        "command": "guide-reviewer.startFromRange",
+        "title": "Start Review from Commit Range...",
+        "category": "Guide Reviewer",
+        "enablement": "guideReviewer.canStart"
+      },
+      {
+        "command": "guide-reviewer.next",
+        "title": "Next Step",
+        "category": "Guide Reviewer",
+        "enablement": "guideReviewer.sessionActive"
+      },
+      {
+        "command": "guide-reviewer.previous",
+        "title": "Previous Step",
+        "category": "Guide Reviewer",
+        "enablement": "guideReviewer.sessionActive"
+      },
+      {
+        "command": "guide-reviewer.showStepDetail",
+        "title": "Go to Current Step",
+        "category": "Guide Reviewer",
+        "enablement": "guideReviewer.sessionActive"
+      },
+      {
         "command": "guide-reviewer.finish",
         "title": "Finish Review",
         "category": "Guide Reviewer",
@@ -72,6 +102,28 @@
         "title": "Clean Up Backups",
         "category": "Guide Reviewer",
         "enablement": "guideReviewer.gitUsable"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "guide-reviewer.next",
+        "key": "tab",
+        "when": "guideReviewer.sessionActive && resourceScheme == 'guide-reviewer' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.guideReviewer.keybinding.useTab"
+      },
+      {
+        "command": "guide-reviewer.previous",
+        "key": "shift+tab",
+        "when": "guideReviewer.sessionActive && resourceScheme == 'guide-reviewer' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.guideReviewer.keybinding.useTab"
+      },
+      {
+        "command": "guide-reviewer.next",
+        "key": "alt+]",
+        "when": "guideReviewer.sessionActive"
+      },
+      {
+        "command": "guide-reviewer.previous",
+        "key": "alt+[",
+        "when": "guideReviewer.sessionActive"
       }
     ],
     "configuration": {

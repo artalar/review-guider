@@ -23,13 +23,18 @@
 
 <!-- commands -->
 
-| Command                         | Title                                       |
-| ------------------------------- | ------------------------------------------- |
-| `guide-reviewer.start`          | Guide Reviewer: Start Review (Working Tree) |
-| `guide-reviewer.finish`         | Guide Reviewer: Finish Review               |
-| `guide-reviewer.cancel`         | Guide Reviewer: Cancel Review               |
-| `guide-reviewer.restoreBackup`  | Guide Reviewer: Restore from Backup         |
-| `guide-reviewer.cleanupBackups` | Guide Reviewer: Clean Up Backups            |
+| Command                          | Title                                             |
+| -------------------------------- | ------------------------------------------------- |
+| `guide-reviewer.start`           | Guide Reviewer: Start Review (Working Tree)       |
+| `guide-reviewer.startFromCommit` | Guide Reviewer: Start Review from Commit...       |
+| `guide-reviewer.startFromRange`  | Guide Reviewer: Start Review from Commit Range... |
+| `guide-reviewer.next`            | Guide Reviewer: Next Step                         |
+| `guide-reviewer.previous`        | Guide Reviewer: Previous Step                     |
+| `guide-reviewer.showStepDetail`  | Guide Reviewer: Go to Current Step                |
+| `guide-reviewer.finish`          | Guide Reviewer: Finish Review                     |
+| `guide-reviewer.cancel`          | Guide Reviewer: Cancel Review                     |
+| `guide-reviewer.restoreBackup`   | Guide Reviewer: Restore from Backup               |
+| `guide-reviewer.cleanupBackups`  | Guide Reviewer: Clean Up Backups                  |
 
 <!-- commands -->
 

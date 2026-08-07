@@ -1,11 +1,9 @@
-import { useStatusBarItem, useVscodeContext } from 'reactive-vscode'
+import { useActiveTextEditor, useStatusBarItem, useVscodeContext } from 'reactive-vscode'
 import { StatusBarAlignment } from 'vscode'
 import { commands as Commands } from '../generated/meta'
 import { canStart, gitUsable, isSessionActive, recoveryPending } from '../model/session'
-import { statusText, statusTooltip } from '../model/view'
+import { REVIEW_SCHEME, statusText, statusTooltip } from '../model/view'
 import { useAtomRef } from './binding'
-
-export const REVIEW_SCHEME = 'guide-reviewer'
 
 export function useGuideStatusBar(): void {
   const text = useAtomRef(statusText)
@@ -17,7 +15,9 @@ export function useGuideStatusBar(): void {
     priority: 100,
     text: () => text.value ?? '',
     tooltip: () => tooltip.value ?? undefined,
-    command: Commands.guideReviewerFinish,
+    // Clicking jumps to the current step rather than ending the review: the
+    // status bar is the one always-visible way back into the reveal editor.
+    command: Commands.guideReviewerShowStepDetail,
     visible: () => text.value !== null,
   })
 }
@@ -31,9 +31,14 @@ export function useGuideContextKeys(): void {
   const start = useAtomRef(canStart)
   const active = useAtomRef(isSessionActive)
   const recovery = useAtomRef(recoveryPending)
+  const editor = useActiveTextEditor()
 
   useVscodeContext('guideReviewer.gitUsable', () => usable.value)
   useVscodeContext('guideReviewer.canStart', () => start.value)
   useVscodeContext('guideReviewer.sessionActive', () => active.value)
   useVscodeContext('guideReviewer.recoveryPending', () => recovery.value)
+  useVscodeContext(
+    'guideReviewer.reviewEditorFocused',
+    () => editor.value?.document.uri.scheme === REVIEW_SCHEME,
+  )
 }

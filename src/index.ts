@@ -15,6 +15,7 @@ import {
   workspaceRoot,
 } from './model/session'
 import { useAtomRef } from './ui/binding'
+import { useReviewDecorations, useReviewDocuments } from './ui/documents'
 import { installPorts } from './ui/ports'
 import { checkRecoveryOnActivate, usePreflightPrompt, useRestoreBlockNotice } from './ui/prompts'
 import { useGuideContextKeys, useGuideStatusBar } from './ui/status-bar'
@@ -37,6 +38,8 @@ const { activate, deactivate: disposeScope } = defineExtension(() => {
 
   usePreflightPrompt()
   useRestoreBlockNotice()
+  useReviewDocuments()
+  useReviewDecorations()
   useGuideCommands()
   useGuideStatusBar()
   useGuideContextKeys()
