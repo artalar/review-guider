@@ -1,9 +1,9 @@
 # Branding and go-to-market brief
 
-**Product:** Guide Reviewer  
-**Recommended launch name:** Tabthrough  
-**Date:** 2026-08-07  
-**Scope:** Positioning and launch guidance only. No package, command, or source identity changes are approved by this document.
+- **Product:** Guide Reviewer
+- **Recommended launch name:** Tabthrough
+- **Date:** 2026-08-07
+- **Scope:** Positioning and launch guidance only. No package, command, or source identity changes are approved by this document.
 
 ## Executive decision
 
