@@ -95,6 +95,7 @@ Run everything with `pnpm test:ci`. Integration suites shell out to the real `gi
 | Blocked recovery | Stash, backup ref and token all survive; warning names the commands | Pass |
 | Orphan ref cleanup | Removes stray refs, refuses while a token is outstanding | Pass |
 | Lock held by another window | Refused *before* the pre-flight is shown | Pass |
+| Workspace folder is a subdirectory of the repo | The token is still found — it is keyed on the probed repo root | Pass |
 
 ---
 

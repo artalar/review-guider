@@ -191,13 +191,23 @@ export const preflightAnswer = action((approved: boolean) => approved, 'prefligh
 
 export const recoveryEpoch = atom(0, 'recovery.epoch')
 
+/**
+ * Keyed on the *probed* repository root, never on the workspace folder. Open a
+ * package inside a monorepo, or a path that reaches the repo through a symlink,
+ * and the two differ — and a token written under one key and looked for under
+ * the other means recovery silently never fires, which is the one failure this
+ * whole subsystem exists to prevent.
+ */
 export const recoveryToken = computed(async (): Promise<SessionToken | null> => {
+  const capabilityPromise = gitCapability()
   const store = ports().store
-  const root = workspaceRoot()
   recoveryEpoch()
-  if (root === null)
+
+  const capability = await wrap(capabilityPromise)
+  if (capability === null || !capability.ok)
     return null
-  return await wrap(store.readToken(root))
+
+  return await wrap(store.readToken(capability.repoRoot))
 }, 'recovery.token').extend(withAsyncData({ initState: null }))
 
 export const recoveryPending = computed(() => isRecoverable(recoveryToken.data()), 'recovery.pending')

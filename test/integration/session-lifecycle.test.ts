@@ -1,5 +1,6 @@
 import type { NotifyLevel, Ports, StorePort } from '../../src/model/ports'
 import type { TmpRepo } from '../helpers/tmp-repo'
+import { join } from 'node:path'
 import { context, peek } from '@reatom/core'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listGuideRefs, RepoLockedError } from '../../src/git/isolate'
@@ -84,8 +85,12 @@ function install(store: StorePort = memoryStore()): Harness {
 }
 
 async function bootstrap(repo: TmpRepo, store?: StorePort): Promise<Harness> {
+  return await bootstrapAt(repo.root, store)
+}
+
+async function bootstrapAt(root: string, store?: StorePort): Promise<Harness> {
   const harness = install(store)
-  workspaceRoot.set(repo.root)
+  workspaceRoot.set(root)
 
   // The gating computeds are async and only refresh while something is
   // listening, so the harness connects them exactly as `useGuideContextKeys`
@@ -262,6 +267,22 @@ describe('recovery', () => {
     expect(peek(recoveryPending)).toBe(false)
     expect(peek(canStart)).toBe(true)
     expect(await readLock(repo.root)).toBeNull()
+  })
+
+  it('finds the token when the workspace folder is a subdirectory of the repo', async () => {
+    const repo = await makeTempRepo({ files: { 'packages/app/index.ts': 'export const app = 1\n' } })
+    await repo.write('packages/app/index.ts', 'export const app = 2\n')
+    const before = await repo.fingerprint()
+
+    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'nested' })
+
+    // The token is keyed on the repository root; the folder VS Code opened is
+    // two levels below it.
+    await bootstrapAt(join(repo.root, 'packages', 'app'), store)
+
+    expect(peek(recoveryPending)).toBe(true)
+    expect((await recoverBackup())?.kind).toBe('restored')
+    expect(await repo.fingerprint()).toEqual(before)
   })
 
   it('reports a blocked restore instead of pretending it worked', async () => {
