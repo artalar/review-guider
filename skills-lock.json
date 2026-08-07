@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "reatom": {
+      "source": "reatom/reatom",
+      "sourceType": "github",
+      "skillPath": "skills/reatom/SKILL.md",
+      "computedHash": "a3312735ab492ab334b3d96df033d91e18362b4b680c9b983a934c0a64f317e5"
+    },
+    "reatom-async": {
+      "source": "reatom/reatom",
+      "sourceType": "github",
+      "skillPath": "skills/reatom-async/SKILL.md",
+      "computedHash": "f0dcf99d9d9338f5e6ab2a38a8d2e67823e0d8a15fce1d5a013b5c8ed01a5799"
+    },
+    "reatom-jsx": {
+      "source": "reatom/reatom",
+      "sourceType": "github",
+      "skillPath": "skills/reatom-jsx/SKILL.md",
+      "computedHash": "29c038bfdf19469a2807108e0edf24e480acb257043be6e01b2e2f68e5425f11"
+    },
+    "reatom-review": {
+      "source": "reatom/reatom",
+      "sourceType": "github",
+      "skillPath": "skills/reatom-review/SKILL.md",
+      "computedHash": "0bcb4b58892d94667805bc4eb1a61391bfe8b0ff1f1a3b23329d24fa48d36cc7"
+    }
+  }
+}

@@ -1,26 +1,35 @@
 {
-  "publisher": "antfu",
-  "name": "ext-name",
-  "displayName": "ext-name",
+  "publisher": "artalar",
+  "name": "tabthrough",
+  "displayName": "Tabthrough — Guided Diff Review",
   "version": "0.0.0",
   "private": true,
   "packageManager": "pnpm@10.27.0",
-  "description": "",
-  "author": "Anthony Fu <anthonyfu117@hotmail.com>",
+  "description": "Turn local changes and commits into a step-by-step diff walkthrough, ordered for understanding.",
+  "author": "artalar",
   "license": "MIT",
-  "funding": "https://github.com/sponsors/antfu",
-  "homepage": "https://github.com/antfu/ext-name#readme",
+  "homepage": "https://github.com/artalar/tabthrough#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/antfu/ext-name"
+    "url": "https://github.com/artalar/tabthrough"
   },
   "bugs": {
-    "url": "https://github.com/antfu/ext-name/issues"
+    "url": "https://github.com/artalar/tabthrough/issues"
   },
-  "sponsor": {
-    "url": "https://github.com/sponsors/antfu"
-  },
+  "keywords": [
+    "code review",
+    "diff viewer",
+    "git diff",
+    "guided review",
+    "change walkthrough",
+    "commit review",
+    "local changes",
+    "code understanding",
+    "onboarding",
+    "AI-generated code"
+  ],
   "categories": [
+    "Visualization",
     "Other"
   ],
   "main": "./dist/index.cjs",
@@ -36,21 +45,167 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Tabthrough runs git in the workspace and rewrites the working tree. A repository's own config can make git execute arbitrary commands, so it needs a trusted folder."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Isolation stashes and restores real files, which a virtual file system does not provide."
+    }
+  },
   "contributes": {
-    "commands": [],
+    "commands": [
+      {
+        "command": "tabthrough.start",
+        "title": "Review Working Changes",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
+        "command": "tabthrough.startFromCommit",
+        "title": "Review a Commit...",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
+        "command": "tabthrough.startFromRange",
+        "title": "Review a Commit Range...",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
+        "command": "tabthrough.next",
+        "title": "Reveal Next Change",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.sessionActive"
+      },
+      {
+        "command": "tabthrough.previous",
+        "title": "Go Back One Change",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.sessionActive"
+      },
+      {
+        "command": "tabthrough.showStepDetail",
+        "title": "Go to Current Step",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.sessionActive"
+      },
+      {
+        "command": "tabthrough.finish",
+        "title": "Finish and Restore Workspace",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.sessionActive"
+      },
+      {
+        "command": "tabthrough.cancel",
+        "title": "Cancel and Restore Workspace",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.sessionOpen"
+      },
+      {
+        "command": "tabthrough.restoreBackup",
+        "title": "Restore from Backup",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.recoveryPending && !tabthrough.sessionActive"
+      },
+      {
+        "command": "tabthrough.discardRecovery",
+        "title": "Dismiss Pending Restore...",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.recoveryPending && !tabthrough.sessionActive"
+      },
+      {
+        "command": "tabthrough.cleanupBackups",
+        "title": "Clean Up Backups",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.gitUsable"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "tabthrough.next",
+        "key": "tab",
+        "when": "tabthrough.sessionActive && resourceScheme == 'tabthrough' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.tabthrough.keybinding.useTab"
+      },
+      {
+        "command": "tabthrough.previous",
+        "key": "shift+tab",
+        "when": "tabthrough.sessionActive && resourceScheme == 'tabthrough' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.tabthrough.keybinding.useTab"
+      },
+      {
+        "command": "tabthrough.next",
+        "key": "alt+]",
+        "when": "tabthrough.sessionActive"
+      },
+      {
+        "command": "tabthrough.previous",
+        "key": "alt+[",
+        "when": "tabthrough.sessionActive"
+      }
+    ],
     "configuration": {
       "type": "object",
-      "title": "ext-name",
-      "properties": {}
+      "title": "Tabthrough",
+      "properties": {
+        "tabthrough.showRationale": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the one-line reason each step was ordered where it is (for example \"types before callers\") in the status bar."
+        },
+        "tabthrough.reveal.mode": {
+          "type": "string",
+          "enum": [
+            "progressive",
+            "dim"
+          ],
+          "enumDescriptions": [
+            "Unrevealed lines are absent from the review document until you reach them.",
+            "The whole change is rendered and unrevealed lines are dimmed."
+          ],
+          "default": "progressive",
+          "description": "How the reviewed change is revealed as you advance through steps."
+        },
+        "tabthrough.guideFile": {
+          "type": "string",
+          "default": ".guide.json",
+          "description": "Repository-relative path of the optional guide sidecar that overrides the heuristic step order."
+        },
+        "tabthrough.keybinding.useTab": {
+          "type": "boolean",
+          "default": true,
+          "description": "Bind Tab to the next review step while a review document is focused. Alt+] and Alt+[ always work regardless of this setting."
+        },
+        "tabthrough.maxLinesPerStep": {
+          "type": "number",
+          "default": 24,
+          "minimum": 1,
+          "maximum": 500,
+          "description": "Upper bound on how many low-significance changed lines are coalesced into a single step."
+        },
+        "tabthrough.hideFormattingSteps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Drop steps whose changes are whitespace or comments only."
+        },
+        "tabthrough.stash.includeUntracked": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include untracked files when isolating the workspace. Ignored files are never included."
+        }
+      }
     }
   },
   "scripts": {
     "build": "tsdown src/index.ts --external vscode",
     "dev": "nr build --watch --sourcemap",
     "prepare": "nr update",
-    "update": "vscode-ext-gen --output src/generated/meta.ts",
+    "update": "vscode-ext-gen --output src/generated/meta.ts --scope tabthrough",
     "lint": "eslint .",
     "test": "vitest",
+    "test:ci": "vitest run",
     "typecheck": "tsc --noEmit",
     "vscode:prepublish": "nr build",
     "release": "bumpp",
@@ -60,6 +215,7 @@
   "devDependencies": {
     "@antfu/eslint-config": "^6.7.3",
     "@antfu/ni": "^28.0.0",
+    "@reatom/core": "^1001.3.0",
     "@types/node": "^25.0.3",
     "@types/vscode": "^1.97.0",
     "@vscode/vsce": "^3.7.1",

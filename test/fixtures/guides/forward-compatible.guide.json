@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "audience": "onboarder",
+  "steps": [
+    {
+      "id": "types",
+      "path": "src/types.ts",
+      "rationale": "Types before callers",
+      "symbol": { "kind": "interface", "name": "Session" },
+      "tags": ["types"]
+    }
+  ],
+  "checks": []
+}

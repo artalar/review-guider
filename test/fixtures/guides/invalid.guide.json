@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "steps": [
+    { "id": "types", "path": "src/types.ts", "rationale": "Types before callers" },
+    { "id": "no rationale here", "path": "src/service.ts" }
+  ]
+}

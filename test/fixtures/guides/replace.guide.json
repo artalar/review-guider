@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "defaults": { "mergeStrategy": "replace" },
+  "steps": [
+    {
+      "id": "types-session",
+      "order": 10,
+      "path": "src/types.ts",
+      "rationale": "The shape everything else depends on"
+    }
+  ]
+}
