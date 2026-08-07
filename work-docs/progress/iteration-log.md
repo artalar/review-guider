@@ -191,3 +191,72 @@ The interesting part is `test/unit/published-schema.test.ts`, which exists becau
 **Two notes for the Reviewer.** First, the shallow fix touches `src/git/`, which is not usually a Tester's business — it is here because the alternative was a fixture that pins wrong behaviour. Second, `GitCapabilityReason` still declares `shallow-missing-objects`, which the probe never returns and now never will: a shallow clone is genuinely usable until an entry point asks for history, and that refusal belongs where it now lives. The unused variant should be deleted or wired, and it is logged as a gap rather than quietly resolved.
 
 - **Next:** the drills. §6.1 (crash), §6.2 (two windows) and §6.3 (stale lock) prove the parts of rows 3, 7 and 8 that live outside one process; §6.4 is the only way to falsify R1; §6.5 is the 3-second product metric, still unmeasured. All five need a human at a keyboard with a packaged build, and none of them should wait for dogfood — dogfood is where a failure costs someone their working tree.
+
+## Reviewer — 2026-08-07 — review 001: the model, not the protocol
+
+`pnpm lint && typecheck && test:ci` green — 418 tests before, 423 after. Full findings in
+[`reviews/001.md`](reviews/001.md): four blockers, eight majors, six minors, three nits.
+Eleven of them are fixed here; three are open, and two of those three are the same problem
+seen from different angles.
+
+**The protocol is not where the bugs were.** I went looking for them in `src/git` — apply →
+verify → drop, the write-ahead journal, the crash matrix — and found nothing to report. The
+defects are all one layer up, in the state machine that drives it. `src/git` correctly puts
+the session into `blocked` when a restore cannot be verified; `src/model/session.ts` then had
+no way to ever leave it. `recoverBackup` cleared `restoreBlock` on success and left
+`sessionStatus` at `blocked`, so a user whose files had just come back correctly still had
+Start disabled until they reloaded the window. `discardRecovery` existed and was contributed
+by no command. And Cancel — the one command a stuck user reaches for — was gated on
+`sessionActive`, which is false in `blocked`, in `error`, and in a `preflight` that stalled:
+precisely the three states worth having an exit from. Each is small on its own. Together they
+are a protocol that preserves your work perfectly and a UI that cannot tell you how to get it
+back.
+
+**The finding I did not expect.** `gitCapability` is a `computed` whose only dependency is
+`workspaceRoot()`, and the Reatom reference is explicit that a computed without dependencies
+is never reevaluated. It is probed once when the folder opens and never again — while the
+comment on `bindGitWatcher` says "the probes recompute themselves", which is true only of
+`repoStatus`. So the refusal the README promises for a rebase or merge in progress was being
+decided by an answer from before the merge existed. Nothing downstream re-tested it:
+`planIsolation` reads `status.unmerged` without refusing it, and `isolate` went on to `git
+stash push` over `MERGE_HEAD`. I wrote the test before the fix and watched the session open
+on top of a real conflicted merge. `startSession` now probes for itself; the computed stays
+lazy on purpose, because making it a dependant of `gitWatchToken` would re-probe on every ref
+write during isolation, which is exactly when the extension is the one writing them.
+
+The mirror image was in recovery. `recoveryToken` returned `null` whenever the capability was
+not `ok`, because the failure shape carried no `repoRoot` to key the journal on — so a
+repository mid-rebase, which is a very plausible state to find after a crash, silently stopped
+reporting the stash holding the user's work. The comment on that computed calls this "the one
+failure this whole subsystem exists to prevent." Refusing to start is not a reason to refuse
+to look.
+
+**What I could not fix, and why.** Two open findings are both about a second window.
+`isRecoverable` is true at stage `reviewing`, and the journal lives in `globalState` precisely
+so a second window can see it — so window B, opened on a repository window A is reviewing,
+finds A's *live* token and offers to restore it. Accepting applies A's stash, drops the entry,
+deletes both refs and releases the lock while A is still mid-review. To be fair about the
+damage: the files come back and A's later Finish still verifies, so this is not plain data
+loss. What it is, is a false alarm about losing work plus a review whose isolation ends
+underneath it. The related one: the lock value is the HEAD commit sha, so `releaseLock`'s
+compare-and-swap — described in ADR 0002 D5 as making a release unable to clobber another
+owner — cannot actually tell two windows at the same HEAD apart. Making the lock value the
+`sessionId` fixes that on its own and gives the recovery path the ownership check it needs.
+Neither is a local fix, because from git state alone "crashed" and "live in another window"
+look identical; the cheapest honest answer is a liveness marker the owning window refreshes.
+This is the hole in P0 edge row 8 — the automated test covers one process and drill §6.2
+covers the second *Start* being refused, not the second window's *recovery* prompt.
+
+**Marketplace.** The manifest declared no `capabilities`, so VS Code was treating an extension
+that shells out to git and rewrites the working tree as merely "limited" in an untrusted
+folder and loading it anyway. Both untrusted and virtual workspaces are now refused with a
+reason. `LICENSE.md` still carried the reactive-vscode template's copyright line, which
+`vsce package` was including verbatim — I checked by building the VSIX. One thing worth
+recording so nobody fixes it on intuition: `"private": true` does **not** block publishing.
+I looked for the check in `@vscode/vsce` and there is none; it only guards `npm publish`.
+
+- **Next (Reviewer view):** M2 and M3 together, as one change — `sessionId` as the lock value
+  plus a liveness marker — before dogfood, since dogfood is where two windows on one repository
+  first stop being hypothetical. Then M1, which is a two-line `retryComputed` once someone
+  decides where to debounce it. Drill §6.2 needs a sixth step covering the second window's
+  recovery prompt; it currently stops at the refused Start.
