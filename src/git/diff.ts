@@ -53,6 +53,41 @@ export async function resolveCommit(repoRoot: string, rev: string, options: GitO
   return result.code === 0 && sha !== '' ? sha : null
 }
 
+/**
+ * The parents recorded in the commit object itself.
+ *
+ * `rev-parse <sha>^1` and `log --format=%P` both honour the shallow graft, so a
+ * boundary commit in a shallow clone reports as parentless — indistinguishable
+ * from a genuine root commit, and diffing it against the empty tree would show
+ * the whole repository as added. The raw object still carries its `parent`
+ * lines, which is what separates "has no parent" from "the parent was never
+ * fetched".
+ */
+export async function readRecordedParents(
+  repoRoot: string,
+  rev: string,
+  options: GitOptions = {},
+): Promise<string[]> {
+  const result = await tryGit(repoRoot, ['cat-file', 'commit', rev], options)
+  if (result.code !== 0)
+    return []
+
+  const parents: string[] = []
+  for (const line of result.stdout.split('\n')) {
+    // The header ends at the first blank line; the message may say anything.
+    if (line === '')
+      break
+    if (line.startsWith('parent '))
+      parents.push(line.slice('parent '.length).trim())
+  }
+  return parents
+}
+
+export async function isShallowRepository(repoRoot: string, options: GitOptions = {}): Promise<boolean> {
+  const result = await tryGit(repoRoot, ['rev-parse', '--is-shallow-repository'], options)
+  return result.code === 0 && result.stdout.trim() === 'true'
+}
+
 export async function mergeBase(repoRoot: string, a: string, b: string, options: GitOptions = {}): Promise<string | null> {
   const result = await tryGit(repoRoot, ['merge-base', a, b], options)
   const sha = result.stdout.trim()

@@ -3,7 +3,14 @@ import type { SessionToken, TokenStore } from './journal'
 import type { HeadPosition, PreflightRequest, ReviewTarget } from './types'
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { countChangedLines, countWorkingTreeChangedLines, mergeBase, resolveCommit } from './diff'
+import {
+  countChangedLines,
+  countWorkingTreeChangedLines,
+  isShallowRepository,
+  mergeBase,
+  readRecordedParents,
+  resolveCommit,
+} from './diff'
 import { splitNul, tryGit } from './exec'
 import { advanceStage, persistToken, stashMessageFor, withStage } from './journal'
 import { readStatus } from './probe'
@@ -31,6 +38,20 @@ export class EntryNotSupportedError extends Error {
   override readonly name = 'EntryNotSupportedError'
   constructor(readonly entry: ReviewTarget) {
     super(`Cannot resolve review entry: ${entry.kind}`)
+  }
+}
+
+/**
+ * The P0 edge row "shallow clone missing objects": detect early, fail with a
+ * fetch hint. Raised from the stat-only plan, so nothing has been touched.
+ */
+export class MissingObjectsError extends Error {
+  override readonly name = 'MissingObjectsError'
+  constructor(readonly rev: string, readonly missing: string) {
+    super(
+      `Guide Reviewer cannot read the history before ${rev.slice(0, 8)}: this clone is shallow and commit `
+      + `${missing.slice(0, 8)} was never fetched. Run \`git fetch --unshallow\` (or \`git fetch --deepen 1\`) and try again.`,
+    )
   }
 }
 
@@ -173,6 +194,12 @@ async function resolveCommitEntry(
   if (parent !== null)
     return { baseRev: parent, afterRev }
 
+  // Unresolvable parent, but the object claims one: a shallow boundary. Falling
+  // through would review the whole repository as an addition.
+  const recorded = await readRecordedParents(repoRoot, afterRev, options)
+  if (recorded[0] !== undefined)
+    throw new MissingObjectsError(afterRev, recorded[0])
+
   // A root commit diffs against the empty tree. Hashing empty stdin gets it
   // portably and, unlike the well-known SHA-1 constant, is also right in a
   // SHA-256 repository.
@@ -188,8 +215,13 @@ async function resolveRangeEntry(
 ): Promise<{ baseRev: string, afterRev: string }> {
   const afterRev = await requireCommit(repoRoot, to, options)
   const base = await mergeBase(repoRoot, from, afterRev, options)
-  if (base === null)
+  if (base === null) {
+    // Two branches with no common ancestor *in this clone* is the same problem
+    // as above, and has the same fix, so it gets the same hint.
+    if (await isShallowRepository(repoRoot, options))
+      throw new MissingObjectsError(afterRev, from)
     throw new EntryNotSupportedError({ kind: 'range', from, to })
+  }
   return { baseRev: base, afterRev }
 }
 

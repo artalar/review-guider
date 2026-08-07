@@ -25,6 +25,7 @@ import {
   isolate,
   IsolationBlockedError,
   listGuideRefs,
+  MissingObjectsError,
   planIsolation,
   RepoLockedError,
   restoreFromToken,
@@ -518,6 +519,9 @@ export function describeStartFailure(error: unknown): string {
   if (error instanceof RepoLockedError)
     return 'Another window is already reviewing this repository.'
   if (error instanceof EmptyDiffError || error instanceof SessionAlreadyActiveError)
+    return error.message
+  // Already phrased for the user, hint included.
+  if (error instanceof MissingObjectsError)
     return error.message
   if (error instanceof RecoveryPendingError || error instanceof GitUnavailableError)
     return error.message
