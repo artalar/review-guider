@@ -5,6 +5,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 
 /**
  * Track B: build, mutate, and fingerprint a throwaway git repository.
@@ -33,6 +34,8 @@ export interface TmpRepo {
   git: (...args: string[]) => Promise<string>
   tryGit: (...args: string[]) => Promise<{ code: number, stdout: string, stderr: string }>
   write: (path: string, content: string) => Promise<void>
+  /** Bytes rather than text, for the binary rows of the edge matrix. */
+  writeBytes: (path: string, content: Uint8Array) => Promise<void>
   read: (path: string) => Promise<string>
   exists: (path: string) => Promise<boolean>
   remove: (path: string) => Promise<void>
@@ -99,6 +102,27 @@ export async function makeTempRepo(options: TmpRepoOptions = {}): Promise<TmpRep
   return repo
 }
 
+/**
+ * A depth-limited clone of `source`, for the P0 edge row "shallow clone missing
+ * objects". The boundary commit keeps its recorded parents but the objects they
+ * name were never fetched, which is the whole point of the fixture.
+ */
+export async function makeShallowClone(source: TmpRepo, depth = 1): Promise<TmpRepo> {
+  const root = await mkdtemp(join(tmpdir(), 'guide-reviewer-shallow-'))
+  CREATED.push(root)
+
+  const clone = await run(root, ['clone', '--quiet', '--depth', String(depth), pathToFileURL(source.root).href, '.'])
+  if (clone.code !== 0)
+    throw new Error(`shallow clone failed (${clone.code}): ${clone.stderr || clone.stdout}`)
+
+  const repo = createHandle(root)
+  await repo.git('config', 'user.email', 'test@guide-reviewer.local')
+  await repo.git('config', 'user.name', 'Guide Reviewer Test')
+  await repo.git('config', 'commit.gpgsign', 'false')
+  await repo.git('config', 'core.autocrlf', 'false')
+  return repo
+}
+
 /** A directory that is deliberately not a repository. */
 export async function makeTempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'guide-reviewer-plain-'))
@@ -133,6 +157,12 @@ function createHandle(root: string): TmpRepo {
       const absolute = join(root, path)
       await mkdir(dirname(absolute), { recursive: true })
       await writeFile(absolute, content, 'utf8')
+    },
+
+    async writeBytes(path, content) {
+      const absolute = join(root, path)
+      await mkdir(dirname(absolute), { recursive: true })
+      await writeFile(absolute, content)
     },
 
     async read(path) {
