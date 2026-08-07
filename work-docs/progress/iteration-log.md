@@ -330,3 +330,22 @@ case, with only the guard in `recoverBackup` taken out, really does restore A's 
   automated coverage drives two token states from one process, which is not the same thing.
   After that, dogfood — the two-window case has stopped being hypothetical, which was the
   Reviewer's argument for doing this before gate 3 rather than after.
+
+## 2026-08-07 — Orchestrator close-out
+
+Agent-team loop completed for MVP v0.1:
+
+| Role | Outcome |
+|------|---------|
+| Product Owner | MVP scope ADR 0001; offline heuristic first; LLM/agent P1 |
+| Planner | Phased plan 0–6; safety before UX |
+| Architect | Virtual-doc reveal, journal+refs, Reatom model, `.guide.json` v1 |
+| Implementer | Phases 0–5 shipped on Reatom; guide engine pure; Tab loop |
+| Reviewer | Review 001 — blockers fixed; M1–M3 closed |
+| Tester | All 10 P0 edges automated; schema published; shallow-clone defect found+fixed |
+
+**Gates:** `pnpm lint && typecheck && test:ci` — **436 tests green**. Build produces `dist/index.cjs`.
+
+**Remaining before Marketplace dogfood:** five manual drills in `test-matrix.md` §6 (crash, two-window, stale lock, keybinding matrix, time-to-first-reveal).
+
+**P1 next (PO):** portable contract (schema hosting + agent skill dogfood) before BYOK LLM.
