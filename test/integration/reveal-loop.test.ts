@@ -100,10 +100,38 @@ async function view(): Promise<ReviewViewModel> {
   }, { timeout: 10_000, interval: 5 })
 }
 
-function revealedIds(): string[] {
+function revealedIds(path: string = PATH): string[] {
   const model = peek(session)
-  const file = model === null ? undefined : model.fileByPath.get(PATH)
+  const file = model === null ? undefined : model.fileByPath.get(path)
   return file === undefined ? [] : [...peek(file.revealedGroups)].map(group => group.id).sort()
+}
+
+/** A module with `count` well-separated functions, so each edit is its own group. */
+function moduleText(name: string, count: number, guarded: boolean): string {
+  const lines: string[] = [`export const ${name}Version = ${guarded ? 2 : 1}`, '']
+  for (let index = 0; index < count; index++) {
+    lines.push(`export function ${name}${index}(value: number) {`)
+    if (guarded) {
+      lines.push('  if (!Number.isFinite(value))')
+      lines.push(`    throw new Error('${name}${index}')`)
+    }
+    lines.push(`  return value * ${index + 1}`, '}', '')
+  }
+  return lines.join('\n')
+}
+
+const WIDE_MODULES = ['src/alpha.ts', 'src/beta.ts', 'src/gamma.ts'] as const
+
+/** Three modules × four guard clauses each: comfortably past the ADR's ten steps. */
+async function wideRepo(): Promise<TmpRepo> {
+  const files: Record<string, string> = {}
+  for (const path of WIDE_MODULES)
+    files[path] = moduleText(path.slice(4, -3), 4, false)
+
+  const repo = await makeTempRepo({ files })
+  for (const path of WIDE_MODULES)
+    await repo.write(path, moduleText(path.slice(4, -3), 4, true))
+  return repo
 }
 
 describe('progressive reveal', () => {
@@ -138,6 +166,46 @@ describe('progressive reveal', () => {
     const after = await showBlob(repo.root, model.afterRev, PATH)
     expect(after).toBe(AFTER)
     expect(texts.at(-1)).toBe(after)
+  })
+
+  // ADR 0001 acceptance gate 4, and plan Phase 5's first exit criterion. The
+  // other reveal tests use `jumpTo`; this one presses Tab, because the gate is
+  // about the loop a reader actually drives.
+  it('advances through at least ten steps with monotonic visibility', async () => {
+    const repo = await wideRepo()
+    const harness = await bootstrap(repo)
+    const model = await startReview(harness, { kind: 'workingTree' })
+
+    expect(model.guide.steps.length).toBeGreaterThanOrEqual(10)
+
+    model.jumpTo(-1)
+    await view()
+
+    let previous = new Map(WIDE_MODULES.map(path => [path, revealedIds(path)]))
+    let presses = 0
+    while (model.next()) {
+      presses++
+      await view()
+      const current = new Map(WIDE_MODULES.map(path => [path, revealedIds(path)]))
+      for (const path of WIDE_MODULES)
+        expect(current.get(path)).toEqual(expect.arrayContaining(previous.get(path) ?? []))
+      previous = current
+    }
+
+    expect(presses).toBe(model.guide.steps.length)
+    expect(peek(model.isComplete)).toBe(true)
+
+    // Every file has converged on its after blob, not just the last one visited.
+    for (const path of WIDE_MODULES) {
+      const after = await showBlob(repo.root, model.afterRev, path)
+      await vi.waitFor(() => {
+        const file = model.fileByPath.get(path)
+        const text = file === undefined ? null : peek(file.revealText)
+        if (text === null)
+          throw new Error(`${path} is not rendered yet`)
+        expect(text).toBe(after)
+      }, { timeout: 10_000, interval: 5 })
+    }
   })
 
   it('reverses exactly, so Shift+Tab restores the previous document', async () => {
