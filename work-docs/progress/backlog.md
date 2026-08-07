@@ -9,26 +9,39 @@ Legend: **P0** MVP ship blocker · **P1** fast follow (v0.2) · **P2** later
 
 ## P0 — MVP (ship blockers)
 
-| ID | Item | Acceptance hint | Depends |
-|----|------|-----------------|--------|
-| P0-1 | **Git capability probe** — repo detection, dirty state, HEAD, shallow/missing objects | Commands disabled with clear message when git unusable | — |
-| P0-2 | **Session entry: working tree** — diff staged+unstaged vs HEAD | Command produces step list; empty diff blocked | P0-1 |
-| P0-3 | **Session entry: single commit** — show commit vs first parent | Works on linear history sample | P0-1 |
-| P0-4 | **Session entry: commit range** — `A..B` merge-base aware | Range diff matches `git diff A..B` | P0-1 |
-| P0-5 | **Stash pipeline** — scoped message, backup ref, pre-flight summary | Automated test: stash → mutate → restore byte-identical | P0-1 |
-| P0-6 | **Restore on all exit paths** — Finish, Cancel, deactivate, crash recovery command | Matrix test for Finish/Cancel; manual crash drill | P0-5 |
-| P0-7 | **Single-session lock** — reject second start while active | Error toast if session already running | P0-5 |
-| P0-8 | **Reatom session model** — session, stashHandle, steps, cursor, status | All UI/commands read/write one model | — |
-| P0-9 | **Diff → step graph** — parse unified diff into hunks/lines | Fixture tests for split/join | P0-8 |
-| P0-10 | **Heuristic orderer** — file tier + hunk significance + line groups | Foundation-before-consumer fixture passes | P0-9 |
-| P0-11 | **Tab / Shift+Tab advance** — configurable keybinding, default avoids IntelliSense conflict | Step k→k+1 reveals new regions; Shift+Tab undoes | P0-10 |
-| P0-12 | **Reveal rendering** — decorations or staged apply in diff editor | Prior steps stay visible; binary skip stub | P0-11 |
-| P0-13 | **Status bar UI** — `step k/n`, file, one-line rationale | Updates synchronously with model | P0-8 |
-| P0-14 | **Commands** — Start, Next, Previous, Finish, Cancel | Palette + keybindings registered | P0-6, P0-11 |
-| P0-15 | **Sidecar guide read (minimal)** — load `.guide.json` if present; validate or fallback | Override step order for fixture guide | P0-10 |
-| P0-16 | **P0 edge cases** — see product.md table | Each row has test or runbook | P0-5–P0-12 |
+Status legend: **Next** = in the current Implementer slice · **Not started** = planned, phase assigned · **In progress** / **Done** set by Implementer.
+Phases are defined in [plan.md](./plan.md).
+
+| ID | Item | Acceptance hint | Depends | Phase | Status |
+|----|------|-----------------|--------|-------|--------|
+| P0-0 | **Toolchain foundation** (Planner-added prerequisite) — deps, `@reatom/core`, extension identity, generated meta, vitest config | `pnpm lint && typecheck && test:ci` green on clean clone | — | 0 | **Next** |
+| P0-1 | **Git capability probe** — repo detection, dirty state, HEAD, shallow/missing objects | Commands disabled with clear message when git unusable | — | 1 | **Next** |
+| P0-2 | **Session entry: working tree** — diff staged+unstaged vs HEAD | Command produces step list; empty diff blocked | P0-1 | 4 | Not started |
+| P0-3 | **Session entry: single commit** — show commit vs first parent | Works on linear history sample | P0-1 | 4 | Not started |
+| P0-4 | **Session entry: commit range** — `A..B` merge-base aware | Range diff matches `git diff A..B` | P0-1 | 4 | Not started |
+| P0-5 | **Stash pipeline** — scoped message, backup ref, pre-flight summary | Automated test: stash → mutate → restore byte-identical | P0-1 | 2 | Not started |
+| P0-6 | **Restore on all exit paths** — Finish, Cancel, deactivate, crash recovery command | Matrix test for Finish/Cancel; manual crash drill | P0-5 | 2 | Not started |
+| P0-7 | **Single-session lock** — reject second start while active | Error toast if session already running | P0-5 | 2 | Not started |
+| P0-8 | **Reatom session model** — session, stashHandle, steps, cursor, status | All UI/commands read/write one model | — | 1 | Not started (needs `architecture/reatom-model.md`) |
+| P0-9 | **Diff → step graph** — parse unified diff into hunks/lines | Fixture tests for split/join | P0-8 | 3 | Not started |
+| P0-10 | **Heuristic orderer** — file tier + hunk significance + line groups | Foundation-before-consumer fixture passes | P0-9 | 3 | Not started |
+| P0-11 | **Tab / Shift+Tab advance** — configurable keybinding, default avoids IntelliSense conflict | Step k→k+1 reveals new regions; Shift+Tab undoes | P0-10 | 5 | Not started |
+| P0-12 | **Reveal rendering** — decorations or staged apply in diff editor | Prior steps stay visible; binary skip stub | P0-11 | 5 | Not started (blocked on reveal spike, risk R5) |
+| P0-13 | **Status bar UI** — `step k/n`, file, one-line rationale | Updates synchronously with model | P0-8 | 5 | Not started |
+| P0-14 | **Commands** — Start, Next, Previous, Finish, Cancel | Palette + keybindings registered | P0-6, P0-11 | 5 | Not started |
+| P0-15 | **Sidecar guide read (minimal)** — load `.guide.json` if present; validate or fallback | Override step order for fixture guide | P0-10 | 3 | Not started (blocked on `architecture/guide-schema.md`) |
+| P0-16 | **P0 edge cases** — see product.md table | Each row has test or runbook | P0-5–P0-12 | 6 | Not started |
 
 **MVP milestone:** P0-1 through P0-16 complete + dogfood sign-off.
+
+### Non-P0 tracks running in parallel
+
+| Track | Work | Owner | Status |
+|-------|------|-------|--------|
+| B | `test/helpers/tmp-repo.ts`, diff fixtures, `progress/test-matrix.md` | Tester | **Next** (unblocks Phase 2) |
+| C | `architecture/overview.md`, `reatom-model.md`, `guide-schema.md` | Architect | **Next** (blocks P0-8, P0-15) |
+| D | README, marketplace metadata, settings docs | Implementer | Not started |
+| E | `.guide.json` schema publication + agent skill draft (docs only, no `src/`) | — | Not started (after Phase 3) |
 
 ---
 
@@ -78,10 +91,13 @@ Full matrix: [specs/product.md](../specs/product.md#edge-case-budget)
 
 ## Recommended implementation sequence (Planner input)
 
+Phased in detail — with exit criteria, test gates, risks, and module layout — in **[plan.md](./plan.md)**.
+
+0. P0-0 (toolchain: deps, Reatom, generated meta, vitest)  
 1. P0-1, P0-8 (foundation)  
 2. P0-5, P0-6, P0-7 (safety)  
 3. P0-9, P0-10, P0-15 (guide engine)  
-4. P0-2, P0-3, P0-4 (entry points)  
+4. P0-2, P0-3, P0-4 (entry points) — parallel with phase 3  
 5. P0-11, P0-12, P0-13, P0-14 (UX loop)  
 6. P0-16 (edge hardening)  
-7. P1 track parallel after P0-5 green
+7. P1 docs-only track parallel after phase 3 green
