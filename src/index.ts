@@ -17,7 +17,7 @@ import {
 import { useAtomRef } from './ui/binding'
 import { useReviewDecorations, useReviewDocuments } from './ui/documents'
 import { installPorts } from './ui/ports'
-import { checkRecoveryOnActivate, usePreflightPrompt, useRestoreBlockNotice } from './ui/prompts'
+import { checkRecoveryOnActivate, useGuideDiagnostics, usePreflightPrompt, useRestoreBlockNotice } from './ui/prompts'
 import { useGuideContextKeys, useGuideStatusBar } from './ui/status-bar'
 import { logger } from './utils'
 
@@ -38,6 +38,7 @@ const { activate, deactivate: disposeScope } = defineExtension(() => {
 
   usePreflightPrompt()
   useRestoreBlockNotice()
+  useGuideDiagnostics()
   useReviewDocuments()
   useReviewDecorations()
   useGuideCommands()

@@ -2,6 +2,7 @@ import { peek, wrap } from '@reatom/core'
 import { watch } from 'reactive-vscode'
 import { window } from 'vscode'
 import {
+  guideDiagnostics,
   ports,
   preflightAnswer,
   preflightRequest,
@@ -57,6 +58,37 @@ export const checkRecoveryOnActivate = wrap(async (): Promise<void> => {
   if (answer === 'Restore now')
     await wrap(recoverBackup())
 })
+
+/**
+ * A broken sidecar costs the reader exactly one notification, however many
+ * diagnostics are behind it (guide-schema.md §5.4). The full list — including
+ * the `info` entries that are pure forward-compatibility noise — goes to the
+ * output channel, and the review itself proceeds on the heuristic order.
+ */
+export function useGuideDiagnostics(): void {
+  const diagnostics = useAtomRef(guideDiagnostics)
+
+  watch(diagnostics, (entries) => {
+    for (const entry of entries) {
+      const line = `guide (${entry.code}): ${entry.message}`
+      if (entry.severity === 'info')
+        logger.info(line)
+      else
+        logger.warn(line)
+    }
+
+    const warnings = entries.filter(entry => entry.severity === 'warning')
+    const [first] = warnings
+    if (first === undefined)
+      return
+
+    const more = warnings.length > 1
+      ? ` (+${warnings.length - 1} more in the Guide Reviewer output channel)`
+      : ''
+    void window.showWarningMessage(`${first.message}${more}`)
+      .then(undefined, (error: unknown) => logger.error('guide diagnostics notice failed', error))
+  })
+}
 
 /** A blocked restore is loud in the output channel, with the manual commands. */
 export function useRestoreBlockNotice(): void {

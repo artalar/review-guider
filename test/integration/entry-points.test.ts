@@ -5,7 +5,7 @@ import { readPatch } from '../../src/git/diff'
 import { planIsolation } from '../../src/git/isolate'
 import { readRecentCommits } from '../../src/git/log'
 import { parseRangeInput, rangeInputError } from '../../src/git/types'
-import { cancelSession, EmptyDiffError, session, sessionStatus } from '../../src/model/session'
+import { cancelSession, EmptyDiffError, guideDiagnostics, session, sessionStatus } from '../../src/model/session'
 import { bootstrapModel, startReview } from '../helpers/model'
 import { cleanupTempRepos, makeTempRepo } from '../helpers/tmp-repo'
 
@@ -270,6 +270,12 @@ describe('the guide sidecar reaches the session', () => {
 
     expect(model.guide.steps.every(step => step.source === 'heuristic')).toBe(true)
     expect(model.guide.diagnostics.map(entry => entry.code)).toContain('parse-error')
+
+    // The bridge turns exactly the warning-severity entries into exactly one
+    // notification, so a broken guide costs the reader one dismissal, not one
+    // per problem (guide-schema.md §5.4).
+    const published = peek(guideDiagnostics)
+    expect(published.filter(entry => entry.severity === 'warning')).toHaveLength(1)
   })
 })
 
