@@ -245,7 +245,19 @@ export interface RepoStatus {
   readonly clean: boolean
 }
 
-const STATUS_ARGS = ['--no-optional-locks', 'status', '--porcelain=v2', '--branch', '-z'] as const
+/**
+ * `--untracked-files=all` matters: the default collapses an untracked directory
+ * to a single `? dir/` record, which would make the restore digest blind to
+ * which* files inside it came back.
+ */
+const STATUS_ARGS = [
+  '--no-optional-locks',
+  'status',
+  '--porcelain=v2',
+  '--branch',
+  '--untracked-files=all',
+  '-z',
+] as const
 
 export async function readStatus(repoRoot: string, options: GitOptions = {}): Promise<RepoStatus> {
   const result = await tryGit(repoRoot, STATUS_ARGS, options)

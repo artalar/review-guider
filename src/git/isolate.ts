@@ -356,12 +356,13 @@ export async function restoreFromToken(args: RestoreArgs): Promise<RestoreOutcom
   const { store } = args
   const options: GitOptions = { exec: args.exec }
   const repoRoot = args.token.repoRoot
-  const stageBefore = args.token.stage
 
   let token = await advanceStage(store, args.token, 'restoring')
 
-  // Nothing was ever captured: release the lock and forget the reminder.
-  if (stageBefore === 'planned') {
+  // Nothing was ever captured, so there is nothing to put back. Keyed on the
+  // payload rather than on the stage, because a restore interrupted after it
+  // journalled `restoring` must take this same branch when it is retried.
+  if (token.afterCommit === null) {
     await finalize(token, store, options, { dropSelector: null })
     return { kind: 'restored', stashApplied: false, stashDropped: false, indexRestored: true }
   }
@@ -443,8 +444,9 @@ async function finalize(
 ): Promise<boolean> {
   const dropped = args.dropSelector === null ? false : await stashDrop(token.repoRoot, args.dropSelector, options)
 
-  if (token.afterCommit !== null)
-    await deleteRef(token.repoRoot, token.afterRef, token.afterCommit, options)
+  // Unconditional, because the after-ref is written before the journal records
+  // its commit: a crash in that window leaves a ref the token cannot name.
+  await deleteRef(token.repoRoot, token.afterRef, token.afterCommit ?? undefined, options)
   if (token.backupRef !== null && token.backupCommit !== null)
     await deleteRef(token.repoRoot, token.backupRef, token.backupCommit, options)
   if (token.lockValue !== null)

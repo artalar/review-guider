@@ -38,7 +38,8 @@ export const ISOLATION_STAGES: readonly IsolationStage[] = [
 
 const LEGAL_STAGES: Readonly<Record<IsolationStage, readonly IsolationStage[]>> = {
   planned: ['captured', 'restoring', 'done'],
-  captured: ['stashed', 'restoring', 'done'],
+  // `checkedout` is reachable directly because a clean tree is never stashed.
+  captured: ['stashed', 'checkedout', 'restoring', 'done'],
   stashed: ['checkedout', 'restoring'],
   checkedout: ['reviewing', 'restoring'],
   reviewing: ['restoring'],
