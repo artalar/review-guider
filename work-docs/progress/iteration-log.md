@@ -73,3 +73,34 @@ Two smaller notes for whoever wires this up: `mergeWithNext` folds a step into i
 **Not in this slice, by design:** reading the sidecar off disk (the reader is injected as `SidecarSource`), and anything that needs a `ReviewDiff` from a real repository. Phase 4 supplies both; `parseNameStatusZ` is here ready for it.
 
 - **Next:** Phase 4 can consume `parseUnifiedDiff(patch, nameStatus)` directly. Phase 5's document provider needs only `renderReveal(baseText, file, revealedGroups)` and the `groupRanges` map. Track E is unblocked — the v1 reader now exists and its behaviour matches `architecture/guide-schema.md` section by section.
+
+## Implementer — 2026-08-07 — Phases 0, 1, 2 (P0-0, P0-1, P0-5, P0-6, P0-7, P0-8)
+
+`pnpm lint && typecheck && test:ci` green: **320 tests**, 15 files, ~6s. Phase 2's exit criteria are met in code and in automation; three manual drills are written but not yet run against a packaged build.
+
+**Phase 0.** Extension identity (`artalar.guide-reviewer`), the five settings from the plan plus `guideReviewer.reveal.mode` as the Architect's `'progressive' | 'dim'`, `@reatom/core` v1001 in `devDependencies` so tsdown bundles it, `vscode-ext-gen --scope guideReviewer`, `vitest.config.ts`, and `test:ci`.
+
+**Phase 1.** `src/git/exec.ts` is one injectable `spawn` wrapper — arg arrays, never `shell: true`, explicit `cwd`, timeout, `AbortSignal`, and a locale-stable non-interactive environment — and every git call in the codebase goes through it, which is what makes the unit probe tests possible against recorded output. `probe.ts` returns the discriminated capability. `src/model/` holds the status machine with one guarded transition action, and `ports.ts` defines Store/Ui/Clock so the model never imports `vscode`. The boundary is enforced twice: ESLint `no-restricted-imports` per directory, and `test/unit/import-boundaries.test.ts`, which reads the source rather than trusting the config.
+
+**Phase 2.** The protocol is capture → journal → mutate, and restore is apply → verify → drop, as specified. Notable in the implementation: the journal stage is written *before* the operation it names, so a token found at stage X means at most X happened, and that single property is what makes recovery a lookup rather than a guess.
+
+**Seven bugs the suites caught, all of them in code that read correctly.** Listing them because each one is a place where the tests were load-bearing rather than confirmatory:
+
+1. `throwAbort()` inside a `take` selector means *"not this value, keep waiting"*, not *"cancel"*. A declined pre-flight hung forever. The abort now happens after the take resolves.
+2. `atom(fn)` is the `computed` overload, so `guideSource` was calling the guide source as a derivation instead of holding it. It is boxed in an object now — worth knowing before Phase 3 writes to that atom.
+3. A second Start while a review was running rejected correctly and *then* unwound the first session's isolation. Failure handling now only undoes isolation the failed frame itself created.
+4. A clean tree skips the stash, so the journal has to allow `captured → checkedout`. It only allowed `captured → stashed`.
+5. `git status --porcelain=v2` collapses an untracked directory to a single `? dir/` record, which made the restore digest blind to *which* files inside came back. Status now runs with `--untracked-files=all`, and the round-trip fingerprint is genuinely sensitive to untracked content.
+6. Restore keyed its "nothing was captured" shortcut on the journal stage, so a restore interrupted after writing `restoring` was permanently blocked on retry. It keys on the token payload now, and `finalize` deletes the after-ref unconditionally so the ref cannot outlive a crash in the window before the journal names its commit.
+7. The recovery gate in `startSession` read `recoveryPending`, a `computed` + `withAsyncData` whose cached value is only as fresh as its last subscriber. A gate standing between the user and unrestored work cannot depend on someone being subscribed, so it reads the journal directly.
+
+**Two deliberate deviations from the frozen docs**, both for the Architect to confirm or overrule:
+
+1. *The lock is checked before the pre-flight, not only inside `isolate`.* The compare-and-swap on `refs/guide-reviewer/lock` is still the only real protection — the early read is advisory and racy by construction. It exists so the user is never asked to approve a stash that cannot possibly proceed.
+2. *A blocked restore is a terminal state that keeps everything, including the lock.* ADR 0002 D5 says breaking a lock is always an explicit user action, and **Clean Up Backups** therefore skips the lock ref. The consequence is that a hard crash plus a lost `globalState` needs `git update-ref -d` by hand; it is logged as a known gap rather than papered over with an automatic break.
+
+**Testing shape.** `test/helpers/protocol.ts` drives the isolation protocol by hand and stops at any journal stage — including the three crash windows *inside* a stage, where the journal announced an operation that never ran. That is how the crash matrix is produced deterministically, with no process killing and no test-only hooks in `isolate`. Coverage: 17 round-trip fixtures, 10 crash states, 11 lifecycle paths, and the journal transition table exhaustively.
+
+**Not in this slice, by design.** Phase 3's guide engine is another agent's; `session.start` consumes it through `guideSource`, which currently holds a stub emitting one step per changed file so the safety suites have something honest to walk. Phase 5's reveal is absent — `src/model/view.ts` carries the projection the bridge will read, and `openReview` on `UiPort` is a logged no-op.
+
+- **Next:** Phase 4 wires the three entry commands; `planIsolation` already resolves all three entries to a `(base, after)` pair, so what is missing is the command surface and the real diff. Whoever lands Phase 3 should write `guideSource` as `{ build }`. Before MVP, someone with a keyboard must run the three drills in `progress/test-matrix.md` §5.
