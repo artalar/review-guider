@@ -1,7 +1,7 @@
 import type { IsolationHandle } from '../git/isolate'
 import type { ReviewTarget } from '../git/types'
 import type { Guide, GuideStep, ReviewDiff } from '../guide/types'
-import { action, atom, computed, effect, ifChanged, log, withConnectHook } from '@reatom/core'
+import { action, atom, computed } from '@reatom/core'
 
 /**
  * One session instance (architecture/reatom-model.md §5).
@@ -62,19 +62,6 @@ export function reatomSession(init: SessionInit) {
     cursor.set(Math.min(Math.max(index, -1), steps.length - 1))
   }, `${name}.jumpTo`)
 
-  /**
-   * Created inside a connect hook, so it is aborted automatically when the
-   * session model loses its subscriber — no module-scope effect, no manual
-   * disposal.
-   */
-  const trace = atom(null, `${name}.trace`).extend(
-    withConnectHook(() => {
-      effect(() => {
-        ifChanged(cursor, index => log.state(`${name}.cursor`, index))
-      }, `${name}.trace.effect`)
-    }),
-  )
-
   return {
     id: init.id,
     repoRoot: init.repoRoot,
@@ -91,7 +78,6 @@ export function reatomSession(init: SessionInit) {
     canRetreat,
     isComplete,
     progress,
-    trace,
     next,
     prev,
     jumpTo,

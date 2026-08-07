@@ -18,6 +18,7 @@ Run everything with `pnpm test:ci`. Integration suites shell out to the real `gi
 | `test/unit/toolchain.test.ts` | unit | Reatom and the runner actually work (Phase 0 gate) |
 | `test/unit/probe.test.ts` | unit, injected exec | Every capability variant, parsed from recorded git output |
 | `test/unit/session-status.test.ts` | unit | Session status machine: all 49 ordered pairs |
+| `test/unit/steps.test.ts` | unit | Cursor advance, retreat, clamp at both ends, empty guide |
 | `test/unit/journal.test.ts` | unit | Journal stage table: all 49 ordered pairs, plus token parsing |
 | `test/unit/import-boundaries.test.ts` | unit | `src/guide`, `src/git`, `src/model` import no `vscode` |
 | `test/unit/guide-purity.test.ts` | unit | The pure layer stays pure, and carries no `any` |
