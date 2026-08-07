@@ -2,6 +2,7 @@ import type { GitOptions } from './exec'
 import { access } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { GitMissingError, splitLines, splitNul, tryGit } from './exec'
+import { canonicalizeRepoRoot } from './journal'
 
 /**
  * The capability probe (plan P0-1). Returns a discriminated result — never a
@@ -168,7 +169,9 @@ export async function probeGit(root: string, options: ProbeOptions = {}): Promis
   if (isBare === 'true' || insideWorkTree !== 'true')
     return BARE_REPO
 
-  const repoRoot = topLevel ?? root
+  // Same spelling the journal uses, so a workspace opened via a symlink (macOS
+  // `/var` → `/private/var`) still finds its recovery token.
+  const repoRoot = canonicalizeRepoRoot(topLevel ?? root)
 
   const inProgress = await findOperationInProgress(repoRoot, exists, options)
   if (inProgress) {

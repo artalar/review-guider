@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
@@ -8,7 +9,7 @@ import { describe, expect, it } from 'vitest'
  * even if the lint config is edited.
  */
 
-const SRC = new URL('../../src/', import.meta.url).pathname
+const SRC = fileURLToPath(new URL('../../src/', import.meta.url))
 
 const IMPORT_PATTERN = /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+['"]([^'"]+)['"]/g
 const BARE_IMPORT_PATTERN = /(?:^|\n)\s*import\s+['"]([^'"]+)['"]/g

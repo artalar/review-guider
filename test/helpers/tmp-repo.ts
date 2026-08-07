@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
@@ -79,7 +79,9 @@ export interface TmpRepoOptions {
 }
 
 export async function makeTempRepo(options: TmpRepoOptions = {}): Promise<TmpRepo> {
-  const root = await mkdtemp(join(tmpdir(), 'tabthrough-test-'))
+  // realpath so the handle matches `git rev-parse --show-toplevel` on macOS
+  // (`/var` → `/private/var`) and Windows drive-letter casing.
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'tabthrough-test-')))
   CREATED.push(root)
 
   const repo = createHandle(root)
@@ -108,7 +110,7 @@ export async function makeTempRepo(options: TmpRepoOptions = {}): Promise<TmpRep
  * name were never fetched, which is the whole point of the fixture.
  */
 export async function makeShallowClone(source: TmpRepo, depth = 1): Promise<TmpRepo> {
-  const root = await mkdtemp(join(tmpdir(), 'tabthrough-shallow-'))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'tabthrough-shallow-')))
   CREATED.push(root)
 
   const clone = await run(root, ['clone', '--quiet', '--depth', String(depth), pathToFileURL(source.root).href, '.'])
@@ -125,7 +127,7 @@ export async function makeShallowClone(source: TmpRepo, depth = 1): Promise<TmpR
 
 /** A directory that is deliberately not a repository. */
 export async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'tabthrough-plain-'))
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'tabthrough-plain-')))
   CREATED.push(dir)
   return dir
 }

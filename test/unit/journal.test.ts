@@ -159,6 +159,10 @@ describe('repoKey', () => {
     expect(repoKey('C:\\work\\repo')).toBe(repoKey('C:/work/repo'))
   })
 
+  it('lower-cases a Windows drive letter so C: and c: collide', () => {
+    expect(repoKey('C:/work/repo')).toBe(repoKey('c:/work/repo'))
+  })
+
   it('separates different repositories', () => {
     expect(repoKey('/a')).not.toBe(repoKey('/b'))
   })

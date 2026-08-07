@@ -1,5 +1,6 @@
 import type { HeadPosition, ReviewTarget } from './types'
 import { createHash } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 
 /**
  * The write-ahead journal (ADR 0002 D3).
@@ -96,13 +97,31 @@ export interface TokenStore {
 }
 
 /**
+ * Collapse the path forms git, VS Code, and Node disagree about into one key:
+ * macOS `/var` ↔ `/private/var`, Windows drive-letter case, trailing slashes,
+ * and backslashes. Used for the journal key and for every `repoRoot` we persist.
+ */
+export function canonicalizeRepoRoot(repoRoot: string): string {
+  let resolved = repoRoot
+  try {
+    resolved = realpathSync(repoRoot)
+  }
+  catch {
+    // The path may not exist yet in a unit fixture; still normalize the spelling.
+  }
+  let normalized = resolved.replace(/\\/g, '/').replace(/\/+$/, '')
+  if (/^[a-z]:\//i.test(normalized))
+    normalized = normalized[0]!.toLowerCase() + normalized.slice(1)
+  return normalized
+}
+
+/**
  * Key the token is stored under. A hash of the repo root rather than the path
  * itself, so a second window on the same repository finds the same entry and
  * the key is safe in a flat `globalState` namespace.
  */
 export function repoKey(repoRoot: string): string {
-  const normalized = repoRoot.replace(/\\/g, '/').replace(/\/+$/, '')
-  return createHash('sha256').update(normalized).digest('hex').slice(0, 32)
+  return createHash('sha256').update(canonicalizeRepoRoot(repoRoot)).digest('hex').slice(0, 32)
 }
 
 export function stashMessageFor(sessionId: string): string {

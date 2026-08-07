@@ -305,8 +305,8 @@ describe('every document we publish validates against both', () => {
     ['agent skill', '.agents/skills/tabthrough/SKILL.md'],
     ['agent authoring guide', 'work-docs/guides/agent-guide-authoring.md'],
   ])('the guide documents embedded in %s', (_label, path) => {
-    const markdown = readFileSync(new URL(path, REPO), 'utf8')
-    const blocks = [...markdown.matchAll(/```json\n([\s\S]*?)```/g)]
+    const markdown = readFileSync(new URL(path, REPO), 'utf8').replace(/\r\n/g, '\n')
+    const blocks = [...markdown.matchAll(/```json\r?\n([\s\S]*?)```/g)]
       .map(match => match[1] ?? '')
       .map((text): unknown => {
         try {

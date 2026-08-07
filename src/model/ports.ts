@@ -1,5 +1,6 @@
 import type { SessionToken, TokenStore } from '../git/journal'
 import type { PreflightRequest } from '../git/types'
+import { repoKey } from '../git/journal'
 
 /**
  * Everything the model needs from VS Code, as interfaces only. The bridge
@@ -57,15 +58,15 @@ export const inertPorts: Ports = {
   },
 }
 
-/** In-memory `StorePort`, keyed by repo root. Used by tests and the crash matrix. */
+/** In-memory `StorePort`, keyed like production (`repoKey`). Used by tests and the crash matrix. */
 export function memoryStore(initial?: SessionToken | null): StorePort & { snapshot: () => SessionToken | null } {
   const tokens = new Map<string, SessionToken>()
   if (initial)
-    tokens.set(initial.repoRoot, initial)
+    tokens.set(repoKey(initial.repoRoot), initial)
   return {
-    readToken: async repoRoot => tokens.get(repoRoot) ?? null,
-    writeToken: async (token) => { tokens.set(token.repoRoot, token) },
-    clearToken: async (repoRoot) => { tokens.delete(repoRoot) },
+    readToken: async repoRoot => tokens.get(repoKey(repoRoot)) ?? null,
+    writeToken: async (token) => { tokens.set(repoKey(token.repoRoot), token) },
+    clearToken: async (repoRoot) => { tokens.delete(repoKey(repoRoot)) },
     snapshot: () => tokens.values().next().value ?? null,
   }
 }

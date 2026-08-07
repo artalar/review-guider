@@ -1,0 +1,4 @@
+# Keep text fixtures byte-stable across platforms (Windows autocrlf must not rewrite them).
+test/fixtures/** text eol=lf
+*.diff text eol=lf
+schema/** text eol=lf
