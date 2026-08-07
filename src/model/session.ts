@@ -1,0 +1,495 @@
+import type { IsolationHandle, IsolationPlan, OrphanRef, RestoreOutcome } from '../git/isolate'
+import type { SessionToken } from '../git/journal'
+import type { GitCapability, RepoStatus } from '../git/probe'
+import type { PreflightRequest, ReviewTarget } from '../git/types'
+import type { HeuristicOptions } from '../guide/heuristic'
+import type { GuideDiagnostic } from '../guide/types'
+import type { Ports } from './ports'
+import type { Session } from './steps'
+import {
+  abortVar,
+  action,
+  atom,
+  computed,
+  framePromise,
+  isAbort,
+  peek,
+  take,
+  throwAbort,
+  withAbort,
+  withAsync,
+  withAsyncData,
+  wrap,
+} from '@reatom/core'
+import {
+  cleanupGuideRefs,
+  isolate,
+  IsolationBlockedError,
+  listGuideRefs,
+  planIsolation,
+  RepoLockedError,
+  restoreFromToken,
+} from '../git/isolate'
+import { isRecoverable } from '../git/journal'
+import { probeGit, readStatus } from '../git/probe'
+import { describeTarget } from '../git/types'
+import { DEFAULT_HEURISTIC_OPTIONS } from '../guide/heuristic'
+import { guideSource } from './guide-source'
+import { inertPorts } from './ports'
+import { reatomSession } from './steps'
+
+/**
+ * The single source of truth (architecture/reatom-model.md).
+ *
+ * No `vscode` import, no subprocess spawn: everything effectful crosses the
+ * boundary through `src/git` or through the installed {@link Ports}.
+ */
+
+// ---------------------------------------------------------------------------
+// Root atoms
+// ---------------------------------------------------------------------------
+
+/** Set by the bridge at activation. MVP: first workspace folder (P2: multi-root). */
+export const workspaceRoot = atom<string | null>(null, 'workspaceRoot')
+
+/** Injected VS Code capabilities. Tests substitute in-memory implementations. */
+export const ports = atom<Ports>(inertPorts, 'ports')
+
+/** Bumped by the bridge's FileSystemWatcher on `.git/**` and workspace writes. */
+export const gitWatchToken = atom(0, 'git.watchToken')
+
+// Settings flow one way, VS Code → atoms. The model never writes settings.
+export const showRationale = atom(true, 'config.showRationale')
+export const heuristicOptions = atom<HeuristicOptions>(DEFAULT_HEURISTIC_OPTIONS, 'config.heuristicOptions')
+export const guideFile = atom('.guide.json', 'config.guideFile')
+export const revealMode = atom<'progressive' | 'dim'>('progressive', 'config.revealMode')
+export const stashIncludeUntracked = atom(true, 'config.stashIncludeUntracked')
+
+// ---------------------------------------------------------------------------
+// Probes
+// ---------------------------------------------------------------------------
+
+export const gitCapability = computed(async (): Promise<GitCapability | null> => {
+  const root = workspaceRoot()
+  if (root === null)
+    return { ok: false, reason: 'no-workspace', message: 'Open a folder to use Guide Reviewer.' }
+
+  return await wrap(probeGit(root, { signal: abortVar.require().signal }))
+}, 'git.capability').extend(withAsyncData({ initState: null }))
+
+export const repoStatus = computed(async (): Promise<RepoStatus | null> => {
+  // W5: hoist every reactive read above the first await, or the dependency is
+  // never tracked and this computed silently stops refreshing.
+  const capabilityPromise = gitCapability()
+  gitWatchToken()
+
+  const capability = await wrap(capabilityPromise)
+  if (capability === null || !capability.ok)
+    return null
+
+  return await wrap(readStatus(capability.repoRoot, { signal: abortVar.require().signal }))
+}, 'git.repoStatus').extend(withAsyncData({ initState: null }))
+
+// ---------------------------------------------------------------------------
+// The state machine
+// ---------------------------------------------------------------------------
+
+export type SessionStatus
+  /** No session; commands available. */
+  = | 'idle'
+  /** Summary shown, waiting for the user; nothing touched yet. */
+    | 'preflight'
+  /** Isolation in progress; the tree may be mid-change. */
+    | 'stashing'
+  /** Reviewing. */
+    | 'active'
+  /** Restore in flight. */
+    | 'restoring'
+  /** Restore could not be verified; everything preserved, the user must act. */
+    | 'blocked'
+  /** Start failed and was unwound. */
+    | 'error'
+
+export const LEGAL_TRANSITIONS: Readonly<Record<SessionStatus, readonly SessionStatus[]>> = {
+  idle: ['preflight'],
+  preflight: ['stashing', 'idle', 'error'],
+  // `idle` is reachable because `isolate` unwinds itself on failure.
+  stashing: ['active', 'restoring', 'idle', 'error'],
+  active: ['restoring'],
+  restoring: ['idle', 'blocked', 'error'],
+  blocked: ['restoring', 'idle'],
+  error: ['idle'],
+}
+
+export class IllegalTransitionError extends Error {
+  override readonly name = 'IllegalTransitionError'
+  constructor(readonly from: SessionStatus, readonly to: SessionStatus) {
+    super(`illegal session status transition ${from} -> ${to}`)
+  }
+}
+
+export class SessionAlreadyActiveError extends Error {
+  override readonly name = 'SessionAlreadyActiveError'
+  constructor(readonly status: SessionStatus) {
+    super(`A Guide Reviewer session is already ${status}.`)
+  }
+}
+
+export class RecoveryPendingError extends Error {
+  override readonly name = 'RecoveryPendingError'
+  constructor() {
+    super('Guide Reviewer has work to restore from a previous session. Restore it before starting a new review.')
+  }
+}
+
+export class GitUnavailableError extends Error {
+  override readonly name = 'GitUnavailableError'
+  constructor(readonly capability: GitCapability | null) {
+    super(capability !== null && !capability.ok ? capability.message : 'git is unavailable.')
+  }
+}
+
+export class EmptyDiffError extends Error {
+  override readonly name = 'EmptyDiffError'
+  constructor(readonly entry: ReviewTarget) {
+    super(`Nothing to review in ${describeTarget(entry)}.`)
+  }
+}
+
+/** The only writer of session status. Illegal transitions throw, never silently apply. */
+export const sessionStatus = atom<SessionStatus>('idle', 'session.status').extend(target => ({
+  to: action((next: SessionStatus): SessionStatus => {
+    const current = target()
+    if (current === next)
+      return current
+    if (!LEGAL_TRANSITIONS[current].includes(next))
+      throw new IllegalTransitionError(current, next)
+    target.set(next)
+    return next
+  }, 'session.status.to'),
+}))
+
+export const isSessionActive = computed(() => sessionStatus() === 'active', 'session.isActive')
+
+// ---------------------------------------------------------------------------
+// Session state
+// ---------------------------------------------------------------------------
+
+export const session = atom<Session | null>(null, 'session')
+/** Survives a failed start, so the unwind can still find what to undo. */
+export const isolation = atom<IsolationHandle | null>(null, 'session.isolation')
+export const guideDiagnostics = atom<readonly GuideDiagnostic[]>([], 'session.diagnostics')
+export const restoreBlock = atom<RestoreOutcome | null>(null, 'session.restoreBlock')
+
+export const preflightRequest = atom<PreflightRequest | null>(null, 'preflight.request')
+export const preflightAnswer = action((approved: boolean) => approved, 'preflight.answer')
+
+// ---------------------------------------------------------------------------
+// Recovery
+// ---------------------------------------------------------------------------
+
+export const recoveryEpoch = atom(0, 'recovery.epoch')
+
+export const recoveryToken = computed(async (): Promise<SessionToken | null> => {
+  const store = ports().store
+  const root = workspaceRoot()
+  recoveryEpoch()
+  if (root === null)
+    return null
+  return await wrap(store.readToken(root))
+}, 'recovery.token').extend(withAsyncData({ initState: null }))
+
+export const recoveryPending = computed(() => isRecoverable(recoveryToken.data()), 'recovery.pending')
+
+export const orphanRefs = computed(async (): Promise<readonly OrphanRef[]> => {
+  const capabilityPromise = gitCapability()
+  recoveryEpoch()
+
+  const capability = await wrap(capabilityPromise)
+  if (capability === null || !capability.ok)
+    return []
+
+  return await wrap(listGuideRefs(capability.repoRoot, { signal: abortVar.require().signal }))
+}, 'recovery.orphanRefs').extend(withAsyncData({ initState: [] as readonly OrphanRef[] }))
+
+export const recoverBackup = action(async (): Promise<RestoreOutcome | null> => {
+  const token = await wrap(recoveryToken())
+  if (token === null)
+    return null
+
+  // No signal: an interrupted `git stash apply` is the one outcome we cannot survive.
+  const outcome = await wrap(restoreFromToken({ token, store: peek(ports).store }))
+  recoveryEpoch.set(value => value + 1)
+
+  if (outcome.kind === 'restored') {
+    restoreBlock.set(null)
+    await wrap(peek(ports).ui.notify('info', 'Guide Reviewer restored your work from the backup.'))
+  }
+  else {
+    restoreBlock.set(outcome)
+    await wrap(peek(ports).ui.notify('warn', describeBlocked(outcome)))
+  }
+  return outcome
+}, 'recovery.restore').extend(withAsync({ status: true }), withAbort('first-in-win'))
+
+/** Forgets the reminder. Never destroys a backup — that is a separate command. */
+export const discardRecovery = action(async (): Promise<boolean> => {
+  const token = await wrap(recoveryToken())
+  if (token === null)
+    return false
+
+  const confirmed = await wrap(peek(ports).ui.notify(
+    'warn',
+    'Forget the pending Guide Reviewer restore? The stash entry and backup refs stay in git.',
+    ['Forget'],
+  ))
+  if (confirmed !== 'Forget')
+    return false
+
+  await wrap(peek(ports).store.clearToken(token.repoRoot))
+  recoveryEpoch.set(value => value + 1)
+  return true
+}, 'recovery.discard').extend(withAsync())
+
+export const cleanupBackups = action(async (): Promise<readonly string[]> => {
+  const capability = await wrap(gitCapability())
+  if (capability === null || !capability.ok)
+    throw new GitUnavailableError(capability)
+  if (peek(recoveryPending))
+    throw new RecoveryPendingError()
+
+  const removed = await wrap(cleanupGuideRefs(capability.repoRoot))
+  recoveryEpoch.set(value => value + 1)
+  return removed
+}, 'recovery.cleanup').extend(withAsync({ status: true }), withAbort('first-in-win'))
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+export interface StartRequest {
+  readonly entry: ReviewTarget
+}
+
+/**
+ * Every failed start ends here: it unwinds whatever `isolate` managed to do and
+ * puts the machine back in a state the user can act from. A failed start must
+ * leave the tree exactly as it was found.
+ */
+const startFailed = action(async (error: unknown): Promise<void> => {
+  const handle = peek(isolation)
+
+  if (error instanceof IsolationBlockedError) {
+    // `isolate` already tried to undo itself and could not. Everything is kept.
+    sessionStatus.to('restoring')
+    restoreBlock.set(error.outcome)
+    sessionStatus.to('blocked')
+  }
+  else if (handle !== null) {
+    sessionStatus.to('restoring')
+    const outcome = await wrap(restoreFromToken({ token: handle.token, store: peek(ports).store }))
+    if (outcome.kind === 'restored') {
+      isolation.set(null)
+      restoreBlock.set(null)
+      sessionStatus.to('idle')
+    }
+    else {
+      restoreBlock.set(outcome)
+      sessionStatus.to('blocked')
+    }
+  }
+  else if (peek(sessionStatus) !== 'idle') {
+    // Nothing was mutated: `isolate` unwound itself, or it never ran.
+    sessionStatus.to('idle')
+  }
+
+  session.set(null)
+  preflightRequest.set(null)
+  recoveryEpoch.set(value => value + 1)
+
+  // Aborts are a user choice (declined pre-flight, superseded call), not a business error.
+  if (!isAbort(error))
+    await wrap(peek(ports).ui.notify('error', describeStartFailure(error)))
+}, 'session.failed').extend(withAsync())
+
+export const startSession = action(async (request: StartRequest): Promise<Session> => {
+  // Attach failure handling once, at the top; the happy path below stays flat.
+  framePromise().catch(error => startFailed(error))
+
+  if (peek(sessionStatus) !== 'idle')
+    throw new SessionAlreadyActiveError(peek(sessionStatus))
+  if (peek(recoveryPending))
+    throw new RecoveryPendingError()
+
+  const capability = await wrap(gitCapability())
+  if (capability === null || !capability.ok)
+    throw new GitUnavailableError(capability)
+
+  const { repoRoot } = capability
+  const signal = abortVar.require().signal
+  const includeUntracked = peek(stashIncludeUntracked)
+
+  sessionStatus.to('preflight')
+
+  // Stat-only pass: resolves base/after and counts changed lines. Touches nothing.
+  const plan: IsolationPlan = await wrap(planIsolation(repoRoot, { entry: request.entry, includeUntracked }, { signal }))
+  if (plan.preflight.changedLineCount === 0)
+    throw new EmptyDiffError(request.entry)
+
+  // Confirmation as a reactive event rather than a callback: the bridge renders
+  // `preflight.request` as a modal and calls `preflight.answer`. Declining
+  // aborts the whole frame, so nothing below runs and there is nothing to undo.
+  preflightRequest.set(plan.preflight)
+  await wrap(take(preflightAnswer, approved => approved || throwAbort(), 'preflightApproval'))
+  preflightRequest.set(null)
+
+  sessionStatus.to('stashing')
+  const id = peek(ports).clock.sessionId()
+
+  // From here the working tree can change. `isolate` acquires the lock ref,
+  // captures before it mutates, and journals before each step.
+  const handle = await wrap(isolate({
+    repoRoot,
+    sessionId: id,
+    plan,
+    store: peek(ports).store,
+    includeUntracked,
+    now: peek(ports).clock.now(),
+    signal,
+  }))
+  isolation.set(handle)
+  recoveryEpoch.set(value => value + 1)
+
+  const built = await wrap(peek(guideSource)({
+    repoRoot,
+    baseRev: handle.baseRev,
+    afterRev: handle.afterRev,
+    options: peek(heuristicOptions),
+    guideFile: peek(guideFile),
+    signal,
+  }))
+
+  const model = reatomSession({
+    id,
+    repoRoot,
+    entry: request.entry,
+    baseRev: handle.baseRev,
+    afterRev: handle.afterRev,
+    handle,
+    diff: built.diff,
+    guide: built.guide,
+  })
+
+  guideDiagnostics.set(built.diagnostics)
+  session.set(model)
+  sessionStatus.to('active')
+  model.next()
+  return model
+}, 'session.start').extend(withAsync({ status: true }), withAbort('first-in-win'))
+
+export type CancelReason = 'finish' | 'cancel' | 'deactivate'
+
+const teardownSession = action(async ({ reason }: { reason: CancelReason }): Promise<void> => {
+  const handle = peek(isolation)
+  if (handle === null) {
+    session.set(null)
+    if (peek(sessionStatus) !== 'idle')
+      sessionStatus.to('idle')
+    return
+  }
+
+  sessionStatus.to('restoring')
+
+  // No `signal` on purpose: `git stash apply` must never be cancelled halfway.
+  const outcome = await wrap(restoreFromToken({ token: handle.token, store: peek(ports).store }))
+  recoveryEpoch.set(value => value + 1)
+
+  if (outcome.kind === 'restored') {
+    isolation.set(null)
+    session.set(null)
+    restoreBlock.set(null)
+    sessionStatus.to('idle')
+    await wrap(peek(ports).ui.notify('info', describeRestored(reason)))
+    return
+  }
+
+  // Conflict or verification mismatch: keep everything. Stash entry, both refs,
+  // the lock and the token all stay, so the next activation can finish the job.
+  restoreBlock.set(outcome)
+  sessionStatus.to('blocked')
+  await wrap(peek(ports).ui.notify('warn', describeBlocked(outcome), ['Show recovery commands']))
+}, 'session.teardown').extend(withAsync())
+
+export const finishSession = action(async (): Promise<void> => {
+  if (peek(sessionStatus) !== 'active')
+    return
+  await wrap(teardownSession({ reason: 'finish' }))
+}, 'session.finish').extend(withAsync({ status: true }), withAbort('first-in-win'))
+
+/**
+ * Still works when `session()` is `null` but `isolation()` is not — that is the
+ * shape of a mid-start failure and of a post-crash resume. Cancel is *not* a
+ * discard: it runs exactly the same restore as Finish, only the message differs.
+ */
+export const cancelSession = action(async (reason: CancelReason = 'cancel'): Promise<void> => {
+  if (peek(sessionStatus) === 'idle')
+    return
+  await wrap(teardownSession({ reason }))
+}, 'session.cancel').extend(withAsync({ status: true }), withAbort('first-in-win'))
+
+// ---------------------------------------------------------------------------
+// Gating
+// ---------------------------------------------------------------------------
+
+export const gitUsable = computed(() => gitCapability.data()?.ok === true, 'ui.gitUsable')
+
+export const canStart = computed(
+  () => gitUsable() && !recoveryPending() && sessionStatus() === 'idle',
+  'ui.canStart',
+)
+
+/** Why Start is disabled, so the bridge can say so instead of failing on click. */
+export const startBlockedReason = computed((): string | null => {
+  const capability = gitCapability.data()
+  if (capability === null)
+    return 'Checking the repository…'
+  if (!capability.ok)
+    return capability.hint === undefined ? capability.message : `${capability.message} ${capability.hint}`
+  if (recoveryPending())
+    return 'Guide Reviewer has work to restore from a previous session.'
+  const status = sessionStatus()
+  if (status !== 'idle')
+    return `A Guide Reviewer session is already ${status}.`
+  return null
+}, 'ui.startBlockedReason')
+
+// ---------------------------------------------------------------------------
+// Messages
+// ---------------------------------------------------------------------------
+
+export function describeStartFailure(error: unknown): string {
+  if (error instanceof RepoLockedError)
+    return 'Another window is already reviewing this repository.'
+  if (error instanceof EmptyDiffError || error instanceof SessionAlreadyActiveError)
+    return error.message
+  if (error instanceof RecoveryPendingError || error instanceof GitUnavailableError)
+    return error.message
+  return `Guide Reviewer could not start: ${error instanceof Error ? error.message : String(error)}`
+}
+
+export function describeRestored(reason: CancelReason): string {
+  switch (reason) {
+    case 'finish':
+      return 'Review finished. Your working tree is back.'
+    case 'cancel':
+      return 'Review cancelled. Your working tree is back.'
+    case 'deactivate':
+      return 'Guide Reviewer restored your working tree before shutting down.'
+  }
+}
+
+export function describeBlocked(outcome: RestoreOutcome): string {
+  if (outcome.kind === 'restored')
+    return 'Your working tree is back.'
+  return `${outcome.message} Nothing was discarded — run: ${outcome.commands.join(' && ')}`
+}

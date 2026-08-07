@@ -1,0 +1,523 @@
+import type { GitOptions } from './exec'
+import type { SessionToken, TokenStore } from './journal'
+import type { HeadPosition, PreflightRequest, ReviewTarget } from './types'
+import { readFile, stat } from 'node:fs/promises'
+import { join } from 'node:path'
+import { countChangedLines, countWorkingTreeChangedLines, mergeBase, resolveCommit } from './diff'
+import { splitNul, tryGit } from './exec'
+import { advanceStage, persistToken, stashMessageFor, withStage } from './journal'
+import { readStatus } from './probe'
+import { acquireLock, afterRefName, backupRefName, deleteRef, listRefs, LOCK_REF, releaseLock, resolveRef, writeRef } from './refs'
+import { captureWorkingState, readStatusDigest, verifyRestored } from './snapshot'
+import { findStashByMessage, stashApply, stashDrop, stashPush } from './stash'
+
+/**
+ * The safety protocol: capture before mutate, journal before act, and restore
+ * by apply → verify → drop. See architecture/overview.md §3.5.
+ *
+ * A restore that cannot complete cleanly leaves *more* state behind, never
+ * less: the stash entry, both refs, the lock and the token all survive so the
+ * user — or the next activation — can finish the job.
+ */
+
+export class RepoLockedError extends Error {
+  override readonly name = 'RepoLockedError'
+  constructor(readonly lockValue: string) {
+    super('Another Guide Reviewer session already owns this repository.')
+  }
+}
+
+export class EntryNotSupportedError extends Error {
+  override readonly name = 'EntryNotSupportedError'
+  constructor(readonly entry: ReviewTarget) {
+    super(`Cannot resolve review entry: ${entry.kind}`)
+  }
+}
+
+export class IsolationBlockedError extends Error {
+  override readonly name = 'IsolationBlockedError'
+  constructor(readonly outcome: RestoreOutcome, override readonly cause: unknown) {
+    super('Guide Reviewer could not undo a failed start. Your work is preserved.')
+  }
+}
+
+export interface IsolationPlan {
+  readonly entry: ReviewTarget
+  readonly repoRoot: string
+  readonly baseRev: string
+  /** `null` means "capture the working tree into the after-commit". */
+  readonly afterRev: string | null
+  /** Revision to detach at; `null` for the working-tree entry. */
+  readonly checkout: string | null
+  readonly needsStash: boolean
+  readonly headBefore: HeadPosition
+  readonly preflight: PreflightRequest
+}
+
+export interface PlanRequest {
+  readonly entry: ReviewTarget
+  readonly includeUntracked: boolean
+}
+
+export async function readHeadPosition(repoRoot: string, options: GitOptions = {}): Promise<HeadPosition> {
+  const symbolic = await tryGit(repoRoot, ['symbolic-ref', '--quiet', '--short', 'HEAD'], options)
+  const name = symbolic.code === 0 ? symbolic.stdout.trim() : ''
+  if (name !== '')
+    return { kind: 'branch', name }
+  const sha = await resolveCommit(repoRoot, 'HEAD', options)
+  return { kind: 'detached', sha: sha ?? '' }
+}
+
+/**
+ * Stat-only pass. Resolves the immutable `(base, after)` pair (ADR 0002 D4) and
+ * counts changed lines so the pre-flight can state what is at stake. Touches
+ * nothing — not the index, not the working tree, not a single ref.
+ */
+export async function planIsolation(
+  repoRoot: string,
+  request: PlanRequest,
+  options: GitOptions = {},
+): Promise<IsolationPlan> {
+  const status = await readStatus(repoRoot, options)
+  const headBefore = await readHeadPosition(repoRoot, options)
+  const untracked = request.includeUntracked ? status.untracked : []
+
+  const files = {
+    staged: status.staged,
+    unstaged: status.unstaged,
+    untracked,
+  }
+  const needsStash = status.staged.length > 0 || status.unstaged.length > 0 || untracked.length > 0
+
+  const { entry } = request
+  if (entry.kind === 'workingTree') {
+    const baseRev = await requireCommit(repoRoot, 'HEAD', options)
+    const changedLineCount
+      = await countWorkingTreeChangedLines(repoRoot, baseRev, options)
+        + await countUntrackedLines(repoRoot, untracked)
+
+    return {
+      entry,
+      repoRoot,
+      baseRev,
+      afterRev: null,
+      checkout: null,
+      needsStash,
+      headBefore,
+      preflight: {
+        entry,
+        repoRoot,
+        changedFileCount: new Set([...status.staged, ...status.unstaged, ...untracked]).size,
+        changedLineCount,
+        willStash: needsStash,
+        willCheckout: null,
+        files,
+      },
+    }
+  }
+
+  const { baseRev, afterRev } = entry.kind === 'commit'
+    ? await resolveCommitEntry(repoRoot, entry.rev, options)
+    : await resolveRangeEntry(repoRoot, entry.from, entry.to, options)
+
+  const changedLineCount = await countChangedLines(repoRoot, baseRev, afterRev, options)
+
+  return {
+    entry,
+    repoRoot,
+    baseRev,
+    afterRev,
+    checkout: afterRev,
+    needsStash,
+    headBefore,
+    preflight: {
+      entry,
+      repoRoot,
+      changedFileCount: (await tryGit(repoRoot, ['diff', '--name-only', '-z', baseRev, afterRev], options))
+        .stdout
+        .split('\0')
+        .filter(Boolean)
+        .length,
+      changedLineCount,
+      willStash: needsStash,
+      willCheckout: afterRev,
+      files,
+    },
+  }
+}
+
+/** Root commit → the empty tree; merge commit → first parent (documented in the pre-flight). */
+async function resolveCommitEntry(
+  repoRoot: string,
+  rev: string,
+  options: GitOptions,
+): Promise<{ baseRev: string, afterRev: string }> {
+  const afterRev = await requireCommit(repoRoot, rev, options)
+  const parent = await resolveCommit(repoRoot, `${afterRev}^1`, options)
+  if (parent !== null)
+    return { baseRev: parent, afterRev }
+  const emptyTree = (await tryGit(repoRoot, ['hash-object', '-t', 'tree', '/dev/null'], options)).stdout.trim()
+  return { baseRev: emptyTree || '4b825dc642cb6eb9a060e54bf8d69288fbee4904', afterRev }
+}
+
+async function resolveRangeEntry(
+  repoRoot: string,
+  from: string,
+  to: string,
+  options: GitOptions,
+): Promise<{ baseRev: string, afterRev: string }> {
+  const afterRev = await requireCommit(repoRoot, to, options)
+  const base = await mergeBase(repoRoot, from, afterRev, options)
+  if (base === null)
+    throw new EntryNotSupportedError({ kind: 'range', from, to })
+  return { baseRev: base, afterRev }
+}
+
+async function requireCommit(repoRoot: string, rev: string, options: GitOptions): Promise<string> {
+  const sha = await resolveCommit(repoRoot, rev, options)
+  if (sha === null)
+    throw new EntryNotSupportedError({ kind: 'commit', rev })
+  return sha
+}
+
+const UNTRACKED_LINE_BUDGET = 1_000_000
+
+async function countUntrackedLines(repoRoot: string, paths: readonly string[]): Promise<number> {
+  let total = 0
+  for (const path of paths) {
+    const absolute = join(repoRoot, path)
+    try {
+      const info = await stat(absolute)
+      if (!info.isFile())
+        continue
+      if (info.size > UNTRACKED_LINE_BUDGET) {
+        total += 1
+        continue
+      }
+      const text = await readFile(absolute, 'utf8')
+      total += text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0)
+    }
+    catch {
+      // A file that disappeared between status and read simply does not count.
+    }
+  }
+  return total
+}
+
+export interface IsolationHandle {
+  readonly sessionId: string
+  readonly repoRoot: string
+  readonly baseRev: string
+  readonly afterRev: string
+  readonly token: SessionToken
+}
+
+export interface IsolateArgs {
+  readonly repoRoot: string
+  readonly sessionId: string
+  readonly plan: IsolationPlan
+  readonly store: TokenStore
+  readonly includeUntracked: boolean
+  readonly now?: number
+  readonly signal?: AbortSignal
+  readonly exec?: GitOptions['exec']
+}
+
+export async function isolate(args: IsolateArgs): Promise<IsolationHandle> {
+  const { repoRoot, sessionId, plan, store } = args
+  const options: GitOptions = { signal: args.signal, exec: args.exec }
+  // Unwinding must never be interrupted, so it runs without the caller's signal.
+  const writeOptions: GitOptions = { exec: args.exec }
+
+  const lockValue = plan.headBefore.kind === 'detached'
+    ? plan.headBefore.sha
+    : await requireCommit(repoRoot, 'HEAD', options)
+
+  if (!await acquireLock(repoRoot, lockValue, options)) {
+    const owner = await resolveRef(repoRoot, LOCK_REF, options)
+    throw new RepoLockedError(owner ?? 'unknown')
+  }
+
+  let token: SessionToken = {
+    v: 1,
+    sessionId,
+    createdAt: args.now ?? Date.now(),
+    repoRoot,
+    stage: 'planned',
+    entry: plan.entry,
+    headBefore: plan.headBefore,
+    lockValue,
+    afterRef: afterRefName(sessionId),
+    afterCommit: null,
+    afterTree: null,
+    statusDigest: null,
+    backupRef: null,
+    backupCommit: null,
+    stashMessage: null,
+    checkedOut: null,
+  }
+  await store.writeToken(token)
+
+  try {
+    // 1. Capture. Nothing is mutated yet, so a crash here loses nothing.
+    const statusDigest = await readStatusDigest(repoRoot, options)
+    const capture = await captureWorkingState(repoRoot, sessionId, options)
+    await writeRef(repoRoot, token.afterRef, capture.commit, options)
+    token = await advanceStage(store, {
+      ...token,
+      afterCommit: capture.commit,
+      afterTree: capture.tree,
+      statusDigest,
+    }, 'captured')
+
+    // 2. Stash. The message goes into the journal *before* the push, so a crash
+    //    mid-push still leaves recovery able to find the entry.
+    if (plan.needsStash) {
+      token = await advanceStage(store, { ...token, stashMessage: stashMessageFor(sessionId) }, 'stashed')
+      const push = await stashPush(
+        repoRoot,
+        { message: token.stashMessage ?? stashMessageFor(sessionId), includeUntracked: args.includeUntracked },
+        options,
+      )
+      if (push.sha !== null) {
+        const backupRef = backupRefName(sessionId)
+        await writeRef(repoRoot, backupRef, push.sha, options)
+        token = await persistToken(store, { ...token, backupRef, backupCommit: push.sha })
+      }
+
+      const afterStash = await readStatus(repoRoot, options)
+      if (!afterStash.clean)
+        throw new Error('The working tree is still dirty after stashing; refusing to continue.')
+    }
+
+    // 3. Checkout. Skipped for the working-tree entry, whose content already
+    //    lives in the after-commit.
+    token = await advanceStage(store, { ...token, checkedOut: plan.checkout }, 'checkedout')
+    if (plan.checkout !== null) {
+      const checkout = await tryGit(repoRoot, ['checkout', '--detach', plan.checkout], options)
+      if (checkout.code !== 0)
+        throw new Error(`git checkout failed: ${checkout.stderr.trim()}`)
+    }
+
+    token = await advanceStage(store, token, 'reviewing')
+
+    return {
+      sessionId,
+      repoRoot,
+      baseRev: plan.baseRev,
+      afterRev: plan.afterRev ?? capture.commit,
+      token,
+    }
+  }
+  catch (error) {
+    const outcome = await restoreFromToken({ token, store, exec: args.exec })
+    if (outcome.kind === 'blocked')
+      throw new IsolationBlockedError(outcome, error)
+    // Best effort: the lock must not outlive a refused start.
+    await releaseLock(repoRoot, lockValue, writeOptions)
+    throw error
+  }
+}
+
+export type RestoreBlockReason
+  = | 'checkout-failed'
+    | 'apply-conflict'
+    | 'backup-missing'
+    | 'verification-failed'
+    | 'index-split-mismatch'
+
+export type RestoreOutcome
+  = | {
+    readonly kind: 'restored'
+    readonly stashApplied: boolean
+    readonly stashDropped: boolean
+    readonly indexRestored: boolean
+  }
+  | {
+    readonly kind: 'blocked'
+    readonly reason: RestoreBlockReason
+    readonly message: string
+    readonly commands: readonly string[]
+    readonly token: SessionToken
+  }
+
+export interface RestoreArgs {
+  readonly token: SessionToken
+  readonly store: TokenStore
+  /** Deliberately no `signal`: an interrupted `git stash apply` is unsurvivable. */
+  readonly exec?: GitOptions['exec']
+}
+
+/**
+ * Idempotent, resumable restore. Verification runs *before* the apply too, so
+ * re-running after a partial failure never double-applies.
+ */
+export async function restoreFromToken(args: RestoreArgs): Promise<RestoreOutcome> {
+  const { store } = args
+  const options: GitOptions = { exec: args.exec }
+  const repoRoot = args.token.repoRoot
+  const stageBefore = args.token.stage
+
+  let token = await advanceStage(store, args.token, 'restoring')
+
+  // Nothing was ever captured: release the lock and forget the reminder.
+  if (stageBefore === 'planned') {
+    await finalize(token, store, options, { dropSelector: null })
+    return { kind: 'restored', stashApplied: false, stashDropped: false, indexRestored: true }
+  }
+
+  // 1. Put HEAD back where it was, if the session moved it.
+  if (token.checkedOut !== null) {
+    const head = await readHeadPosition(repoRoot, options)
+    if (!sameHead(head, token.headBefore)) {
+      const target = token.headBefore.kind === 'branch'
+        ? ['checkout', token.headBefore.name]
+        : ['checkout', '--detach', token.headBefore.sha]
+      const result = await tryGit(repoRoot, target, options)
+      if (result.code !== 0) {
+        return blocked(token, 'checkout-failed', `Could not return HEAD to ${describeHead(token.headBefore)}.`, result.stderr)
+      }
+    }
+  }
+
+  // 2. Re-apply the stashed work, unless it is already back.
+  let stashApplied = false
+  let indexRestored = true
+  const expected = { tree: token.afterTree, statusDigest: token.statusDigest }
+  let verification = await verifyRestored(repoRoot, expected, options)
+  const entry = token.stashMessage === null
+    ? null
+    : await findStashByMessage(repoRoot, token.stashMessage, options)
+
+  if (!verification.ok) {
+    const backupExists = token.backupRef !== null && await resolveRef(repoRoot, token.backupRef, options) !== null
+    const applyRev = entry?.selector ?? (backupExists && token.backupRef !== null ? token.backupRef : null)
+
+    if (applyRev === null) {
+      if (token.backupCommit === null) {
+        return blocked(token, 'verification-failed', 'The working tree does not match what Guide Reviewer captured, and no stash was ever created.', '')
+      }
+      return blocked(token, 'backup-missing', 'The stash entry and the backup ref are both gone.', '')
+    }
+
+    const apply = await stashApply(repoRoot, applyRev, options)
+    if (!apply.ok) {
+      return blocked(
+        token,
+        apply.conflict ? 'apply-conflict' : 'verification-failed',
+        apply.conflict
+          ? 'Restoring your work hit a merge conflict. Nothing was discarded.'
+          : 'Restoring your work failed.',
+        apply.stderr,
+      )
+    }
+
+    stashApplied = true
+    indexRestored = apply.indexRestored
+    verification = await verifyRestored(repoRoot, expected, options)
+  }
+
+  // 3. Verify, and only then drop.
+  if (!verification.ok) {
+    return blocked(
+      token,
+      verification.treeMatches ? 'index-split-mismatch' : 'verification-failed',
+      verification.treeMatches
+        ? 'Your files are back, but the staged / unstaged split could not be reproduced.'
+        : 'The restored working tree does not match what Guide Reviewer captured.',
+      '',
+    )
+  }
+
+  token = await persistToken(store, token)
+  const dropped = await finalize(token, store, options, { dropSelector: entry?.selector ?? null })
+
+  return { kind: 'restored', stashApplied, stashDropped: dropped, indexRestored }
+}
+
+async function finalize(
+  token: SessionToken,
+  store: TokenStore,
+  options: GitOptions,
+  args: { readonly dropSelector: string | null },
+): Promise<boolean> {
+  const dropped = args.dropSelector === null ? false : await stashDrop(token.repoRoot, args.dropSelector, options)
+
+  if (token.afterCommit !== null)
+    await deleteRef(token.repoRoot, token.afterRef, token.afterCommit, options)
+  if (token.backupRef !== null && token.backupCommit !== null)
+    await deleteRef(token.repoRoot, token.backupRef, token.backupCommit, options)
+  if (token.lockValue !== null)
+    await releaseLock(token.repoRoot, token.lockValue, options)
+
+  await store.writeToken(withStage(token, 'done'))
+  await store.clearToken(token.repoRoot)
+  return dropped
+}
+
+function blocked(
+  token: SessionToken,
+  reason: RestoreBlockReason,
+  message: string,
+  detail: string,
+): RestoreOutcome {
+  return {
+    kind: 'blocked',
+    reason,
+    message: detail.trim() === '' ? message : `${message} ${detail.trim()}`,
+    commands: recoveryCommands(token),
+    token,
+  }
+}
+
+/** The literal git the user can run to finish the job by hand (invariant W5). */
+export function recoveryCommands(token: SessionToken): readonly string[] {
+  const commands: string[] = []
+  if (token.headBefore.kind === 'branch')
+    commands.push(`git checkout ${token.headBefore.name}`)
+  else
+    commands.push(`git checkout --detach ${token.headBefore.sha}`)
+  if (token.stashMessage !== null)
+    commands.push('git stash list')
+  if (token.backupRef !== null)
+    commands.push(`git stash apply --index ${token.backupRef}`)
+  commands.push(`git for-each-ref ${token.afterRef.split('/').slice(0, 2).join('/')}`)
+  return commands
+}
+
+function sameHead(a: HeadPosition, b: HeadPosition): boolean {
+  if (a.kind === 'branch' && b.kind === 'branch')
+    return a.name === b.name
+  if (a.kind === 'detached' && b.kind === 'detached')
+    return a.sha === b.sha
+  return false
+}
+
+function describeHead(head: HeadPosition): string {
+  return head.kind === 'branch' ? head.name : head.sha.slice(0, 8)
+}
+
+export interface OrphanRef {
+  readonly name: string
+  readonly objectName: string
+}
+
+/** Refs left behind by a conflicted restore. Never collected automatically. */
+export async function listGuideRefs(repoRoot: string, options: GitOptions = {}): Promise<OrphanRef[]> {
+  return (await listRefs(repoRoot, undefined, options)).filter(ref => ref.name !== LOCK_REF)
+}
+
+export async function cleanupGuideRefs(repoRoot: string, options: GitOptions = {}): Promise<string[]> {
+  const removed: string[] = []
+  for (const ref of await listGuideRefs(repoRoot, options)) {
+    if (await deleteRef(repoRoot, ref.name, ref.objectName, options))
+      removed.push(ref.name)
+  }
+  return removed
+}
+
+/** Untracked files git reports, used by the pre-flight summary. */
+export async function listUntracked(repoRoot: string, options: GitOptions = {}): Promise<string[]> {
+  const result = await tryGit(repoRoot, ['ls-files', '--others', '--exclude-standard', '-z'], options)
+  return result.code === 0 ? splitNul(result.stdout) : []
+}

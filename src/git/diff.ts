@@ -1,0 +1,98 @@
+import type { NameStatusEntry } from '../guide/types'
+import type { GitOptions } from './exec'
+import { parseNameStatusZ } from '../guide/parse-diff'
+import { runGit, splitLines, tryGit } from './exec'
+
+/**
+ * Frozen read invocations. The guide digest depends on these staying stable —
+ * see architecture/overview.md §3.4.
+ */
+const PATCH_ARGS = ['-c', 'core.quotepath=false', 'diff', '--no-color', '--no-ext-diff', '-M', '-U3', '--patch'] as const
+const NAME_STATUS_ARGS = ['-c', 'core.quotepath=false', 'diff', '--no-color', '--no-ext-diff', '-M', '--name-status', '-z'] as const
+
+export interface RawDiff {
+  readonly patch: string
+  readonly nameStatus: readonly NameStatusEntry[]
+}
+
+export async function readPatch(repoRoot: string, base: string, after: string, options: GitOptions = {}): Promise<string> {
+  return await runGit(repoRoot, [...PATCH_ARGS, base, after], options)
+}
+
+export async function readNameStatus(
+  repoRoot: string,
+  base: string,
+  after: string,
+  options: GitOptions = {},
+): Promise<NameStatusEntry[]> {
+  return parseNameStatusZ(await runGit(repoRoot, [...NAME_STATUS_ARGS, base, after], options))
+}
+
+export async function readDiff(repoRoot: string, base: string, after: string, options: GitOptions = {}): Promise<RawDiff> {
+  return {
+    patch: await readPatch(repoRoot, base, after, options),
+    nameStatus: await readNameStatus(repoRoot, base, after, options),
+  }
+}
+
+/** Reads a file's content at a revision. Returns `null` when the path is absent there. */
+export async function showBlob(
+  repoRoot: string,
+  rev: string,
+  path: string,
+  options: GitOptions = {},
+): Promise<string | null> {
+  const result = await tryGit(repoRoot, ['cat-file', 'blob', `${rev}:${path}`], options)
+  return result.code === 0 ? result.stdout : null
+}
+
+/** Resolves a revision to a commit sha, or `null` when it does not exist. */
+export async function resolveCommit(repoRoot: string, rev: string, options: GitOptions = {}): Promise<string | null> {
+  const result = await tryGit(repoRoot, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`], options)
+  const sha = result.stdout.trim()
+  return result.code === 0 && sha !== '' ? sha : null
+}
+
+export async function mergeBase(repoRoot: string, a: string, b: string, options: GitOptions = {}): Promise<string | null> {
+  const result = await tryGit(repoRoot, ['merge-base', a, b], options)
+  const sha = result.stdout.trim()
+  return result.code === 0 && sha !== '' ? sha : null
+}
+
+/**
+ * Total added + deleted lines between two revisions. Binary files contribute
+ * `-`/`-` in numstat and are counted as one changed line each so they stay
+ * visible in the pre-flight summary.
+ */
+export async function countChangedLines(
+  repoRoot: string,
+  base: string,
+  after: string,
+  options: GitOptions = {},
+): Promise<number> {
+  const raw = await runGit(repoRoot, ['diff', '--no-color', '--no-ext-diff', '-M', '--numstat', base, after], options)
+  return sumNumstat(raw)
+}
+
+/** Same count, but for the tracked part of the working tree against a revision. */
+export async function countWorkingTreeChangedLines(
+  repoRoot: string,
+  base: string,
+  options: GitOptions = {},
+): Promise<number> {
+  const raw = await runGit(repoRoot, ['diff', '--no-color', '--no-ext-diff', '-M', '--numstat', base], options)
+  return sumNumstat(raw)
+}
+
+export function sumNumstat(raw: string): number {
+  let total = 0
+  for (const line of splitLines(raw)) {
+    const [added, deleted] = line.split('\t')
+    if (added === '-' || deleted === '-') {
+      total += 1
+      continue
+    }
+    total += Number(added ?? 0) + Number(deleted ?? 0)
+  }
+  return total
+}
