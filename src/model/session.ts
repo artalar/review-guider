@@ -30,7 +30,7 @@ import {
   RepoLockedError,
   restoreFromToken,
 } from '../git/isolate'
-import { isRecoverable } from '../git/journal'
+import { isRecoverable, isSessionLive } from '../git/journal'
 import { probeGit, readStatus } from '../git/probe'
 import { readLock } from '../git/refs'
 import { describeTarget } from '../git/types'
@@ -62,44 +62,6 @@ export const ports = atom<Ports>(inertPorts, 'ports')
 
 /** Bumped by the bridge's FileSystemWatcher on `.git/**` and workspace writes. */
 export const gitWatchToken = atom(0, 'git.watchToken')
-
-// ---------------------------------------------------------------------------
-// Probes
-// ---------------------------------------------------------------------------
-
-const NO_WORKSPACE: GitCapability = {
-  ok: false,
-  reason: 'no-workspace',
-  message: 'Open a folder to use Guide Reviewer.',
-}
-
-/**
- * Deliberately *not* a dependant of `gitWatchToken`: re-probing on every write
- * under `.git/` would spawn a probe storm during isolation, when the extension
- * is itself the one writing refs. The cost is that this value is only as fresh
- * as the last workspace change, so anything that gates a mutation probes again
- * for itself — see `startSession`.
- */
-export const gitCapability = computed(async (): Promise<GitCapability | null> => {
-  const root = workspaceRoot()
-  if (root === null)
-    return NO_WORKSPACE
-
-  return await wrap(probeGit(root, { signal: abortVar.require().signal }))
-}, 'git.capability').extend(withAsyncData({ initState: null }))
-
-export const repoStatus = computed(async (): Promise<RepoStatus | null> => {
-  // W5: hoist every reactive read above the first await, or the dependency is
-  // never tracked and this computed silently stops refreshing.
-  const capabilityPromise = gitCapability()
-  gitWatchToken()
-
-  const capability = await wrap(capabilityPromise)
-  if (capability === null || !capability.ok)
-    return null
-
-  return await wrap(readStatus(capability.repoRoot, { signal: abortVar.require().signal }))
-}, 'git.repoStatus').extend(withAsyncData({ initState: null }))
 
 // ---------------------------------------------------------------------------
 // The state machine
@@ -195,6 +157,57 @@ export const isSessionActive = computed(() => sessionStatus() === 'active', 'ses
 export const isSessionOpen = computed(() => sessionStatus() !== 'idle', 'session.isOpen')
 
 // ---------------------------------------------------------------------------
+// Probes
+// ---------------------------------------------------------------------------
+//
+// Below the machine rather than above it because `gitCapability` reads
+// `sessionStatus` — the probe's refresh policy depends on what the session is
+// doing, which is the whole point of the condition inside it.
+
+const NO_WORKSPACE: GitCapability = {
+  ok: false,
+  reason: 'no-workspace',
+  message: 'Open a folder to use Guide Reviewer.',
+}
+
+/**
+ * A dependant of `gitWatchToken` *only while idle*, and the condition is the
+ * point. During a session the extension is itself writing refs under `.git/`,
+ * so an unconditional dependency would re-probe (six subprocesses) on top of
+ * every write it makes. `idle` is both the only state where a stale answer
+ * misleads anyone — Start looking available over a rebase that began after the
+ * window opened — and the state where nothing of ours is writing.
+ *
+ * Reading `sessionStatus` reactively is what lets the dependency come back:
+ * the computed re-runs on each transition, so the probe is refreshed when a
+ * session ends and the watch token is picked up again from there.
+ */
+export const gitCapability = computed(async (): Promise<GitCapability | null> => {
+  // W5: both reactive reads are hoisted above the first await.
+  const root = workspaceRoot()
+  if (sessionStatus() === 'idle')
+    gitWatchToken()
+
+  if (root === null)
+    return NO_WORKSPACE
+
+  return await wrap(probeGit(root, { signal: abortVar.require().signal }))
+}, 'git.capability').extend(withAsyncData({ initState: null }))
+
+export const repoStatus = computed(async (): Promise<RepoStatus | null> => {
+  // W5: hoist every reactive read above the first await, or the dependency is
+  // never tracked and this computed silently stops refreshing.
+  const capabilityPromise = gitCapability()
+  gitWatchToken()
+
+  const capability = await wrap(capabilityPromise)
+  if (capability === null || !capability.ok)
+    return null
+
+  return await wrap(readStatus(capability.repoRoot, { signal: abortVar.require().signal }))
+}, 'git.repoStatus').extend(withAsyncData({ initState: null }))
+
+// ---------------------------------------------------------------------------
 // Session state
 // ---------------------------------------------------------------------------
 
@@ -244,6 +257,23 @@ function capabilityRepoRoot(capability: GitCapability | null): string | null {
 
 export const recoveryPending = computed(() => isRecoverable(recoveryToken.data()), 'recovery.pending')
 
+/**
+ * Someone else's *running* session, not a crashed one. The journal lives in
+ * `globalState` so a second window can see it (ADR 0002 D3) — which also means
+ * a second window sees the first window's live token and, before the
+ * heartbeat, offered to "restore" it out from under a review in progress.
+ *
+ * `sessionStatus() !== 'idle'` is this window's own session: it is the one
+ * doing the beating, and it must never diagnose itself as somebody else.
+ */
+export const sessionLiveElsewhere = computed(() => {
+  if (sessionStatus() !== 'idle')
+    return false
+  return isSessionLive(recoveryToken.data(), ports().clock.now())
+}, 'recovery.liveElsewhere')
+
+export const LIVE_ELSEWHERE_MESSAGE = 'A Guide Reviewer session is active in another window.'
+
 export const orphanRefs = computed(async (): Promise<readonly OrphanRef[]> => {
   const capabilityPromise = gitCapability()
   recoveryEpoch()
@@ -269,6 +299,14 @@ export const recoverBackup = action(async (): Promise<RestoreOutcome | null> => 
   const token = await wrap(recoveryToken())
   if (token === null)
     return null
+
+  // A live token belongs to a window that is still reviewing. Applying its
+  // stash would end that review's isolation underneath it, so this stays a
+  // notice rather than a restore until the heartbeat goes stale.
+  if (peek(sessionStatus) === 'idle' && isSessionLive(token, peek(ports).clock.now())) {
+    await wrap(peek(ports).ui.notify('info', LIVE_ELSEWHERE_MESSAGE))
+    return null
+  }
 
   if (peek(sessionStatus) === 'blocked')
     sessionStatus.to('restoring')
@@ -413,11 +451,11 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
 
   const signal = abortVar.require().signal
 
-  // A fresh probe, not `gitCapability()`. The cached one is as old as the last
-  // workspace change, so a rebase or merge begun after the window opened still
-  // reads `ok` — and this is the last check before a `git stash push`. Nothing
-  // downstream re-tests it: `planIsolation` reads the unmerged paths but does
-  // not refuse them, and `isolate` would stash straight over MERGE_HEAD.
+  // A fresh probe, not `gitCapability()`. The cached one now refreshes while
+  // idle, but a watcher event is not instantaneous and this is the last check
+  // before a `git stash push`. Nothing downstream re-tests it: `planIsolation`
+  // reads the unmerged paths but does not refuse them, and `isolate` would
+  // stash straight over MERGE_HEAD.
   const root = peek(workspaceRoot)
   const capability = root === null ? NO_WORKSPACE : await wrap(probeGit(root, { signal }))
   if (!capability.ok)
@@ -473,7 +511,7 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
     plan,
     store: peek(ports).store,
     includeUntracked,
-    now: peek(ports).clock.now(),
+    now: peek(ports).clock.now,
     signal,
   }))
   isolation.set(handle)
@@ -566,6 +604,42 @@ export const cancelSession = action(async (reason: CancelReason = 'cancel'): Pro
 }, 'session.cancel').extend(withAsync({ status: true }), withAbort('first-in-win'))
 
 // ---------------------------------------------------------------------------
+// Liveness
+// ---------------------------------------------------------------------------
+
+/** Comfortably inside `HEARTBEAT_STALE_MS`, so one missed tick proves nothing. */
+export const HEARTBEAT_INTERVAL_MS = 7_000
+
+/**
+ * Says "this window is still here" on the token it owns, so a second window
+ * can tell a crashed session from a live one (review 001 M2). The bridge ticks
+ * it; see `bindSessionHeartbeat` in `src/index.ts`.
+ *
+ * Only while `active`, deliberately. In `stashing` and `restoring` the journal
+ * belongs to `isolate` and `restoreFromToken`, and a read-modify-write racing
+ * either of those could roll a stage back — the journal is the one artifact
+ * recovery cannot afford to have lied to.
+ */
+export const refreshHeartbeat = action(async (): Promise<boolean> => {
+  const handle = peek(isolation)
+  if (handle === null || peek(sessionStatus) !== 'active')
+    return false
+
+  const store = peek(ports).store
+  const stored = await wrap(store.readToken(handle.repoRoot))
+
+  // Re-checked after the await: the session may have started tearing down
+  // while the read was in flight, and this must not write over that.
+  if (peek(sessionStatus) !== 'active')
+    return false
+  if (stored === null || stored.sessionId !== handle.sessionId || stored.stage !== 'reviewing')
+    return false
+
+  await wrap(store.writeToken({ ...stored, heartbeatAt: peek(ports).clock.now() }))
+  return true
+}, 'session.heartbeat').extend(withAsync())
+
+// ---------------------------------------------------------------------------
 // Gating
 // ---------------------------------------------------------------------------
 
@@ -583,6 +657,10 @@ export const startBlockedReason = computed((): string | null => {
     return 'Checking the repository…'
   if (!capability.ok)
     return capability.hint === undefined ? capability.message : `${capability.message} ${capability.hint}`
+  // Before `recoveryPending`, which is also true for a live token: "restore
+  // your work" would be a false alarm about a review that is going fine.
+  if (sessionLiveElsewhere())
+    return LIVE_ELSEWHERE_MESSAGE
   if (recoveryPending())
     return 'Guide Reviewer has work to restore from a previous session.'
   const status = sessionStatus()

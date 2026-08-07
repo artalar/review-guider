@@ -14,7 +14,7 @@ import {
 import { splitNul, tryGit } from './exec'
 import { advanceStage, persistToken, stashMessageFor, withStage } from './journal'
 import { readStatus } from './probe'
-import { acquireLock, afterRefName, backupRefName, deleteRef, listRefs, LOCK_REF, releaseLock, resolveRef, writeRef } from './refs'
+import { acquireLock, afterRefName, backupRefName, deleteRef, listRefs, LOCK_REF, readLock, releaseLock, resolveRef, writeRef } from './refs'
 import { captureWorkingState, readStatusDigest, verifyRestored } from './snapshot'
 import { findStashByMessage, stashApply, stashDrop, stashPush } from './stash'
 
@@ -29,7 +29,8 @@ import { findStashByMessage, stashApply, stashDrop, stashPush } from './stash'
 
 export class RepoLockedError extends Error {
   override readonly name = 'RepoLockedError'
-  constructor(readonly lockValue: string) {
+  /** The `sessionId` holding the lock, or a raw ref value for a foreign lock. */
+  constructor(readonly owner: string) {
     super('Another Guide Reviewer session already owns this repository.')
   }
 }
@@ -270,7 +271,8 @@ export interface IsolateArgs {
   readonly plan: IsolationPlan
   readonly store: TokenStore
   readonly includeUntracked: boolean
-  readonly now?: number
+  /** Read again for the heartbeat, so a slow isolation is not born stale. */
+  readonly now?: () => number
   readonly signal?: AbortSignal
   readonly exec?: GitOptions['exec']
 }
@@ -280,25 +282,26 @@ export async function isolate(args: IsolateArgs): Promise<IsolationHandle> {
   const options: GitOptions = { signal: args.signal, exec: args.exec }
   // Unwinding must never be interrupted, so it runs without the caller's signal.
   const writeOptions: GitOptions = { exec: args.exec }
+  const now = args.now ?? Date.now
 
-  const lockValue = plan.headBefore.kind === 'detached'
-    ? plan.headBefore.sha
-    : await requireCommit(repoRoot, 'HEAD', options)
-
-  if (!await acquireLock(repoRoot, lockValue, options)) {
-    const owner = await resolveRef(repoRoot, LOCK_REF, options)
+  // The lock value is the session id, not the HEAD sha: two windows at the
+  // same HEAD would compute the same one, and the compare-and-swap release
+  // would then be unable to tell them apart.
+  if (!await acquireLock(repoRoot, sessionId, options)) {
+    const owner = await readLock(repoRoot, options)
     throw new RepoLockedError(owner ?? 'unknown')
   }
 
   let token: SessionToken = {
     v: 1,
     sessionId,
-    createdAt: args.now ?? Date.now(),
+    createdAt: now(),
+    heartbeatAt: now(),
     repoRoot,
     stage: 'planned',
     entry: plan.entry,
     headBefore: plan.headBefore,
-    lockValue,
+    lockValue: sessionId,
     afterRef: afterRefName(sessionId),
     afterCommit: null,
     afterTree: null,
@@ -351,7 +354,11 @@ export async function isolate(args: IsolateArgs): Promise<IsolationHandle> {
         throw new Error(`git checkout failed: ${checkout.stderr.trim()}`)
     }
 
-    token = await advanceStage(store, token, 'reviewing')
+    // Stamped again here rather than only at creation: on a large repository
+    // the stash and the checkout can take longer than a heartbeat stays fresh,
+    // and a session that goes live already stale is one a second window would
+    // offer to "recover" out from under it.
+    token = await advanceStage(store, { ...token, heartbeatAt: now() }, 'reviewing')
 
     return {
       sessionId,
@@ -366,7 +373,7 @@ export async function isolate(args: IsolateArgs): Promise<IsolationHandle> {
     if (outcome.kind === 'blocked')
       throw new IsolationBlockedError(outcome, error)
     // Best effort: the lock must not outlive a refused start.
-    await releaseLock(repoRoot, lockValue, writeOptions)
+    await releaseLock(repoRoot, sessionId, writeOptions)
     throw error
   }
 }

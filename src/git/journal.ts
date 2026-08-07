@@ -58,11 +58,23 @@ export interface SessionToken {
   readonly v: 1
   readonly sessionId: string
   readonly createdAt: number
+  /**
+   * Last time the window that owns this session said it was still running.
+   * `null` on a token written before the field existed, which reads as "not
+   * live" — the safe answer, since it only ever costs a recovery prompt.
+   *
+   * Still `v: 1`: the field is optional on read and every reader builds the
+   * token field by field, so a 1.0 reader ignores it rather than choking.
+   */
+  readonly heartbeatAt: number | null
   readonly repoRoot: string
   readonly stage: IsolationStage
   readonly entry: ReviewTarget
   readonly headBefore: HeadPosition
-  /** Value written to `refs/guide-reviewer/lock`; released by compare-and-swap. */
+  /**
+   * Owner written to `refs/guide-reviewer/lock` — the `sessionId`, so the
+   * compare-and-swap release cannot clobber another window (see `refs.ts`).
+   */
   readonly lockValue: string | null
   readonly afterRef: string
   readonly afterCommit: string | null
@@ -127,6 +139,26 @@ export function isRecoverable(token: SessionToken | null): token is SessionToken
   return token !== null && token.stage !== 'planned' && token.stage !== 'done'
 }
 
+/** How long a heartbeat is trusted before the window behind it counts as gone. */
+export const HEARTBEAT_STALE_MS = 30_000
+
+/**
+ * "Owned by a window that is still running", as opposed to
+ * {@link isRecoverable}'s "something was mutated and not yet undone". From git
+ * state alone a crashed session and a live one in another window are
+ * indistinguishable, which is the whole reason the owning window stamps the
+ * token while it holds the working tree.
+ *
+ * The age is absolute on purpose. A heartbeat from the future can only come
+ * from a clock jump, and reading that as fresh would suppress recovery until
+ * the wall clock caught up — the one failure this subsystem exists to prevent.
+ */
+export function isSessionLive(token: SessionToken | null, now: number): boolean {
+  if (!isRecoverable(token) || token.heartbeatAt === null)
+    return false
+  return Math.abs(now - token.heartbeatAt) < HEARTBEAT_STALE_MS
+}
+
 function isRecord(input: unknown): input is Record<string, unknown> {
   return typeof input === 'object' && input !== null && !Array.isArray(input)
 }
@@ -186,6 +218,7 @@ export function parseToken(input: unknown): SessionToken | null {
     v: 1,
     sessionId,
     createdAt: typeof input.createdAt === 'number' ? input.createdAt : 0,
+    heartbeatAt: typeof input.heartbeatAt === 'number' ? input.heartbeatAt : null,
     repoRoot,
     stage: stage as IsolationStage,
     entry,

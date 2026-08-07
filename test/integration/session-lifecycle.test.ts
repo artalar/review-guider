@@ -16,16 +16,20 @@ import {
   EmptyDiffError,
   gitCapability,
   GitUnavailableError,
+  gitWatchToken,
   isolation,
+  LIVE_ELSEWHERE_MESSAGE,
   ports,
   preflightAnswer,
   preflightRequest,
   recoverBackup,
   recoveryPending,
   recoveryToken,
+  refreshHeartbeat,
   restoreBlock,
   session,
   SessionAlreadyActiveError,
+  sessionLiveElsewhere,
   sessionStatus,
   startBlockedReason,
   startSession,
@@ -65,10 +69,12 @@ interface Harness {
   approve: boolean
   /** Which action button a notification comes back with, if any. */
   answer: string | undefined
+  /** What `ClockPort.now` returns; movable, so heartbeats can be aged. */
+  now: number
 }
 
 function install(store: StorePort = memoryStore()): Harness {
-  const harness: Harness = { store, notifications: [], approve: true, answer: undefined }
+  const harness: Harness = { store, notifications: [], approve: true, answer: undefined, now: 1_000 }
   const installed: Ports = {
     store,
     ui: {
@@ -80,7 +86,7 @@ function install(store: StorePort = memoryStore()): Harness {
       openReview: async () => {},
     },
     clock: {
-      now: () => 1_000,
+      now: () => harness.now,
       sessionId: () => 'model-session',
     },
   }
@@ -282,6 +288,38 @@ describe('session lifecycle over the real protocol', () => {
     expect(await harness.store.readToken(repo.root)).toBeNull()
     expect(harness.notifications.at(-1)?.message).toContain('merge')
   })
+
+  /**
+   * The refusal above is correct but late: the user finds out by clicking. The
+   * capability probe only refreshed when the workspace folder changed, so
+   * Start went on *looking* available over a merge that began afterwards. It
+   * is a dependant of the watch token while idle now — which is exactly the
+   * state where nothing of ours is writing under `.git/`.
+   */
+  it('disables Start as soon as a merge begins, with no folder change', async () => {
+    const repo = await makeTempRepo({ files: { 'conflict.txt': 'base\n' } })
+    await repo.git('checkout', '--quiet', '-b', 'other')
+    await repo.write('conflict.txt', 'theirs\n')
+    await repo.git('add', '-A')
+    await repo.commit('theirs')
+    await repo.git('checkout', '--quiet', 'main')
+    await repo.write('conflict.txt', 'ours\n')
+    await repo.git('add', '-A')
+    await repo.commit('ours')
+
+    await bootstrap(repo)
+    expect(peek(canStart)).toBe(true)
+
+    expect((await repo.tryGit('merge', '--no-edit', 'other')).code).not.toBe(0)
+
+    // What the bridge's FileSystemWatcher does when git writes MERGE_HEAD.
+    gitWatchToken.set(value => value + 1)
+    await vi.waitFor(() => {
+      expect(peek(canStart)).toBe(false)
+    }, { timeout: 5_000, interval: 5 })
+
+    expect(peek(startBlockedReason)).toContain('merge')
+  })
 })
 
 describe('recovery', () => {
@@ -424,6 +462,77 @@ describe('recovery', () => {
     expect(peek(startBlockedReason)).toContain('merge')
     expect(peek(recoveryPending)).toBe(true)
     expect((await recoveryToken())?.sessionId).toBe('ghost')
+  })
+
+  /**
+   * The second window (P0 edge row 8). The journal lives in `globalState` so a
+   * second window can see it — which is also how a second window came to offer
+   * to "restore" the first window's *running* session, applying its stash and
+   * ending its isolation mid-review. A fresh heartbeat is the only thing that
+   * tells the two apart: from git state alone they are identical.
+   */
+  it('does not offer to restore a session that is live in another window', async () => {
+    const repo = await dirtyRepo()
+
+    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'window-a', heartbeatAt: 995_000 })
+    const isolated = await repo.fingerprint()
+    const harness = await bootstrap(repo, store)
+    harness.now = 1_000_000
+
+    expect(peek(sessionLiveElsewhere)).toBe(true)
+    expect(peek(canStart)).toBe(false)
+    expect(peek(startBlockedReason)).toBe(LIVE_ELSEWHERE_MESSAGE)
+
+    expect(await recoverBackup()).toBeNull()
+
+    // Window A's isolation is untouched: its stash entry, its refs, its token.
+    expect(await repo.fingerprint()).toEqual(isolated)
+    expect(await listStash(repo.root)).toHaveLength(1)
+    expect(await readLock(repo.root)).toBe('window-a')
+    expect((await store.readToken(repo.root))?.stage).toBe('reviewing')
+    expect(harness.notifications.at(-1)).toEqual({ level: 'info', message: LIVE_ELSEWHERE_MESSAGE })
+  })
+
+  it('offers the crash-recovery modal again once the heartbeat goes stale', async () => {
+    const repo = await dirtyRepo()
+    const before = await repo.fingerprint()
+
+    // Same token, one minute without a beat: the window that owned it is gone.
+    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'window-a', heartbeatAt: 940_000 })
+    const harness = await bootstrap(repo, store)
+    harness.now = 1_000_000
+
+    expect(peek(sessionLiveElsewhere)).toBe(false)
+    expect(peek(startBlockedReason)).toContain('restore')
+
+    expect((await recoverBackup())?.kind).toBe('restored')
+    expect(await repo.fingerprint()).toEqual(before)
+    expect(await readLock(repo.root)).toBeNull()
+  })
+
+  /** The other half of the pair: the window that owns a session keeps beating. */
+  it('refreshes the heartbeat on the token it owns, and only then', async () => {
+    const repo = await dirtyRepo()
+    const harness = await bootstrap(repo)
+    await start(harness)
+
+    const started = await harness.store.readToken(repo.root)
+    expect(started?.heartbeatAt).toBe(1_000)
+
+    harness.now = 8_000
+    expect(await refreshHeartbeat()).toBe(true)
+
+    const beaten = await harness.store.readToken(repo.root)
+    expect(beaten?.heartbeatAt).toBe(8_000)
+    expect(beaten?.stage).toBe('reviewing')
+    // This window is the one beating, so it never reads itself as somebody else.
+    expect(peek(sessionLiveElsewhere)).toBe(false)
+
+    await cancelSession('cancel')
+
+    // Nothing to beat on once the session is over, and nothing to write to.
+    expect(await refreshHeartbeat()).toBe(false)
+    expect(await harness.store.readToken(repo.root)).toBeNull()
   })
 
   it('cleans up orphan refs but never while a restore is pending', async () => {

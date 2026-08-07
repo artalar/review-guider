@@ -28,6 +28,11 @@ export interface CrashPoint {
   /** Revision to detach at, mirroring a commit or range entry. */
   readonly checkout?: string | null
   readonly skip?: readonly SkippedStep[]
+  /**
+   * Heartbeat to stamp on the token. A crash is a window that stopped saying
+   * it was alive, so the default is `null` — nothing beating.
+   */
+  readonly heartbeatAt?: number | null
 }
 
 export interface CrashState {
@@ -44,20 +49,20 @@ export async function isolateUpTo(
   const skipped = new Set<SkippedStep>(point.skip ?? [])
   const store = memoryStore()
   const headBefore = await readHeadPosition(repo.root)
-  const lockValue = (await repo.git('rev-parse', 'HEAD')).trim()
 
-  if (!await acquireLock(repo.root, lockValue))
+  if (!await acquireLock(repo.root, sessionId))
     throw new Error('the crash fixture could not take the repository lock')
 
   let token: SessionToken = {
     v: 1,
     sessionId,
     createdAt: 0,
+    heartbeatAt: point.heartbeatAt ?? null,
     repoRoot: repo.root,
     stage: 'planned',
     entry: { kind: 'workingTree' },
     headBefore,
-    lockValue,
+    lockValue: sessionId,
     afterRef: afterRefName(sessionId),
     afterCommit: null,
     afterTree: null,

@@ -1,6 +1,6 @@
 import process from 'node:process'
-import { connectLogger, sleep, wrap } from '@reatom/core'
-import { defineExtension, useFileSystemWatcher, useWorkspaceFolders, watchEffect } from 'reactive-vscode'
+import { connectLogger, effect, sleep, wrap } from '@reatom/core'
+import { defineExtension, useDisposable, useFileSystemWatcher, useWorkspaceFolders, watchEffect } from 'reactive-vscode'
 import { useGuideCommands } from './commands'
 import { config } from './config'
 import {
@@ -8,7 +8,10 @@ import {
   canStart,
   gitWatchToken,
   guideFile,
+  HEARTBEAT_INTERVAL_MS,
   heuristicOptions,
+  isSessionActive,
+  refreshHeartbeat,
   revealMode,
   showRationale,
   stashIncludeUntracked,
@@ -35,6 +38,7 @@ const { activate, deactivate: disposeScope } = defineExtension(() => {
   bindWorkspaceRoot()
   bindConfig()
   bindGitWatcher()
+  bindSessionHeartbeat()
 
   usePreflightPrompt()
   useRestoreBlockNotice()
@@ -82,6 +86,26 @@ function bindGitWatcher(): void {
     onDidChange: bump,
     onDidDelete: bump,
   })
+}
+
+/**
+ * The window that owns a session says so on the token, roughly every seven
+ * seconds. It is the only thing that tells a second window "still running
+ * here" from "crashed" — from git state alone the two look identical, and the
+ * second window used to offer to restore a review that was going fine.
+ *
+ * The loop lives here rather than in the model because `effect` self-subscribes
+ * at creation: created at activation it is owned by the extension's lifetime
+ * and disposed with it, instead of running forever from module scope.
+ */
+function bindSessionHeartbeat(): void {
+  const { unsubscribe } = effect(async () => {
+    while (isSessionActive()) {
+      await wrap(sleep(HEARTBEAT_INTERVAL_MS))
+      await wrap(refreshHeartbeat())
+    }
+  }, 'session.heartbeatLoop')
+  useDisposable({ dispose: unsubscribe })
 }
 
 export { activate }

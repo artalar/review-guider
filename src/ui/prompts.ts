@@ -1,9 +1,10 @@
 import { peek, wrap } from '@reatom/core'
 import { watch } from 'reactive-vscode'
 import { window } from 'vscode'
-import { isRecoverable } from '../git/journal'
+import { isRecoverable, isSessionLive } from '../git/journal'
 import {
   guideDiagnostics,
+  LIVE_ELSEWHERE_MESSAGE,
   ports,
   preflightAnswer,
   preflightRequest,
@@ -60,6 +61,16 @@ export const checkRecoveryOnActivate = wrap(async (): Promise<void> => {
   // this extension cannot afford to make.
   if (!isRecoverable(token))
     return
+
+  // A fresh heartbeat means another window is reviewing right now, not that
+  // anything was lost. Restoring it would apply that window's stash and end
+  // its isolation mid-review, so this window says so and stays out of the way.
+  if (isSessionLive(token, peek(ports).clock.now())) {
+    logger.info(`Guide Reviewer session ${token.sessionId} is live in another window; skipping recovery.`)
+    void window.showInformationMessage(LIVE_ELSEWHERE_MESSAGE)
+      .then(undefined, (error: unknown) => logger.error('live-session notice failed', error))
+    return
+  }
 
   logger.warn(`Guide Reviewer found an unfinished session (${token.stage}) for ${token.repoRoot}`)
 

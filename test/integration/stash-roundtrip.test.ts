@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { isolate, listGuideRefs, planIsolation, RepoLockedError, restoreFromToken } from '../../src/git/isolate'
 import { stashMessageFor } from '../../src/git/journal'
 import { readStatus } from '../../src/git/probe'
-import { backupRefName, readLock, resolveRef } from '../../src/git/refs'
+import { acquireLock, backupRefName, LOCK_REF, readLock, releaseLock, resolveRef, writeRef } from '../../src/git/refs'
 import { findStashByMessage, listStash } from '../../src/git/stash'
 import { memoryStore } from '../../src/model/ports'
 import { cleanupTempRepos, isWindows, makeTempRepo } from '../helpers/tmp-repo'
@@ -44,7 +44,7 @@ async function beginTrip(repo: TmpRepo, options: TripOptions = {}): Promise<Trip
   const before = await repo.fingerprint()
   const store = memoryStore()
   const plan = await planIsolation(repo.root, { entry, includeUntracked })
-  const handle = await isolate({ repoRoot: repo.root, sessionId, plan, store, includeUntracked, now: 0 })
+  const handle = await isolate({ repoRoot: repo.root, sessionId, plan, store, includeUntracked, now: () => 0 })
 
   return { before, handle, store, needsStash: plan.needsStash }
 }
@@ -327,7 +327,7 @@ describe('stash round trip — failure is not loss', () => {
       plan,
       store,
       includeUntracked: true,
-      now: 0,
+      now: () => 0,
     })).rejects.toThrow('journal is full')
 
     expect(await repo.fingerprint()).toEqual(before)
@@ -352,7 +352,7 @@ describe('repository lock', () => {
       plan,
       store: memoryStore(),
       includeUntracked: true,
-      now: 0,
+      now: () => 0,
     })).rejects.toBeInstanceOf(RepoLockedError)
 
     // The refused start wrote no token and left the first session untouched.
@@ -363,6 +363,62 @@ describe('repository lock', () => {
     // With the lock released the second window can start for real.
     await repo.write('a.txt', 'three\n')
     await roundTrip(repo, { sessionId: 'window-b2' })
+  })
+
+  /**
+   * The release is a compare-and-swap on the lock's value, and the value used
+   * to be the HEAD commit sha — which two windows on one repository compute
+   * identically. ADR 0002 D5 says a release cannot clobber another owner; only
+   * a per-session value makes that true.
+   */
+  it('will not let one window release another window\'s lock', async () => {
+    const repo = await makeTempRepo({ files: { 'a.txt': 'one\n' } })
+
+    expect(await acquireLock(repo.root, 'window-a')).toBe(true)
+    // Same repository, same HEAD, different session.
+    expect(await acquireLock(repo.root, 'window-b')).toBe(false)
+
+    expect(await releaseLock(repo.root, 'window-b')).toBe(false)
+    expect(await readLock(repo.root)).toBe('window-a')
+
+    expect(await releaseLock(repo.root, 'window-a')).toBe(true)
+    expect(await readLock(repo.root)).toBeNull()
+  })
+
+  it('records the owning session on the token and reports it on refusal', async () => {
+    const repo = await makeTempRepo({ files: { 'a.txt': 'one\n' } })
+    await repo.write('a.txt', 'two\n')
+
+    const trip = await beginTrip(repo, { sessionId: 'window-a' })
+    expect(trip.handle.token.lockValue).toBe('window-a')
+    expect(await readLock(repo.root)).toBe('window-a')
+
+    const plan = await planIsolation(repo.root, { entry: { kind: 'workingTree' }, includeUntracked: true })
+    const refused = isolate({
+      repoRoot: repo.root,
+      sessionId: 'window-b',
+      plan,
+      store: memoryStore(),
+      includeUntracked: true,
+      now: () => 0,
+    })
+    await expect(refused).rejects.toMatchObject({ owner: 'window-a' })
+
+    await endTrip(repo, trip)
+  })
+
+  /**
+   * The stale-lock drill (`test-matrix.md` §6.3) points the ref at HEAD by
+   * hand. That lock names no session, and "held by something" is still the
+   * honest answer to "can I start here?".
+   */
+  it('still reports a lock this extension did not write', async () => {
+    const repo = await makeTempRepo({ files: { 'a.txt': 'one\n' } })
+    const head = await repo.head()
+    await writeRef(repo.root, LOCK_REF, head)
+
+    expect(await readLock(repo.root)).toBe(head)
+    expect(await acquireLock(repo.root, 'window-a')).toBe(false)
   })
 })
 

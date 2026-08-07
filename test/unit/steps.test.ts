@@ -15,6 +15,7 @@ const TOKEN: SessionToken = {
   v: 1,
   sessionId: 's',
   createdAt: 0,
+  heartbeatAt: null,
   repoRoot: '/repo',
   stage: 'reviewing',
   entry: { kind: 'workingTree' },

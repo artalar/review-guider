@@ -82,17 +82,67 @@ export async function listRefs(
 }
 
 /**
- * Repo-level session lock (ADR 0002 D5). `value` is recorded in the journal so
- * the release is itself a compare-and-swap and cannot clobber another owner.
+ * Repo-level session lock (ADR 0002 D5).
+ *
+ * The lock names its owner: the value is derived from the `sessionId`, so the
+ * release is a compare-and-swap that actually distinguishes owners. It used to
+ * be the HEAD commit sha, which two windows at the same HEAD both compute, so
+ * either could delete the other's lock.
+ *
+ * A ref can only point at an object, so the id travels as a blob and the ref
+ * points at that blob. Content addressing is what makes it work: the release
+ * and the ownership check recompute the value they compare against instead of
+ * trusting the ref they are about to act on.
  */
-export async function acquireLock(repoRoot: string, value: string, options: GitOptions = {}): Promise<boolean> {
-  return await createRefIfAbsent(repoRoot, LOCK_REF, value, options)
+const LOCK_PAYLOAD_PREFIX = 'guide-reviewer-lock:'
+
+async function lockObject(
+  repoRoot: string,
+  sessionId: string,
+  write: boolean,
+  options: GitOptions,
+): Promise<string | null> {
+  const args = write
+    ? ['hash-object', '-t', 'blob', '-w', '--stdin']
+    : ['hash-object', '-t', 'blob', '--stdin']
+  const result = await tryGit(repoRoot, args, { ...options, stdin: LOCK_PAYLOAD_PREFIX + sessionId })
+  const sha = result.stdout.trim()
+  return result.code === 0 && sha !== '' ? sha : null
 }
 
-export async function releaseLock(repoRoot: string, value: string, options: GitOptions = {}): Promise<boolean> {
-  return await deleteRef(repoRoot, LOCK_REF, value, options)
+export async function acquireLock(repoRoot: string, sessionId: string, options: GitOptions = {}): Promise<boolean> {
+  const object = await lockObject(repoRoot, sessionId, true, options)
+  if (object === null)
+    return false
+  return await createRefIfAbsent(repoRoot, LOCK_REF, object, options)
 }
 
+/** Releases the lock only if this session still owns it. */
+export async function releaseLock(repoRoot: string, sessionId: string, options: GitOptions = {}): Promise<boolean> {
+  const object = await lockObject(repoRoot, sessionId, false, options)
+  if (object !== null && await deleteRef(repoRoot, LOCK_REF, object, options))
+    return true
+
+  // A token written before the lock named its owner recorded the ref value
+  // itself. Releasing one of those is still a compare-and-swap, on the old value.
+  return await deleteRef(repoRoot, LOCK_REF, sessionId, options)
+}
+
+/**
+ * The session id holding the lock, or `null` when the repository is free.
+ *
+ * A lock this extension did not write — the stale-lock drill points the ref at
+ * HEAD by hand — reports its raw object name instead, because "held by
+ * something" is still the honest answer to "is this repository locked?".
+ */
 export async function readLock(repoRoot: string, options: GitOptions = {}): Promise<string | null> {
-  return await resolveRef(repoRoot, LOCK_REF, options)
+  const object = await resolveRef(repoRoot, LOCK_REF, options)
+  if (object === null)
+    return null
+
+  const payload = await tryGit(repoRoot, ['cat-file', 'blob', object], options)
+  const text = payload.stdout.trim()
+  return payload.code === 0 && text.startsWith(LOCK_PAYLOAD_PREFIX)
+    ? text.slice(LOCK_PAYLOAD_PREFIX.length)
+    : object
 }
