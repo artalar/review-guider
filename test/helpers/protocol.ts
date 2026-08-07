@@ -3,7 +3,6 @@ import type { StorePort } from '../../src/model/ports'
 import type { TmpRepo } from './tmp-repo'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { expect } from 'vitest'
 import { readHeadPosition } from '../../src/git/isolate'
 import { advanceStage, persistToken, stashMessageFor } from '../../src/git/journal'
 import { acquireLock, afterRefName, backupRefName, writeRef } from '../../src/git/refs'
@@ -14,22 +13,41 @@ import { memoryStore } from '../../src/model/ports'
 /**
  * Drives the isolation protocol by hand, stopping at a chosen journal stage.
  *
- * This is the crash matrix: the journal stage is written *before* its
- * operation, so a token that stopped at stage X means at most X happened. Every
- * one of those states must restore byte-identically, and no process needs to be
- * killed to produce them.
+ * This is the crash matrix. The journal records a stage *before* the operation
+ * it names, so a token found at stage X means at most X happened — and every
+ * one of those states has to restore byte-identically. Reproducing them by
+ * hand rather than by killing a process keeps the matrix deterministic and
+ * keeps test-only hooks out of `isolate`.
  */
+
+/** An operation the journal announced but the crash cut off. */
+export type SkippedStep = 'stash-push' | 'backup-ref' | 'checkout'
+
+export interface CrashPoint {
+  readonly sessionId?: string
+  /** Revision to detach at, mirroring a commit or range entry. */
+  readonly checkout?: string | null
+  readonly skip?: readonly SkippedStep[]
+}
+
+export interface CrashState {
+  readonly token: SessionToken
+  readonly store: StorePort
+}
+
 export async function isolateUpTo(
   repo: TmpRepo,
   stage: IsolationStage,
-  args: { readonly sessionId?: string, readonly checkout?: string | null } = {},
-): Promise<{ token: SessionToken, store: StorePort }> {
-  const sessionId = args.sessionId ?? 'crashtest'
+  point: CrashPoint = {},
+): Promise<CrashState> {
+  const sessionId = point.sessionId ?? 'crashtest'
+  const skipped = new Set<SkippedStep>(point.skip ?? [])
   const store = memoryStore()
   const headBefore = await readHeadPosition(repo.root)
   const lockValue = (await repo.git('rev-parse', 'HEAD')).trim()
 
-  expect(await acquireLock(repo.root, lockValue)).toBe(true)
+  if (!await acquireLock(repo.root, lockValue))
+    throw new Error('the crash fixture could not take the repository lock')
 
   let token: SessionToken = {
     v: 1,
@@ -66,17 +84,19 @@ export async function isolateUpTo(
     return { token, store }
 
   token = await advanceStage(store, { ...token, stashMessage: stashMessageFor(sessionId) }, 'stashed')
-  const push = await stashPush(repo.root, { message: stashMessageFor(sessionId), includeUntracked: true })
-  if (push.sha !== null) {
-    await writeRef(repo.root, backupRefName(sessionId), push.sha)
-    token = await persistToken(store, { ...token, backupRef: backupRefName(sessionId), backupCommit: push.sha })
+  if (!skipped.has('stash-push')) {
+    const push = await stashPush(repo.root, { message: stashMessageFor(sessionId), includeUntracked: true })
+    if (push.sha !== null && !skipped.has('backup-ref')) {
+      await writeRef(repo.root, backupRefName(sessionId), push.sha)
+      token = await persistToken(store, { ...token, backupRef: backupRefName(sessionId), backupCommit: push.sha })
+    }
   }
   if (stage === 'stashed')
     return { token, store }
 
-  const checkout = args.checkout ?? null
+  const checkout = point.checkout ?? null
   token = await advanceStage(store, { ...token, checkedOut: checkout }, 'checkedout')
-  if (checkout !== null)
+  if (checkout !== null && !skipped.has('checkout'))
     await repo.git('checkout', '--detach', checkout)
   if (stage === 'checkedout')
     return { token, store }
@@ -101,7 +121,7 @@ export async function readTree(repo: TmpRepo, rev: string): Promise<Map<string, 
 
 /** Tracked and untracked working-tree content, as the capture should record it. */
 export async function readWorkingFiles(repo: TmpRepo): Promise<Map<string, { executable: boolean, content: string }>> {
-  const list = (raw: string) => raw.split('\0').filter(entry => entry !== '')
+  const list = (raw: string): string[] => raw.split('\0').filter(entry => entry !== '')
   const tracked = list(await repo.git('ls-files', '-z'))
   const untracked = list(await repo.git('ls-files', '--others', '--exclude-standard', '-z'))
 
