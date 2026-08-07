@@ -271,13 +271,28 @@ export interface StartRequest {
   readonly entry: ReviewTarget
 }
 
+interface StartFailure {
+  readonly error: unknown
+  /** Isolation that already existed when the failed start began. */
+  readonly inherited: IsolationHandle | null
+}
+
 /**
  * Every failed start ends here: it unwinds whatever `isolate` managed to do and
  * puts the machine back in a state the user can act from. A failed start must
  * leave the tree exactly as it was found.
  */
-const startFailed = action(async (error: unknown): Promise<void> => {
+const startFailed = action(async ({ error, inherited }: StartFailure): Promise<void> => {
   const handle = peek(isolation)
+
+  // A start refused before it touched anything — a second Start while a review
+  // is running, say — must leave the running session completely alone. Undoing
+  // someone else's isolation would be the worst possible response to "no".
+  if (handle !== null && handle === inherited) {
+    if (!isAbort(error))
+      await wrap(peek(ports).ui.notify('error', describeStartFailure(error)))
+    return
+  }
 
   if (error instanceof IsolationBlockedError) {
     // `isolate` already tried to undo itself and could not. Everything is kept.
@@ -314,18 +329,24 @@ const startFailed = action(async (error: unknown): Promise<void> => {
 
 export const startSession = action(async (request: StartRequest): Promise<Session> => {
   // Attach failure handling once, at the top; the happy path below stays flat.
-  framePromise().catch(error => startFailed(error))
+  const inherited = peek(isolation)
+  framePromise().catch(error => startFailed({ error, inherited }))
 
   if (peek(sessionStatus) !== 'idle')
     throw new SessionAlreadyActiveError(peek(sessionStatus))
-  if (peek(recoveryPending))
-    throw new RecoveryPendingError()
 
   const capability = await wrap(gitCapability())
   if (capability === null || !capability.ok)
     throw new GitUnavailableError(capability)
 
   const { repoRoot } = capability
+
+  // Read the journal itself rather than `recoveryPending`, whose cached value
+  // is only as fresh as its last subscriber. A gate that stands between the
+  // user and an unrestored backup cannot depend on someone being subscribed.
+  if (isRecoverable(await wrap(peek(ports).store.readToken(repoRoot))))
+    throw new RecoveryPendingError()
+
   const signal = abortVar.require().signal
   const includeUntracked = peek(stashIncludeUntracked)
 
@@ -339,9 +360,15 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
   // Confirmation as a reactive event rather than a callback: the bridge renders
   // `preflight.request` as a modal and calls `preflight.answer`. Declining
   // aborts the whole frame, so nothing below runs and there is nothing to undo.
+  //
+  // The abort is thrown *after* the take, never from its selector: a selector
+  // that throws an abort only means "not this value, keep waiting", which would
+  // leave a declined pre-flight hanging forever.
   preflightRequest.set(plan.preflight)
-  await wrap(take(preflightAnswer, approved => approved || throwAbort(), 'preflightApproval'))
+  const approved = await wrap(take(preflightAnswer, 'preflightApproval'))
   preflightRequest.set(null)
+  if (!approved)
+    throwAbort()
 
   sessionStatus.to('stashing')
   const id = peek(ports).clock.sessionId()
@@ -360,7 +387,7 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
   isolation.set(handle)
   recoveryEpoch.set(value => value + 1)
 
-  const built = await wrap(peek(guideSource)({
+  const built = await wrap(peek(guideSource).build({
     repoRoot,
     baseRev: handle.baseRev,
     afterRev: handle.afterRev,

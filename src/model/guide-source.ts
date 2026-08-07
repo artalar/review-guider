@@ -79,5 +79,14 @@ export const stubGuideSource: GuideSource = async (request) => {
   }
 }
 
-/** Written once by the guide engine at import time; read by `session.start`. */
-export const guideSource = atom<GuideSource>(stubGuideSource, 'guide.source')
+/**
+ * Written once by the guide engine at import time; read by `session.start`.
+ *
+ * Boxed in an object because `atom(fn)` is the `computed` overload — storing a
+ * bare function would make Reatom call it as a derivation instead of holding it
+ * as state.
+ */
+export const guideSource = atom<{ readonly build: GuideSource }>(
+  { build: stubGuideSource },
+  'guide.source',
+)
