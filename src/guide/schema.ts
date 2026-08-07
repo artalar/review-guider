@@ -114,6 +114,30 @@ const DEFAULTS_KEYS: readonly string[] = ['mergeStrategy', 'maxLinesPerStep']
 const FILE_OVERRIDE_KEYS: readonly string[] = ['significance', 'rationale']
 const GENERATOR_KEYS: readonly string[] = ['name', 'version', 'model']
 
+/**
+ * Everything this reader recognises, in one place, so the published JSON Schema
+ * can be diffed against it instead of reviewed against it (guide-schema.md §4).
+ * Anything outside these sets is an `unknown-field` diagnostic, not an error.
+ */
+export const KNOWN_FIELDS = {
+  $: TOP_LEVEL_KEYS,
+  step: STEP_KEYS,
+  range: RANGE_KEYS,
+  scope: SCOPE_KEYS,
+  defaults: DEFAULTS_KEYS,
+  fileOverride: FILE_OVERRIDE_KEYS,
+  generator: GENERATOR_KEYS,
+} as const
+
+/** The values each closed enum accepts, likewise for schema comparison. */
+export const ENUM_VALUES = {
+  significance: SIGNIFICANCES,
+  grouping: GROUPINGS,
+  scopeKind: SCOPE_KINDS,
+  side: ['new', 'old'],
+  mergeStrategy: ['merge', 'replace'],
+} as const satisfies Readonly<Record<string, readonly string[]>>
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

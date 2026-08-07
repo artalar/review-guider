@@ -11,7 +11,7 @@ Write one whenever you hand a non-trivial change to a human. Skip it for a one-f
 
 ## Contract
 
-- **Schema (normative):** `work-docs/architecture/guide-schema.md` in this repo; canonical `$schema` URL is `https://guide-reviewer.dev/schema/guide-v1.json`.
+- **Schema (normative):** `schema/guide-v1.json` in this repo — JSON Schema draft 2020-12, validate against it directly. Prose and merge semantics: `work-docs/architecture/guide-schema.md`. Canonical `$schema` URL is `https://guide-reviewer.dev/schema/guide-v1.json`; the copy that resolves today is `https://raw.githubusercontent.com/artalar/review-guider/main/schema/guide-v1.json`.
 - **Pedagogy and worked examples:** `work-docs/guides/agent-guide-authoring.md`.
 - **Location:** `.guide.json` at the repo root (or the path in `guideReviewer.guideFile`).
 - **Guarantee you rely on:** a broken guide never breaks a session — the extension falls back to its offline heuristic and shows one warning. Which means nobody will tell the user your guide was wrong. Validate it yourself.
@@ -36,7 +36,7 @@ Write one whenever you hand a non-trivial change to a human. Skip it for a one-f
    ```
 
    Prefix with `sha256:`. Normalize CRLF to LF and exactly one trailing newline first.
-6. Validate against the JSON Schema and run the checklist at the bottom.
+6. Validate against `schema/guide-v1.json` and run the checklist at the bottom.
 
 ## Minimal valid document
 
@@ -146,5 +146,5 @@ A step with no `ranges` claims every unclaimed change in its file. This is the d
 - Every rationale would become false if its step moved. (If not, it describes content, not position.)
 - 8–25 steps; at most three `critical`; generated files demoted.
 - Every `path` appears in the actual patch; `id`s unique; `order` sparse; `dependsOn` acyclic.
-- Validates against the schema.
+- Validates against `schema/guide-v1.json`.
 - **The real test:** could someone who read only your guide explain this change correctly, without scrolling the diff?

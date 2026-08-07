@@ -69,7 +69,7 @@ If a repository (or the agent that wrote the change) ships a `.guide.json`, its 
 
 Steps can anchor to line ranges, declare dependencies, split a large region across several presses, and mark lockfile churn as `skip` so it stops costing attention without disappearing. A malformed guide can never block a review or hide a line: every failure degrades to the heuristic with one warning.
 
-The full contract is in [`work-docs/architecture/guide-schema.md`](work-docs/architecture/guide-schema.md). If you are writing one — or pointing a coding agent at it — [`work-docs/guides/agent-guide-authoring.md`](work-docs/guides/agent-guide-authoring.md) covers how to order a change well, and [`.agents/skills/guide-reviewer/SKILL.md`](.agents/skills/guide-reviewer/SKILL.md) is the installable short form.
+The JSON Schema is [`schema/guide-v1.json`](schema/guide-v1.json) — point `$schema` at it for editor completion — and the full contract, including the merge rules, is in [`work-docs/architecture/guide-schema.md`](work-docs/architecture/guide-schema.md). If you are writing one — or pointing a coding agent at it — [`work-docs/guides/agent-guide-authoring.md`](work-docs/guides/agent-guide-authoring.md) covers how to order a change well, and [`.agents/skills/guide-reviewer/SKILL.md`](.agents/skills/guide-reviewer/SKILL.md) is the installable short form.
 
 ## Configurations
 
@@ -104,6 +104,7 @@ The full contract is in [`work-docs/architecture/guide-schema.md`](work-docs/arc
 | `guide-reviewer.finish`          | Guide Reviewer: Finish Review                     |
 | `guide-reviewer.cancel`          | Guide Reviewer: Cancel Review                     |
 | `guide-reviewer.restoreBackup`   | Guide Reviewer: Restore from Backup               |
+| `guide-reviewer.discardRecovery` | Guide Reviewer: Forget Pending Restore            |
 | `guide-reviewer.cleanupBackups`  | Guide Reviewer: Clean Up Backups                  |
 
 <!-- commands -->

@@ -356,7 +356,7 @@ Run these against your own document. They are the checks a reviewer would run, a
 - Deletions anchored with `"side": "old"`, or claimed whole-file?
 - `id`s unique, `order` sparse, `dependsOn` acyclic and pointing backwards?
 - `scope.diffDigest` computed with the exact recipe?
-- Validates against the published JSON Schema?
+- Validates against the published JSON Schema, [`schema/guide-v1.json`](../../schema/guide-v1.json)?
 
 **The last one, which subsumes the rest**
 

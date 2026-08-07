@@ -124,107 +124,20 @@ Purely informational. The reader must never branch on it.
 
 ## 4. JSON Schema
 
-Draft 2020-12. Published for editors and agent self-validation; the extension's own validator is hand-rolled and total (no schema library in `src/`, per the plan).
+**The schema is a file: [`schema/guide-v1.json`](../../schema/guide-v1.json).** Draft 2020-12, published for editors and agent self-validation. It is not reproduced here, because a second copy is a copy that goes stale; §3 above is the prose description and the file is the machine-readable one.
 
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://guide-reviewer.dev/schema/guide-v1.json",
-  "title": "Guide Reviewer guide document, version 1",
-  "type": "object",
-  "required": ["version", "steps"],
-  "properties": {
-    "$schema": { "type": "string" },
-    "version": { "const": 1 },
-    "createdAt": { "type": "string", "format": "date-time" },
-    "summary": { "type": "string", "maxLength": 600 },
-    "generator": {
-      "type": "object",
-      "properties": {
-        "name": { "type": "string", "maxLength": 100 },
-        "version": { "type": "string", "maxLength": 50 },
-        "model": { "type": "string", "maxLength": 100 }
-      },
-      "additionalProperties": false
-    },
-    "scope": {
-      "type": "object",
-      "required": ["kind"],
-      "properties": {
-        "kind": { "enum": ["workingTree", "commit", "range"] },
-        "base": { "type": "string", "maxLength": 200 },
-        "head": { "type": "string", "maxLength": 200 },
-        "diffDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
-      },
-      "additionalProperties": false
-    },
-    "defaults": {
-      "type": "object",
-      "properties": {
-        "mergeStrategy": { "enum": ["merge", "replace"], "default": "merge" },
-        "maxLinesPerStep": { "type": "integer", "minimum": 1, "maximum": 500 }
-      },
-      "additionalProperties": false
-    },
-    "files": {
-      "type": "object",
-      "propertyNames": { "type": "string", "maxLength": 400 },
-      "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "significance": { "enum": ["critical", "high", "normal", "low", "skip"] },
-          "rationale": { "type": "string", "maxLength": 120 }
-        },
-        "additionalProperties": false
-      }
-    },
-    "steps": {
-      "type": "array",
-      "maxItems": 500,
-      "items": { "$ref": "#/$defs/step" }
-    }
-  },
-  "additionalProperties": false,
-  "$defs": {
-    "range": {
-      "type": "object",
-      "required": ["start"],
-      "properties": {
-        "start": { "type": "integer", "minimum": 1 },
-        "end": { "type": "integer", "minimum": 1 },
-        "side": { "enum": ["new", "old"], "default": "new" }
-      },
-      "additionalProperties": false
-    },
-    "step": {
-      "type": "object",
-      "required": ["id", "path", "rationale"],
-      "properties": {
-        "id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,64}$" },
-        "path": { "type": "string", "minLength": 1, "maxLength": 400 },
-        "rationale": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "order": { "type": "integer" },
-        "ranges": { "type": "array", "items": { "$ref": "#/$defs/range" }, "maxItems": 50 },
-        "significance": {
-          "enum": ["critical", "high", "normal", "low", "skip"],
-          "default": "normal"
-        },
-        "grouping": {
-          "enum": ["atomic", "split", "mergeWithNext"],
-          "default": "atomic"
-        },
-        "title": { "type": "string", "maxLength": 60 },
-        "notes": { "type": "string", "maxLength": 2000 },
-        "dependsOn": { "type": "array", "items": { "type": "string" }, "maxItems": 20 },
-        "tags": { "type": "array", "items": { "type": "string", "maxLength": 40 }, "maxItems": 10 }
-      },
-      "additionalProperties": false
-    }
-  }
-}
-```
+| Where | Value |
+|-------|-------|
+| Canonical `$id` | `https://guide-reviewer.dev/schema/guide-v1.json` |
+| Resolvable today | `https://raw.githubusercontent.com/artalar/review-guider/main/schema/guide-v1.json` |
+| In this repo | `schema/guide-v1.json` |
 
-Note that `additionalProperties: false` in the published schema is stricter than the reader, which ignores unknown fields (§8). The schema is a linting aid for authors; the reader is lenient on purpose so that a 1.1 document still works in a 1.0 reader.
+The `$id` is frozen with the version and does not change when the hosting does. Until the domain serves it, an author who wants editor completion should point `$schema` at the raw URL or at a repo-relative path; the reader ignores the field either way (§3.1), so nothing about a session depends on which one is used.
+
+Two properties are enforced by `test/unit/published-schema.test.ts` rather than by review:
+
+- **The schema and the hand-rolled reader agree** on required fields, on every enum, and on the set of known properties at each level. The reader is the one that decides whether a session works, so a schema that accepted something the reader rejects would be worse than no schema at all.
+- **`additionalProperties: false` is deliberately stricter than the reader**, which ignores unknown fields (§8). The schema is a linting aid for authors, and telling an author about a typo is its whole job; the reader is lenient on purpose so that a 1.1 document still works in a 1.0 reader.
 
 ---
 
@@ -469,7 +382,7 @@ MVP ships the read path only. This section is the contract track E publishes as 
 1. Make the change.
 2. Produce the patch with the exact command in §7 and compute the digest.
 3. Emit `.guide.json` at the repo root, or update an existing one.
-4. Self-validate against the published JSON Schema. The extension will not tell the user your guide was broken beyond a single warning, so the check is yours to run.
+4. Self-validate against [`schema/guide-v1.json`](../../schema/guide-v1.json). The extension will not tell the user your guide was broken beyond a single warning, so the check is yours to run.
 
 ### 10.2 Rules of thumb
 
