@@ -7,7 +7,15 @@
 
 <!-- configs -->
 
-**No data**
+| Key                                    | Description                                                                                                                  | Type      | Default         |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------- | --------------- |
+| `guideReviewer.showRationale`          | Show the one-line reason each step was ordered where it is (for example "types before callers") in the status bar.           | `boolean` | `true`          |
+| `guideReviewer.reveal.mode`            | How the reviewed change is revealed as you advance through steps.                                                            | `string`  | `"progressive"` |
+| `guideReviewer.guideFile`              | Repository-relative path of the optional guide sidecar that overrides the heuristic step order.                              | `string`  | `".guide.json"` |
+| `guideReviewer.keybinding.useTab`      | Bind Tab to the next review step while a review document is focused. Alt+] and Alt+[ always work regardless of this setting. | `boolean` | `true`          |
+| `guideReviewer.maxLinesPerStep`        | Upper bound on how many low-significance changed lines are coalesced into a single step.                                     | `number`  | `24`            |
+| `guideReviewer.hideFormattingSteps`    | Drop steps whose changes are whitespace or comments only.                                                                    | `boolean` | `false`         |
+| `guideReviewer.stash.includeUntracked` | Include untracked files when isolating the workspace. Ignored files are never included.                                      | `boolean` | `true`          |
 
 <!-- configs -->
 
@@ -15,7 +23,13 @@
 
 <!-- commands -->
 
-**No data**
+| Command                         | Title                                       |
+| ------------------------------- | ------------------------------------------- |
+| `guide-reviewer.start`          | Guide Reviewer: Start Review (Working Tree) |
+| `guide-reviewer.finish`         | Guide Reviewer: Finish Review               |
+| `guide-reviewer.cancel`         | Guide Reviewer: Cancel Review               |
+| `guide-reviewer.restoreBackup`  | Guide Reviewer: Restore from Backup         |
+| `guide-reviewer.cleanupBackups` | Guide Reviewer: Clean Up Backups            |
 
 <!-- commands -->
 
