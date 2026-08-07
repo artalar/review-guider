@@ -23,10 +23,14 @@ Run everything with `pnpm test:ci`. Integration suites shell out to the real `gi
 | `test/unit/import-boundaries.test.ts` | unit | `src/guide`, `src/git`, `src/model` import no `vscode` |
 | `test/unit/guide-purity.test.ts` | unit | The pure layer stays pure, and carries no `any` |
 | `test/unit/{parse-diff,heuristic,render,schema,merge}.test.ts` | unit | Phase 3 guide engine |
+| `test/unit/view.test.ts` | unit | Review document URIs, status-bar composition, the stub-step projection |
+| `test/unit/contributions.test.ts` | unit | `package.json` commands carry `enablement`; the Tab `when` clause matches ADR 0002 D2 term for term, and `alt+]`/`alt+[` stay unconditional |
 | `test/integration/probe.test.ts` | integration | Probe against real repos: clean, dirty, bare, unborn, merging, detached, subdirectory |
 | **`test/integration/stash-roundtrip.test.ts`** | **integration** | **The sacred suite — see §2** |
 | `test/integration/crash-matrix.test.ts` | integration | Recovery from every journal state — see §3 |
 | `test/integration/session-lifecycle.test.ts` | integration | The Reatom lifecycle driving the real protocol — see §4 |
+| `test/integration/entry-points.test.ts` | integration | All three entries against real repos, plus the sidecar read — see §4.1 |
+| `test/integration/reveal-loop.test.ts` | integration | Tab/Shift+Tab over a real diff: monotonic reveal, exact reversal, convergence to the after blob — see §4.2 |
 
 ---
 
@@ -96,6 +100,43 @@ Run everything with `pnpm test:ci`. Integration suites shell out to the real `gi
 | Orphan ref cleanup | Removes stray refs, refuses while a token is outstanding | Pass |
 | Lock held by another window | Refused *before* the pre-flight is shown | Pass |
 | Workspace folder is a subdirectory of the repo | The token is still found — it is keyed on the probed repo root | Pass |
+
+### 4.1 Entry points
+
+`test/integration/entry-points.test.ts` scripts a repository per case and drives the real pipeline — isolate, diff the capture commit, parse, order, merge — so these assert the diff a reviewer would actually walk, not a stub.
+
+| Case | Asserted | Status |
+|------|----------|--------|
+| Working tree | Staged, unstaged and untracked work arrive as one diff | Pass |
+| Working tree, post-stash | The diff comes from the capture commit; the stashed disk is not read | Pass |
+| Single commit | Diffed against its first parent | Pass |
+| Root commit | Diffed against the empty tree rather than erroring | Pass |
+| Merge commit | Diffed against its first parent | Pass |
+| Range `A..B` | Resolved through merge-base; commits only on `A` are excluded | Pass |
+| Range patch text | Byte-identical to `git diff $(git merge-base A B) B` | Pass |
+| Empty diff | Refused before any mutation | Pass |
+| Whitespace-only working tree | Refused, with the whitespace reason rather than "nothing to review" | Pass |
+| Whitespace-only commit | Same refusal on the commit entry | Pass |
+| Revision that does not resolve | Refused, nothing mutated | Pass |
+| Committed `.guide.json` | Step order comes from the sidecar | Pass |
+| Malformed `.guide.json` | Heuristic order, exactly one warning | Pass |
+| Commit picker source | Newest first, merge commits flagged, limit honoured, unborn branch yields an empty list rather than an error | Pass |
+| Range input parsing | `..` and `...` alike; `v1.0..v2.0` keeps its dots; junk is rejected with an explanation | Pass |
+
+### 4.2 Reveal loop
+
+`test/integration/reveal-loop.test.ts` walks the cursor over a real diff and reads the same `ui.reviewViewModel` projection the bridge subscribes to.
+
+| Case | Asserted | Status |
+|------|----------|--------|
+| Advance | Revealed group set grows monotonically; the final document equals the after blob | Pass |
+| Retreat | Shift+Tab restores the previous document exactly, not by undo | Pass |
+| Clamp | No-op at both ends; the end reports "nothing to advance to" so the command can offer Finish | Pass |
+| Highlight | `currentRanges` point at lines the current step actually added | Pass |
+| Multi-file | The active document switches with the step | Pass |
+| Dim mode | Whole change rendered, everything past the cursor marked pending | Pass |
+
+Not covered here, by construction: that VS Code paints what the projection describes. That is §5.4.
 
 ---
 
@@ -171,6 +212,45 @@ Not a product edge row, but a direct consequence of the compare-and-swap lock (A
 
 **Status:** ☐ not yet run.
 
+### 5.4 Keybinding conflict matrix
+
+Plan P0-11's test gate, and the only way to falsify [R1](./plan.md#r1--tab-keybinding-conflicts). `test/unit/contributions.test.ts` asserts the `when` clause is *written* correctly; nothing but a keyboard can prove VS Code resolves it the way we read it.
+
+Start any review, then for each row put the editor in that state and press <kbd>Tab</kbd>.
+
+| Focus / state | Expected |
+|---------------|----------|
+| Review document, nothing else open | Advances one step |
+| Review document, IntelliSense list open | Accepts the suggestion — Guide Reviewer does not advance |
+| Review document, inline (ghost-text) suggestion showing | Accepts the suggestion |
+| Review document, snippet placeholder active | Jumps to the next placeholder |
+| Review document, rename box or parameter hints open | The widget consumes Tab |
+| Review document, text selected | Advances one step (a read-only document has no indent semantics to protect) |
+| Review document, `editor.tabMovesFocus` on | Moves focus — accessibility wins over the binding |
+| Review document, screen-reader / accessibility mode on | Moves focus |
+| A normal source file, session active | Inserts a tab or indents, exactly as usual |
+| Terminal, session active | Terminal handles it |
+| Any tree view, search box, or the Command Palette | The widget handles it |
+| `guideReviewer.keybinding.useTab: false`, review document | Nothing happens; <kbd>Alt</kbd>+<kbd>]</kbd> still advances |
+| <kbd>Alt</kbd>+<kbd>]</kbd> / <kbd>Alt</kbd>+<kbd>[</kbd> from a normal editor, session active | Advances / retreats |
+| <kbd>Alt</kbd>+<kbd>]</kbd> with no session | Nothing happens |
+
+**Fail conditions:** any row where Guide Reviewer advances while a widget was open, or where a normal editor loses its ordinary Tab behaviour.
+
+**Status:** ☐ not yet run.
+
+### 5.5 Time-to-first-reveal
+
+Product metric from plan Phase 5: **under 3 s on a 500-line diff.** Only the first step is timed — later steps are pure cursor moves and cost nothing.
+
+1. Build a fixture: `git checkout -b bench && <script that touches ~15 files, ~500 changed lines> && git add -A && git commit -m bench`.
+2. Run **Start Review from Commit…** and pick it.
+3. Time from approving the pre-flight to the diff editor showing the first step.
+
+Three of the four costs are git subprocesses — capture, checkout, `readDiff` — and one is `showBlob` for the first file. The parse and ordering pass is pure and small. If this misses, profile the subprocesses before touching the guide engine.
+
+**Status:** ☐ not yet run.
+
 ---
 
 ## 6. Known gaps
@@ -180,6 +260,8 @@ Not a product edge row, but a direct consequence of the compare-and-swap lock (A
 | No command breaks a stale lock | A lock left by a hard crash *and* a lost `globalState` needs `git update-ref -d` by hand | Phase 6 |
 | A foreign edit during a session blocks the restore | Conservative and safe — nothing is dropped — but the user must undo the edit or recover by hand. The alternative is dropping a stash we cannot verify, which is not on the table | Phase 6 / P1-8 drift detection |
 | Shallow-clone fixture | The probe reports `shallow`, but no fixture proves a missing-object failure | Phase 6 |
-| Keybinding conflict matrix | Phase 5 has not landed | Phase 5 |
-| Time-to-first-reveal benchmark | Phase 5 has not landed | Phase 5 |
+| Keybinding conflict matrix | The clause is asserted as text, never as behaviour. Runbook is §5.4 | Phase 6 (human) |
+| Time-to-first-reveal benchmark | Unmeasured. Runbook is §5.5 | Phase 6 (human) |
+| Nothing exercises the VS Code bridge | `src/ui/documents.ts` and the status bar have no host-level test — the model projection they render is covered, the rendering is not | Phase 6, or an `@vscode/test-electron` suite if one is ever worth its weight |
+| Gitignored `.guide.json` on the working-tree entry | `add -A` honours `.gitignore`, so an ignored sidecar is not in the capture commit and is never read. Committing it, or not ignoring it, is the workaround | Phase 6 |
 | `git.path` / non-PATH git | The probe reports `git-missing`; the setting is not read yet | Phase 6 |

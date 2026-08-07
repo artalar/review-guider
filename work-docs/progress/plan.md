@@ -244,10 +244,10 @@ Empty or whitespace-only diff (`git diff -w` returns nothing) **blocks start** w
 
 ### Exit criteria
 
-- [ ] All three entries produce a step list on scripted fixture repos
-- [ ] Range output matches `git diff $(git merge-base A B) B` textually
-- [ ] Root commit and merge commit both produce sensible output rather than an error
-- [ ] Empty and whitespace-only diffs are blocked, not started
+- [x] All three entries produce a step list on scripted fixture repos
+- [x] Range output matches `git diff $(git merge-base A B) B` textually
+- [x] Root commit and merge commit both produce sensible output rather than an error
+- [x] Empty and whitespace-only diffs are blocked, not started
 
 ### Test gate
 
@@ -260,6 +260,8 @@ Empty or whitespace-only diff (`git diff -w` returns nothing) **blocks start** w
 **Backlog IDs:** P0-11, P0-12, P0-13, P0-14. **Depends on:** Phases 3 and 4.
 
 ### Prerequisite spike (do this before committing to P0-12)
+
+> **Resolved without a spike.** The Architect's built-document design (overview §7.1, ADR 0002 D1) sidesteps the whole comparison: unrevealed lines are *absent* from a virtual document rather than hidden in a real one, so no API needs to delete lines. `progressive` shipped as the default and `dim` as a fold over the same `LineGroup` data, sharing the provider and the URIs. The table below is kept as the record of what was rejected.
 
 VS Code decorations **cannot delete lines**. There is no supported "hide these ranges" API. The three candidate reveal mechanisms have materially different risk:
 
@@ -307,13 +309,13 @@ No score, no timer, no streak, no "did you get it?" gate, no red/green judgment 
 
 ### Exit criteria
 
-- [ ] Tab advances through ≥10 steps with monotonic visibility on a sample diff (ADR gate)
-- [ ] Shift+Tab retreats without corrupting the revealed set
-- [ ] Tab at the end no-ops and offers Finish
-- [ ] Tab in a normal editor with a session active still does normal Tab things
-- [ ] Status bar `k/n` matches the model at every step
-- [ ] Time-to-first-reveal <3s on a 500-line diff (product metric)
-- [ ] PO UX checklist: zero exam-like elements
+- [x] Tab advances through ≥10 steps with monotonic visibility on a sample diff (ADR gate) — `reveal-loop.test.ts`, three modules, twelve-odd steps, driven by `next()`
+- [x] Shift+Tab retreats without corrupting the revealed set — the previous document is restored byte for byte, not undone
+- [x] Tab at the end no-ops and offers Finish — the no-op is asserted in the model; the toast itself is bridge code with no host test
+- [ ] Tab in a normal editor with a session active still does normal Tab things — **needs a keyboard**, runbook at `test-matrix.md` §5.4
+- [x] Status bar `k/n` matches the model at every step — it is a computed over the same cursor, so there is no path by which it can disagree
+- [ ] Time-to-first-reveal <3s on a 500-line diff (product metric) — **unmeasured**, runbook at `test-matrix.md` §5.5
+- [x] PO UX checklist: zero exam-like elements — no score, timer, streak, or comprehension gate anywhere in the surface
 
 ### Test gate
 
