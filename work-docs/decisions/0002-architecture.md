@@ -1,4 +1,4 @@
-# ADR 0002: Architecture for the Guide Reviewer MVP
+# ADR 0002: Architecture for the Tabthrough MVP
 
 **Status:** Proposed
 **Date:** 2026-08-07
@@ -25,13 +25,13 @@ Nine decisions follow. D1–D3 are the ones the product lives or dies on.
 
 ## D1 — Reveal by progressively rendering a virtual document
 
-**Decision.** Each reviewed file is shown as a native diff between two read-only virtual documents on the `guide-reviewer` scheme: a static *base* document holding the file at the base revision, and a *reveal* document whose content is `renderReveal(baseText, file, revealedGroups)` — a pure fold of the base text plus exactly the line groups revealed so far. Advancing the cursor changes the fold's input; the provider fires `onDidChange` and VS Code re-renders. When the last step is revealed, the reveal document equals the file at the after revision.
+**Decision.** Each reviewed file is shown as a native diff between two read-only virtual documents on the `tabthrough` scheme: a static *base* document holding the file at the base revision, and a *reveal* document whose content is `renderReveal(baseText, file, revealedGroups)` — a pure fold of the base text plus exactly the line groups revealed so far. Advancing the cursor changes the fold's input; the provider fires `onDidChange` and VS Code re-renders. When the last step is revealed, the reveal document equals the file at the after revision.
 
 **Why.** It gives real hiding, not dimming, without writing to disk. Unrevealed lines are absent from the document, so they cannot be read, selected, or copied ahead of time. Because both sides are real documents, the native diff editor supplies gutter markers, syntax highlighting, and navigation for free, and prior-steps-stay-visible is a property of an append-only fold rather than bookkeeping we maintain.
 
 **Alternatives considered.**
 
-*Decorations over the final file (the plan's "dim" default).* Rejected as the primary mechanism because the content is still there — a user can select it, copy it, or simply read the dimmed text. It also fights the diff editor's own colouring. Retained as `guideReviewer.reveal.mode: "dim"`, sharing the same provider, URIs, and `LineGroup` data; only the fold differs. The reversibility the plan asked for is preserved, and the pre-Phase-5 spike shrinks from an architectural fork to a one-file comparison.
+*Decorations over the final file (the plan's "dim" default).* Rejected as the primary mechanism because the content is still there — a user can select it, copy it, or simply read the dimmed text. It also fights the diff editor's own colouring. Retained as `tabthrough.reveal.mode: "dim"`, sharing the same provider, URIs, and `LineGroup` data; only the fold differs. The reversibility the plan asked for is preserved, and the pre-Phase-5 spike shrinks from an architectural fork to a one-file comparison.
 
 *Applying patches progressively to real files.* Rejected. It writes to the working tree during a session whose entire premise is that the working tree is under our protection: it pollutes `git status`, races the user's editor and undo stack, and couples the reveal loop to the stash contract. This is the highest-risk option in the plan's own table, and the virtual-document approach obtains the same "genuinely absent" property without any of it.
 
@@ -41,19 +41,19 @@ Nine decisions follow. D1–D3 are the ones the product lives or dies on.
 
 ## D2 — Tab as the default binding, narrowly scoped, with an unconditional chord
 
-**Decision.** Bind `Tab` to `guide-reviewer.next` with:
+**Decision.** Bind `Tab` to `tabthrough.next` with:
 
 ```
-guideReviewer.sessionActive
-  && resourceScheme == 'guide-reviewer'
+tabthrough.sessionActive
+  && resourceScheme == 'tabthrough'
   && editorTextFocus
   && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode
   && !renameInputVisible && !parameterHintsVisible
   && !accessibilityModeEnabled && !editorTabMovesFocus
-  && config.guideReviewer.keybinding.useTab
+  && config.tabthrough.keybinding.useTab
 ```
 
-`Alt+]` / `Alt+[` are registered unconditionally, gated only on `guideReviewer.sessionActive`. `guideReviewer.keybinding.useTab` turns the Tab binding off entirely.
+`Alt+]` / `Alt+[` are registered unconditionally, gated only on `tabthrough.sessionActive`. `tabthrough.keybinding.useTab` turns the Tab binding off entirely.
 
 **Why.** The `resourceScheme` clause is the structural mitigation: the reveal document is read-only, so Tab has no competing indent, completion, or snippet meaning there, and the binding cannot leak into a normal editor even while a session is active. The remaining clauses cover the widgets that can float above a read-only editor.
 
@@ -71,13 +71,13 @@ Two clauses were added for accessibility: `!accessibilityModeEnabled` and `!edit
 
 **Decision.** Three cooperating pieces:
 
-1. **Capture before mutate.** Before any mutating git command, a temp-index snapshot (`GIT_INDEX_FILE=… read-tree HEAD; add -A; write-tree; commit-tree`) captures tracked modifications *and* untracked files into one immutable commit, anchored at `refs/guide-reviewer/after/<id>`. `add -A` honours `.gitignore`, so ignored files are never swept — the same boundary as `--include-untracked`, and the reason we never approach `git stash --all`.
+1. **Capture before mutate.** Before any mutating git command, a temp-index snapshot (`GIT_INDEX_FILE=… read-tree HEAD; add -A; write-tree; commit-tree`) captures tracked modifications *and* untracked files into one immutable commit, anchored at `refs/tabthrough/after/<id>`. `add -A` honours `.gitignore`, so ignored files are never swept — the same boundary as `--include-untracked`, and the reason we never approach `git stash --all`.
 2. **Journal before act.** A `SessionToken` carrying a `stage` field (`planned → captured → stashed → checkedout → reviewing → restoring → done`) is persisted to `globalState`, keyed by a hash of the repo root, and the stage is always written *before* the operation it names.
-3. **Restore is apply → verify → drop.** Locate the stash entry by message, fall back to `refs/guide-reviewer/backup/<id>` (the stash-shaped commit, which preserves the staged/unstaged split), `git stash apply`, verify against the after-ref tree, and only then `drop` and delete refs. On any mismatch, stop and keep everything.
+3. **Restore is apply → verify → drop.** Locate the stash entry by message, fall back to `refs/tabthrough/backup/<id>` (the stash-shaped commit, which preserves the staged/unstaged split), `git stash apply`, verify against the after-ref tree, and only then `drop` and delete refs. On any mismatch, stop and keep everything.
 
 `globalState` rather than `workspaceState` because a second window on the same repository must be able to see the token, and because it must survive the folder being reopened by a different path.
 
-**Why two refs.** Restore fidelity and content reading are different jobs. A flat tree is the right shape for reading review content (it makes the working-tree entry read exactly like a commit entry), and it is the wrong shape for restoring, because it loses the staged/unstaged distinction and the untracked set. Rather than compromise either, each job gets its own artifact — both ordinary git commits behind ordinary refs, so a user can always recover by hand with `git stash list` and `git for-each-ref refs/guide-reviewer`.
+**Why two refs.** Restore fidelity and content reading are different jobs. A flat tree is the right shape for reading review content (it makes the working-tree entry read exactly like a commit entry), and it is the wrong shape for restoring, because it loses the staged/unstaged distinction and the untracked set. Rather than compromise either, each job gets its own artifact — both ordinary git commits behind ordinary refs, so a user can always recover by hand with `git stash list` and `git for-each-ref refs/tabthrough`.
 
 **Alternatives considered.** *Reatom persistence (`reatomPersist` with a `globalState` adapter).* Rejected: recovery must be readable and actionable *before* the model is meaningfully initialised, and it must not depend on the health of the very state machine that may have crashed. The architect rule "persist a durable token outside Reatom" exists for this reason. *A lockfile or temp directory holding copies.* Rejected: invisible to the user, unrecoverable by hand, and a second thing to keep consistent with git. *`git stash pop`.* Rejected outright — `pop` drops the entry on partial success, which is exactly the case where we most need it to survive.
 
@@ -87,7 +87,7 @@ Two clauses were added for accessibility: `!accessibilityModeEnabled` and `!edit
 
 ## D4 — Every entry point resolves to the same immutable (base, after) commit pair
 
-**Decision.** Working tree → `(HEAD, refs/guide-reviewer/after/<id>)`; single commit `C` → `(C^, C)`; range `A..B` → `(merge-base(A,B), B)`. The working-tree entry is stashed like every other entry when the tree is dirty; its reviewed content is read from the captured after-commit rather than from disk.
+**Decision.** Working tree → `(HEAD, refs/tabthrough/after/<id>)`; single commit `C` → `(C^, C)`; range `A..B` → `(merge-base(A,B), B)`. The working-tree entry is stashed like every other entry when the tree is dirty; its reviewed content is read from the captured after-commit rather than from disk.
 
 **Why.** Downstream code never branches on entry kind: the diff is `base..after`, base blobs come from `cat-file`, and reveal is a fold. It also makes the reviewed content immutable for the session's duration, which removes content drift as a failure mode entirely.
 
@@ -99,7 +99,7 @@ Two clauses were added for accessibility: `!accessibilityModeEnabled` and `!edit
 
 ## D5 — Repo-level session lock via compare-and-swap on a ref
 
-**Decision.** Acquire `refs/guide-reviewer/lock` with `git update-ref refs/guide-reviewer/lock <sha> 0000000000000000000000000000000000000000`. Passing the zero oid as the expected old value makes this an atomic create-if-absent inside git's own ref transaction. Release with `git update-ref -d refs/guide-reviewer/lock <sha>`. Breaking a stale lock is an explicit user action in the recovery UI, never automatic.
+**Decision.** Acquire `refs/tabthrough/lock` with `git update-ref refs/tabthrough/lock <sha> 0000000000000000000000000000000000000000`. Passing the zero oid as the expected old value makes this an atomic create-if-absent inside git's own ref transaction. Release with `git update-ref -d refs/tabthrough/lock <sha>`. Breaking a stale lock is an explicit user action in the recovery UI, never automatic.
 
 **Why.** It is atomic across processes, windows, and even other tools, needs no reasoning about filesystem semantics, works on every supported git version, is inspectable with `git for-each-ref`, and is cleaned by the same command that cleans backups.
 

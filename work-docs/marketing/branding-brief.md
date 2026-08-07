@@ -353,6 +353,12 @@ Approve one:
 
 Do not keep the current three-way identity (`Guide Reviewer` / `guide-reviewer` / `review-guider`) and do not publish first while postponing the decision. **Recommendation: option 1, with 80% confidence that a rename is the right launch decision.**
 
+---
+
+## Decision recorded — 2026-08-07
+
+**Option 1 accepted and applied** (ADR 0003). Package, commands, settings, scheme, refs, README, schema `$id`, and agent skill now use **Tabthrough**. GitHub repository rename to `tabthrough` is owner-side; first-party links already target `https://github.com/artalar/tabthrough`.
+
 ## Research note
 
 Directional web and Marketplace collision scan completed 2026-08-07. Notable conflicts included [Smart Code Review Guide](https://marketplace.visualstudio.com/items?itemName=smart-code-review-guide.smart-code-review-guide), [Diffwalk](https://www.linkedin.com/posts/wrightryan_dialectical-review-reviewers-write-the-tests-activity-7454603401289588737-iU7r), [PatchWise](https://github.com/qualcomm/PatchWise), [Diffwise](https://diffwise.app/), [Hunkwise](https://github.com/molon/hunkwise), and [OwnDiff](https://github.com/owndiff/own-your-diff). Search results are evidence for product differentiation, not legal clearance.

@@ -85,7 +85,7 @@ function accepts(input: unknown): boolean {
 
 describe('the published schema is where it says it is', () => {
   it('carries the frozen $id and declares draft 2020-12', () => {
-    expect(schema.$id).toBe('https://guide-reviewer.dev/schema/guide-v1.json')
+    expect(schema.$id).toBe('https://tabthrough.dev/schema/guide-v1.json')
     expect(schema.$schema).toBe('https://json-schema.org/draft/2020-12/schema')
   })
 
@@ -93,7 +93,7 @@ describe('the published schema is where it says it is', () => {
     const fixture = readGuideFixture('valid.guide.json') as { $schema?: string }
     expect(fixture.$schema).toBe(schema.$id)
 
-    const skill = readFileSync(new URL('.agents/skills/guide-reviewer/SKILL.md', REPO), 'utf8')
+    const skill = readFileSync(new URL('.agents/skills/tabthrough/SKILL.md', REPO), 'utf8')
     expect(skill).toContain(schema.$id)
     expect(skill).toContain('schema/guide-v1.json')
   })
@@ -302,7 +302,7 @@ describe('every document we publish validates against both', () => {
 
   it.each([
     ['architecture/guide-schema.md', 'work-docs/architecture/guide-schema.md'],
-    ['agent skill', '.agents/skills/guide-reviewer/SKILL.md'],
+    ['agent skill', '.agents/skills/tabthrough/SKILL.md'],
     ['agent authoring guide', 'work-docs/guides/agent-guide-authoring.md'],
   ])('the guide documents embedded in %s', (_label, path) => {
     const markdown = readFileSync(new URL(path, REPO), 'utf8')

@@ -444,7 +444,7 @@ describe('recovery', () => {
   })
 
   /**
-   * A repository Guide Reviewer will not start in may still be holding the
+   * A repository Tabthrough will not start in may still be holding the
    * user's work. Keying the journal lookup on a capability that has to be `ok`
    * would drop the reminder precisely when it matters most.
    */

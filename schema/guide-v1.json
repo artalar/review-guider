@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://guide-reviewer.dev/schema/guide-v1.json",
-  "title": "Guide Reviewer guide document, version 1",
+  "$id": "https://tabthrough.dev/schema/guide-v1.json",
+  "title": "Tabthrough guide document, version 1",
   "type": "object",
   "required": ["version", "steps"],
   "properties": {

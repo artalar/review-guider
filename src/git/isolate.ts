@@ -31,7 +31,7 @@ export class RepoLockedError extends Error {
   override readonly name = 'RepoLockedError'
   /** The `sessionId` holding the lock, or a raw ref value for a foreign lock. */
   constructor(readonly owner: string) {
-    super('Another Guide Reviewer session already owns this repository.')
+    super('Another Tabthrough session already owns this repository.')
   }
 }
 
@@ -50,7 +50,7 @@ export class MissingObjectsError extends Error {
   override readonly name = 'MissingObjectsError'
   constructor(readonly rev: string, readonly missing: string) {
     super(
-      `Guide Reviewer cannot read the history before ${rev.slice(0, 8)}: this clone is shallow and commit `
+      `Tabthrough cannot read the history before ${rev.slice(0, 8)}: this clone is shallow and commit `
       + `${missing.slice(0, 8)} was never fetched. Run \`git fetch --unshallow\` (or \`git fetch --deepen 1\`) and try again.`,
     )
   }
@@ -59,7 +59,7 @@ export class MissingObjectsError extends Error {
 export class IsolationBlockedError extends Error {
   override readonly name = 'IsolationBlockedError'
   constructor(readonly outcome: RestoreOutcome, override readonly cause: unknown) {
-    super('Guide Reviewer could not undo a failed start. Your work is preserved.')
+    super('Tabthrough could not undo a failed start. Your work is preserved.')
   }
 }
 
@@ -455,7 +455,7 @@ export async function restoreFromToken(args: RestoreArgs): Promise<RestoreOutcom
 
     if (applyRev === null) {
       if (token.backupCommit === null) {
-        return blocked(token, 'verification-failed', 'The working tree does not match what Guide Reviewer captured, and no stash was ever created.', '')
+        return blocked(token, 'verification-failed', 'The working tree does not match what Tabthrough captured, and no stash was ever created.', '')
       }
       return blocked(token, 'backup-missing', 'The stash entry and the backup ref are both gone.', '')
     }
@@ -484,7 +484,7 @@ export async function restoreFromToken(args: RestoreArgs): Promise<RestoreOutcom
       verification.treeMatches ? 'index-split-mismatch' : 'verification-failed',
       verification.treeMatches
         ? 'Your files are back, but the staged / unstaged split could not be reproduced.'
-        : 'The restored working tree does not match what Guide Reviewer captured.',
+        : 'The restored working tree does not match what Tabthrough captured.',
       '',
     )
   }

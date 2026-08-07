@@ -12,7 +12,7 @@
 
 ## 1. What this is for, and what it is not for
 
-Guide Reviewer has three possible sources of ordering: the offline heuristic (shipped), a checked-in sidecar written by an agent or a human (shipped, read path), and an LLM asked to produce one from the raw diff (this document).
+Tabthrough has three possible sources of ordering: the offline heuristic (shipped), a checked-in sidecar written by an agent or a human (shipped, read path), and an LLM asked to produce one from the raw diff (this document).
 
 The LLM path is the **fill-in for repos with no sidecar** — an existing codebase, a PR from a teammate who does not run agents, a commit from 2023. That is its whole job. It is deliberately third in priority: the sidecar is a portable contract that any agent in any tool can honour, and every guide written that way is one a user does not pay for twice. The LLM covers the long tail the contract has not reached yet.
 
@@ -47,7 +47,7 @@ Ranked. If the release is squeezed, cut from the bottom.
 
 ### Explicitly out of v0.2
 
-- Any hosted service, proxy, or Guide Reviewer API key. BYOK or nothing.
+- Any hosted service, proxy, or Tabthrough API key. BYOK or nothing.
 - Sending file context beyond the patch (surrounding code, repo tree, README, git log). Tempting, materially better, and a much larger privacy surface — revisit with evidence.
 - Multi-turn refinement, "regenerate this step", chat about the change. The product is not a tutor.
 - Streaming partial guides into a live session.
@@ -90,7 +90,7 @@ Then we do not trust it:
 3. **Repair the cheap things** rather than discarding: drop steps whose `path` is not in the patch, drop unknown `dependsOn` edges, clamp over-long strings, deduplicate ids, renumber `order`. All repairs are recorded as diagnostics.
 4. **Reject the expensive things:** wrong `version`, no surviving steps, or a document that fails validation after repair. Fall back to the heuristic.
 5. **Enforce the tone rule.** A rationale ending in `?`, or matching the "make sure you understand / can you spot / try to" family, is stripped to nothing and the step keeps its heuristic rationale. We do not ship an exam because a model felt chatty.
-6. **Merge** through the existing `mergeGuide`, exactly as a sidecar would, with `generator: { name: "guide-reviewer-llm", model: "<model>" }` for provenance.
+6. **Merge** through the existing `mergeGuide`, exactly as a sidecar would, with `generator: { name: "tabthrough-llm", model: "<model>" }` for provenance.
 
 Uncovered lines are still revealed by the heuristic fallback pass. Invariant I1 holds by construction because we reuse the merge, and that is the main reason the output must be the same format.
 
@@ -112,7 +112,7 @@ This is the part that decides whether the feature is used or uninstalled. Get it
 
 Redaction is a courtesy, not a guarantee, and the UI must say so in those terms. Before any request:
 
-- Drop files matching `guideReviewer.llm.excludeGlobs` (default includes `.env*`, `*.pem`, `*.key`, `**/secrets/**`).
+- Drop files matching `tabthrough.llm.excludeGlobs` (default includes `.env*`, `*.pem`, `*.key`, `**/secrets/**`).
 - Mask high-confidence secret patterns in the remaining patch text.
 - `.gitignore` is already honoured upstream — ignored files are never in the diff, because the snapshot uses `add -A`.
 - Show the count of excluded files on the consent screen. Silent exclusion is its own trust problem.
@@ -122,8 +122,8 @@ Redaction is a courtesy, not a guarantee, and the UI must say so in those terms.
 - The API key lives in `SecretStorage`. It is never written to settings, never logged, never included in a diagnostics bundle.
 - The output channel logs request metadata — host, model, token counts, latency, outcome — and never request or response bodies.
 - No telemetry on this path in v0.2. Not even counts. P2-4 covers telemetry and it will be opt-in and content-free when it lands.
-- `guideReviewer.llm.enabled` defaults to `false`, and with it false the extension makes no network call of any kind. That is the auditable claim: "off means no traffic".
-- Cached responses live in `globalState` keyed by diff digest, hold only the generated guide document, and are cleared by `Guide Reviewer: Clean up backups`.
+- `tabthrough.llm.enabled` defaults to `false`, and with it false the extension makes no network call of any kind. That is the auditable claim: "off means no traffic".
+- Cached responses live in `globalState` keyed by diff digest, hold only the generated guide document, and are cleared by `Tabthrough: Clean up backups`.
 
 ---
 
@@ -132,7 +132,7 @@ Redaction is a courtesy, not a guarantee, and the UI must say so in those terms.
 The whole flow, in the shape the product's principles demand:
 
 1. Start a session as usual. **The heuristic guide is built first, always**, and the session is fully usable before any LLM question is asked.
-2. If no sidecar was found and `guideReviewer.llm.enabled` is true, the status bar offers a quiet affordance: *"Generate a guide with <model>"*. Not a modal. Not a blocker. The user may just start pressing Tab.
+2. If no sidecar was found and `tabthrough.llm.enabled` is true, the status bar offers a quiet affordance: *"Generate a guide with <model>"*. Not a modal. Not a blocker. The user may just start pressing Tab.
 3. Clicking it opens the consent screen (§5.1).
 4. On confirm: a cancellable progress notification. Tab still works on the heuristic guide the whole time — **the generation never freezes the review**.
 5. On success the guide swaps in, the cursor resets to step one with a short explanation of why the order changed, and a "Save as `.guide.json`" action appears.
@@ -175,15 +175,15 @@ Proposed, for the Architect to finalise against the settings table in `architect
 
 | Setting | Type | Default |
 |---|---|---|
-| `guideReviewer.llm.enabled` | boolean | `false` |
-| `guideReviewer.llm.baseUrl` | string | `https://api.openai.com/v1` |
-| `guideReviewer.llm.model` | string | `""` (required when enabled) |
-| `guideReviewer.llm.maxInputTokens` | number | `40000` |
-| `guideReviewer.llm.timeoutMs` | number | `60000` |
-| `guideReviewer.llm.excludeGlobs` | string[] | `[".env*", "*.pem", "*.key", "**/secrets/**"]` |
-| `guideReviewer.llm.rememberConsentPerWorkspace` | boolean | `false` |
+| `tabthrough.llm.enabled` | boolean | `false` |
+| `tabthrough.llm.baseUrl` | string | `https://api.openai.com/v1` |
+| `tabthrough.llm.model` | string | `""` (required when enabled) |
+| `tabthrough.llm.maxInputTokens` | number | `40000` |
+| `tabthrough.llm.timeoutMs` | number | `60000` |
+| `tabthrough.llm.excludeGlobs` | string[] | `[".env*", "*.pem", "*.key", "**/secrets/**"]` |
+| `tabthrough.llm.rememberConsentPerWorkspace` | boolean | `false` |
 
-The key itself is not a setting. `Guide Reviewer: Set API key` writes to `SecretStorage`; `Guide Reviewer: Clear API key` removes it.
+The key itself is not a setting. `Tabthrough: Set API key` writes to `SecretStorage`; `Tabthrough: Clear API key` removes it.
 
 ---
 

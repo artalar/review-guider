@@ -30,7 +30,7 @@ const BASE: SessionToken = {
   entry: { kind: 'workingTree' },
   headBefore: { kind: 'branch', name: 'main' },
   lockValue: 'deadbeef',
-  afterRef: 'refs/guide-reviewer/after/abc',
+  afterRef: 'refs/tabthrough/after/abc',
   afterCommit: null,
   afterTree: null,
   statusDigest: null,
@@ -166,14 +166,14 @@ describe('repoKey', () => {
 
 describe('stashMessageFor', () => {
   it('scopes the message so no other tool can collide with it', () => {
-    expect(stashMessageFor('s1')).toBe('guide-reviewer:s1')
+    expect(stashMessageFor('s1')).toBe('tabthrough:s1')
     expect(stashMessageFor('s1')).not.toBe(stashMessageFor('s2'))
   })
 })
 
 describe('parseToken', () => {
   it('round-trips a token through JSON', () => {
-    const token: SessionToken = { ...BASE, stage: 'stashed', afterCommit: 'aaa', stashMessage: 'guide-reviewer:abc' }
+    const token: SessionToken = { ...BASE, stage: 'stashed', afterCommit: 'aaa', stashMessage: 'tabthrough:abc' }
     expect(parseToken(JSON.parse(JSON.stringify(token)))).toEqual(token)
   })
 

@@ -17,10 +17,10 @@ import { readStatus } from './probe'
  */
 
 const IDENTITY: Readonly<Record<string, string>> = {
-  GIT_AUTHOR_NAME: 'Guide Reviewer',
-  GIT_AUTHOR_EMAIL: 'guide-reviewer@localhost',
-  GIT_COMMITTER_NAME: 'Guide Reviewer',
-  GIT_COMMITTER_EMAIL: 'guide-reviewer@localhost',
+  GIT_AUTHOR_NAME: 'Tabthrough',
+  GIT_AUTHOR_EMAIL: 'tabthrough@localhost',
+  GIT_COMMITTER_NAME: 'Tabthrough',
+  GIT_COMMITTER_EMAIL: 'tabthrough@localhost',
 }
 
 export interface WorkingStateCapture {
@@ -36,7 +36,7 @@ export interface WorkingStateCapture {
  * verification.
  */
 export async function writeWorkingTree(repoRoot: string, options: GitOptions = {}): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'guide-reviewer-'))
+  const dir = await mkdtemp(join(tmpdir(), 'tabthrough-'))
   const env = { GIT_INDEX_FILE: join(dir, 'index') }
   try {
     await runGit(repoRoot, ['read-tree', 'HEAD'], { ...options, env })
@@ -57,7 +57,7 @@ export async function captureWorkingState(
   const tree = await writeWorkingTree(repoRoot, options)
   const commit = (await runGit(
     repoRoot,
-    ['commit-tree', tree, '-p', 'HEAD', '-m', `guide-reviewer after ${sessionId}`],
+    ['commit-tree', tree, '-p', 'HEAD', '-m', `tabthrough after ${sessionId}`],
     { ...options, env: IDENTITY },
   )).trim()
   return { tree, commit }

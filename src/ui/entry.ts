@@ -48,7 +48,7 @@ export async function pickCommitEntry(): Promise<ReviewTarget | null> {
   const items: CommitItem[] = [{ label: TYPE_A_REF, alwaysShow: true }, ...commits.map(toItem)]
 
   const picked = await wrap(window.showQuickPick(items, {
-    title: 'Guide Reviewer: Review a Commit',
+    title: 'Tabthrough: Review a Commit',
     placeHolder: commits.length === 0
       ? 'No history yet — enter a commit, tag, or ref'
       : 'Pick a commit to review against its first parent',
@@ -61,7 +61,7 @@ export async function pickCommitEntry(): Promise<ReviewTarget | null> {
     return { kind: 'commit', rev: picked.rev }
 
   const typed = await wrap(window.showInputBox({
-    title: 'Guide Reviewer: Review a Commit',
+    title: 'Tabthrough: Review a Commit',
     prompt: 'Commit SHA, tag, or ref. A root commit is reviewed against the empty tree; a merge against its first parent.',
     placeHolder: 'HEAD~1',
     validateInput: value => (value.trim() === '' ? 'Enter a commit, tag, or ref.' : undefined),
@@ -72,7 +72,7 @@ export async function pickCommitEntry(): Promise<ReviewTarget | null> {
 
 export async function promptRangeEntry(): Promise<ReviewTarget | null> {
   const raw = await wrap(window.showInputBox({
-    title: 'Guide Reviewer: Review a Commit Range',
+    title: 'Tabthrough: Review a Commit Range',
     prompt: 'A..B and A...B both review B against merge-base(A, B), so commits only on A are excluded.',
     placeHolder: 'main..HEAD',
     validateInput: value => rangeInputError(value) ?? undefined,

@@ -88,7 +88,7 @@ function isAtLeast(actual: readonly [number, number, number], min: readonly [num
 const BARE_REPO: GitCapabilityFail = {
   ok: false,
   reason: 'bare-repo',
-  message: 'Guide Reviewer needs a repository with a working tree.',
+  message: 'Tabthrough needs a repository with a working tree.',
   hint: 'Bare repositories have nothing to isolate or restore.',
 }
 
@@ -123,7 +123,7 @@ export async function probeGit(root: string, options: ProbeOptions = {}): Promis
       return {
         ok: false,
         reason: 'git-missing',
-        message: 'Guide Reviewer needs `git` on your PATH.',
+        message: 'Tabthrough needs `git` on your PATH.',
         hint: 'Install git, or set `git.path` in your VS Code settings.',
       }
     }
@@ -135,7 +135,7 @@ export async function probeGit(root: string, options: ProbeOptions = {}): Promis
     return {
       ok: false,
       reason: 'git-too-old',
-      message: `Guide Reviewer needs git ${MIN_GIT_VERSION.join('.')} or newer, found ${parsed.join('.')}.`,
+      message: `Tabthrough needs git ${MIN_GIT_VERSION.join('.')} or newer, found ${parsed.join('.')}.`,
       hint: 'Upgrade git and reload the window.',
     }
   }
@@ -176,7 +176,7 @@ export async function probeGit(root: string, options: ProbeOptions = {}): Promis
       ok: false,
       reason: 'rebase-or-merge-in-progress',
       message: `Finish or abort ${IN_PROGRESS_LABEL[inProgress] ?? 'the operation'} in progress first.`,
-      hint: 'Guide Reviewer refuses to stash on top of an unfinished git operation.',
+      hint: 'Tabthrough refuses to stash on top of an unfinished git operation.',
       repoRoot,
     }
   }
@@ -188,7 +188,7 @@ export async function probeGit(root: string, options: ProbeOptions = {}): Promis
       ok: false,
       reason: 'unborn-head',
       message: 'This repository has no commits yet.',
-      hint: 'Make a first commit — Guide Reviewer anchors every backup to HEAD.',
+      hint: 'Make a first commit — Tabthrough anchors every backup to HEAD.',
       repoRoot,
     }
   }

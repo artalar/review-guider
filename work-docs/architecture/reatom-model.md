@@ -1,4 +1,4 @@
-# Guide Reviewer — Reatom Session Model
+# Tabthrough — Reatom Session Model
 
 **Version:** 1.0 (MVP / v0.1)
 **Owner:** Architect
@@ -49,7 +49,7 @@ recovery.epoch               atom<number>
 recovery.token               computed + withAsyncData            persisted SessionToken via StorePort
 recovery.pending             computed<boolean>
 recovery.liveElsewhere       computed<boolean>                   fresh heartbeat = another window is reviewing
-recovery.orphanRefs          computed + withAsyncData            refs/guide-reviewer/** with no token
+recovery.orphanRefs          computed + withAsyncData            refs/tabthrough/** with no token
 recovery.restore             action + withAsync({status}) + withAbort('first-in-win')
 recovery.discard             action + withAsync
 session.heartbeat            action + withAsync                  stamps heartbeatAt while active
@@ -126,7 +126,7 @@ export const gitCapability = computed(async (): Promise<GitCapability | null> =>
     gitWatchToken()
 
   if (!root)
-    return { ok: false, reason: 'no-workspace', message: 'Open a folder to use Guide Reviewer.' }
+    return { ok: false, reason: 'no-workspace', message: 'Open a folder to use Tabthrough.' }
 
   return await wrap(probeGit(root, { signal: abortVar.require().signal }))
 }, 'git.capability').extend(withAsyncData({ initState: null }))
@@ -208,7 +208,7 @@ export interface SessionInit {
   readonly repoRoot: string
   readonly entry: ReviewTarget
   readonly baseRev: string        // immutable commit
-  readonly afterRev: string       // immutable commit (a real commit, or refs/guide-reviewer/after/<id>)
+  readonly afterRev: string       // immutable commit (a real commit, or refs/tabthrough/after/<id>)
   readonly handle: IsolationHandle
   readonly diff: ReviewDiff
   readonly guide: Guide           // frozen; never mutated after construction
@@ -554,7 +554,7 @@ export const discardRecovery = action(async () => {
 
 `discardRecovery` forgets a reminder; it never destroys a backup. Deleting refs is a separate, explicitly named command.
 
-**Liveness (review 001 M2).** The journal is in `globalState` so a second window can see it, which also means a second window sees a *running* session's token and used to offer to restore it. `recovery.liveElsewhere` is `isSessionLive(recoveryToken.data(), now)` and false whenever this window's own `sessionStatus` is not `idle` — the owning window must never diagnose itself as somebody else. `recoverBackup` refuses on it with an info notice, and `checkRecoveryOnActivate` says *"A Guide Reviewer session is active in another window"* instead of raising the crash modal. The other half is `session.heartbeat`, an `action + withAsync` that rewrites `heartbeatAt` on the token this window owns; the bridge ticks it from an `effect` created at activation (`bindSessionHeartbeat`), never from module scope, and only while the status is `active`.
+**Liveness (review 001 M2).** The journal is in `globalState` so a second window can see it, which also means a second window sees a *running* session's token and used to offer to restore it. `recovery.liveElsewhere` is `isSessionLive(recoveryToken.data(), now)` and false whenever this window's own `sessionStatus` is not `idle` — the owning window must never diagnose itself as somebody else. `recoverBackup` refuses on it with an info notice, and `checkRecoveryOnActivate` says *"A Tabthrough session is active in another window"* instead of raising the crash modal. The other half is `session.heartbeat`, an `action + withAsync` that rewrites `heartbeatAt` on the token this window owns; the bridge ticks it from an `effect` created at activation (`bindSessionHeartbeat`), never from module scope, and only while the status is `active`.
 
 ### 6.5 Gating
 
@@ -730,26 +730,26 @@ import { useCommands } from 'reactive-vscode'
 
 export function useGuideCommands() {
   useCommands({
-    'guide-reviewer.start': wrap(async () => {
+    'tabthrough.start': wrap(async () => {
       const entry = await wrap(pickWorkingTreeEntry())
       if (entry)
         await wrap(startSession({ entry }))
     }),
-    'guide-reviewer.startFromCommit': wrap(async () => {
+    'tabthrough.startFromCommit': wrap(async () => {
       const entry = await wrap(pickCommit())
       if (entry)
         await wrap(startSession({ entry }))
     }),
-    'guide-reviewer.startFromRange': wrap(async () => {
+    'tabthrough.startFromRange': wrap(async () => {
       const entry = await wrap(promptRange())
       if (entry)
         await wrap(startSession({ entry }))
     }),
-    'guide-reviewer.next': wrap(() => { peek(session)?.next() }),
-    'guide-reviewer.previous': wrap(() => { peek(session)?.prev() }),
-    'guide-reviewer.finish': wrap(() => finishSession()),
-    'guide-reviewer.cancel': wrap(() => cancelSession('cancel')),
-    'guide-reviewer.restoreBackup': wrap(() => recoverBackup()),
+    'tabthrough.next': wrap(() => { peek(session)?.next() }),
+    'tabthrough.previous': wrap(() => { peek(session)?.prev() }),
+    'tabthrough.finish': wrap(() => finishSession()),
+    'tabthrough.cancel': wrap(() => cancelSession('cancel')),
+    'tabthrough.restoreBackup': wrap(() => recoverBackup()),
   })
 }
 ```
@@ -764,12 +764,12 @@ export function useGuideStatusBar() {
   const tooltip = useAtomRef(statusTooltip)
 
   useStatusBarItem({
-    id: 'guideReviewer.session',
+    id: 'tabthrough.session',
     alignment: StatusBarAlignment.Left,
     priority: 100,
     text: () => text.value ?? '',
     tooltip: () => tooltip.value ?? undefined,
-    command: 'guide-reviewer.showStepDetail',
+    command: 'tabthrough.showStepDetail',
     visible: () => text.value !== null,
   })
 }
@@ -781,11 +781,11 @@ export function useGuideContextKeys() {
   const recovery = useAtomRef(recoveryPending)
   const editor = useActiveTextEditor()
 
-  useVscodeContext('guideReviewer.gitUsable', () => usable.value)
-  useVscodeContext('guideReviewer.canStart', () => start.value)
-  useVscodeContext('guideReviewer.sessionActive', () => active.value)
-  useVscodeContext('guideReviewer.recoveryPending', () => recovery.value)
-  useVscodeContext('guideReviewer.reviewEditorFocused', () => editor.value?.document.uri.scheme === SCHEME)
+  useVscodeContext('tabthrough.gitUsable', () => usable.value)
+  useVscodeContext('tabthrough.canStart', () => start.value)
+  useVscodeContext('tabthrough.sessionActive', () => active.value)
+  useVscodeContext('tabthrough.recoveryPending', () => recovery.value)
+  useVscodeContext('tabthrough.reviewEditorFocused', () => editor.value?.document.uri.scheme === SCHEME)
 }
 
 export function useGuideDecorations() {

@@ -1,4 +1,4 @@
-# Guide Reviewer — Architecture Overview
+# Tabthrough — Architecture Overview
 
 **Version:** 1.0 (MVP / v0.1)
 **Owner:** Architect
@@ -95,7 +95,7 @@ Additions to the plan's tree (nothing removed):
 ```
 src/
   git/
-    refs.ts        # create / list / delete refs/guide-reviewer/**  + the lock ref CAS
+    refs.ts        # create / list / delete refs/tabthrough/**  + the lock ref CAS
     journal.ts     # SessionToken shape + stage transitions (pure over an injected store)
   guide/
     groups.ts      # LineGroup extraction (splits parse-diff for testability)
@@ -301,8 +301,8 @@ Restore fidelity and content reading are different problems, so they get differe
 
 | Ref | Built by | Job |
 |-----|----------|-----|
-| `refs/guide-reviewer/after/<id>` | temp-index snapshot (below) | **Read** the reviewed content. One flat tree containing tracked modifications *and* untracked files. Makes the working-tree entry read exactly like a commit entry |
-| `refs/guide-reviewer/backup/<id>` | the commit created by `git stash push -u` | **Restore.** Stash-shaped, so it preserves the staged/unstaged split and the untracked set, which a flat tree cannot |
+| `refs/tabthrough/after/<id>` | temp-index snapshot (below) | **Read** the reviewed content. One flat tree containing tracked modifications *and* untracked files. Makes the working-tree entry read exactly like a commit entry |
+| `refs/tabthrough/backup/<id>` | the commit created by `git stash push -u` | **Restore.** Stash-shaped, so it preserves the staged/unstaged split and the untracked set, which a flat tree cannot |
 
 The temp-index snapshot mutates nothing — not the index, not the working tree:
 
@@ -310,8 +310,8 @@ The temp-index snapshot mutates nothing — not the index, not the working tree:
 GIT_INDEX_FILE=$TMP git read-tree HEAD
 GIT_INDEX_FILE=$TMP git add -A          # tracked edits + untracked; honours .gitignore
 GIT_INDEX_FILE=$TMP git write-tree      # -> afterTree
-git commit-tree $afterTree -p HEAD -m "guide-reviewer after <id>"   # -> afterCommit
-git update-ref refs/guide-reviewer/after/<id> $afterCommit
+git commit-tree $afterTree -p HEAD -m "tabthrough after <id>"   # -> afterCommit
+git update-ref refs/tabthrough/after/<id> $afterCommit
 ```
 
 `git add -A` honours `.gitignore`, so ignored files are never captured — the same boundary as `--include-untracked`, and the reason we never go near `git stash --all` (plan R8).
@@ -324,7 +324,7 @@ Every entry point resolves to the same two immutable commits, which is what keep
 
 | Entry | base | after | Checkout |
 |-------|------|-------|----------|
-| Working tree | `HEAD` | `refs/guide-reviewer/after/<id>` | none (stash already left the tree at `HEAD`) |
+| Working tree | `HEAD` | `refs/tabthrough/after/<id>` | none (stash already left the tree at `HEAD`) |
 | Single commit `C` | `C^` (root commit → empty tree; merge → `--first-parent`) | `C` | detach at `C` |
 | Range `A..B` | `git merge-base A B` | `B` | detach at `B` |
 
@@ -349,9 +349,9 @@ export interface SessionToken {
   heartbeatAt: number | null        // refreshed by the owning window; see §10.2
   repoRoot: string
   stage: IsolationStage
-  afterRef: string                  // refs/guide-reviewer/after/<id>
-  backupRef: string | null          // refs/guide-reviewer/backup/<id>, null when the tree was clean
-  stashMessage: string | null       // "guide-reviewer:<id>"
+  afterRef: string                  // refs/tabthrough/after/<id>
+  backupRef: string | null          // refs/tabthrough/backup/<id>, null when the tree was clean
+  stashMessage: string | null       // "tabthrough:<id>"
   headBefore: { kind: 'branch', name: string } | { kind: 'detached', sha: string }
   checkedOut: string | null
   entry: ReviewTarget
@@ -372,13 +372,13 @@ sequenceDiagram
   participant P as globalState
 
   M->>S: isolate(plan)
-  S->>G: update-ref refs/guide-reviewer/lock  (CAS against zero oid)
+  S->>G: update-ref refs/tabthrough/lock  (CAS against zero oid)
   Note over S,G: fails if another window owns this repo
   S->>P: token {stage:'planned'}
   S->>G: temp-index snapshot to afterCommit; update-ref .../after/[id]
   S->>P: token {stage:'captured'}
   Note over S,P: a crash here loses nothing — the tree was never modified
-  S->>G: git stash push --include-untracked -m "guide-reviewer:[id]"
+  S->>G: git stash push --include-untracked -m "tabthrough:[id]"
   S->>G: rev-parse refs/stash; update-ref .../backup/[id]
   S->>P: token {stage:'stashed'}
   S->>G: status --porcelain  (assert clean, else unwind)
@@ -416,7 +416,7 @@ Non-negotiable rules:
 - **Never** `reset --hard`, `checkout -f`, `clean`, `stash pop`, or `stash drop` without a verified match or an explicit, specific user confirmation.
 - **Never** delete the after-ref or backup ref before verification succeeds.
 - On conflict, stop and hand the user the merge editor plus the literal `git` commands to recover by hand. The token stays, so the next activation still offers recovery.
-- Backup and after refs live under `refs/guide-reviewer/**` — real refs, immune to `gc`, discoverable with `git for-each-ref`, and removable through `Guide Reviewer: Clean up backups`.
+- Backup and after refs live under `refs/tabthrough/**` — real refs, immune to `gc`, discoverable with `git for-each-ref`, and removable through `Tabthrough: Clean up backups`.
 - A restore that cannot complete cleanly leaves **more** state behind, never less.
 
 ### 3.6 session
@@ -430,7 +430,7 @@ The Reatom model, fully specified in [reatom-model.md](reatom-model.md). It owns
 | Commands | `useCommands` | Handlers call Reatom actions, wrapped with `wrap(...)` |
 | Status bar | `useStatusBarItem({ text, tooltip, command, visible })` | Text from a Reatom computed via `useAtomRef` |
 | Decorations | `useEditorDecorations` | Current-step highlight; dim fallback mode; P1 peek-ahead |
-| Review documents | `workspace.registerTextDocumentContentProvider('guide-reviewer', …)` | Progressive reveal (§7) |
+| Review documents | `workspace.registerTextDocumentContentProvider('tabthrough', …)` | Progressive reveal (§7) |
 | Context keys | `useVscodeContext` | `gitUsable`, `sessionActive`, `recoveryPending`, `canStart`, `reviewEditorFocused` |
 | Persistence | `useGlobalState` | Implements `StorePort` |
 | Prompts | `window.showWarningMessage(…, { modal: true })` | Implements `UiPort`; **Cancel is the default button** on the pre-flight |
@@ -452,7 +452,7 @@ sequenceDiagram
   participant G as git
   participant P as pure layer
 
-  U->>B: "Guide Reviewer: Start" (quick pick entry)
+  U->>B: "Tabthrough: Start" (quick pick entry)
   B->>M: startSession({ entry })
   M->>M: guard — status must be idle, probe must be ok, no recovery pending
   M->>G: resolve base/after, count changed lines
@@ -517,11 +517,11 @@ On every activation, **before any command is enabled and before any git mutation
 ```mermaid
 flowchart TD
   A[activate] --> B["read token from globalState for this repo"]
-  B -->|none| C["for-each-ref refs/guide-reviewer/**"]
+  B -->|none| C["for-each-ref refs/tabthrough/**"]
   C -->|none| D["idle"]
   C -->|orphans| E["passive notice + 'Clean up backups'"]
   B -->|token| F["validate: refs present? stash entry present? HEAD as expected?"]
-  F --> G["block Start; set guideReviewer.recoveryPending"]
+  F --> G["block Start; set tabthrough.recoveryPending"]
   G --> H["modal: Restore now / Inspect / Later"]
   H -->|restore| I["restore(token) — the same code path as Cancel"]
   H -->|inspect| J["read-only report: refs, stash entry, affected files, manual commands"]
@@ -550,7 +550,7 @@ Untrusted inputs: a user-authored `.guide.json` (validated by a total hand-rolle
 - **W2** After- and backup refs are real refs, so `gc` cannot collect them.
 - **W3** Restore is idempotent, and resumes from the journal stage after a partial failure.
 - **W4** A restore that cannot complete cleanly leaves more state behind, never less.
-- **W5** The user can always recover by hand with `git stash list` and `git for-each-ref refs/guide-reviewer` — the protocol uses only standard, legible git objects. No proprietary store, no hidden temp directory.
+- **W5** The user can always recover by hand with `git stash list` and `git for-each-ref refs/tabthrough` — the protocol uses only standard, legible git objects. No proprietary store, no hidden temp directory.
 
 ### 5.2 Ports
 
@@ -578,15 +578,15 @@ Settings, extending the five the plan declares in Phase 0:
 
 | Setting | Type | Default | Phase |
 |---------|------|---------|-------|
-| `guideReviewer.keybinding.useTab` | boolean | `true` | 5 |
-| `guideReviewer.showRationale` | boolean | `true` | 5 |
-| `guideReviewer.reveal.mode` | `'progressive' \| 'dim'` | `'progressive'` | 5 |
-| `guideReviewer.guideFile` | string | `.guide.json` | 3 |
-| `guideReviewer.stash.includeUntracked` | boolean | `true` | 2 |
-| `guideReviewer.maxLinesPerStep` | number | `24` | 3 |
-| `guideReviewer.hideFormattingSteps` | boolean | `false` | 3 |
+| `tabthrough.keybinding.useTab` | boolean | `true` | 5 |
+| `tabthrough.showRationale` | boolean | `true` | 5 |
+| `tabthrough.reveal.mode` | `'progressive' \| 'dim'` | `'progressive'` | 5 |
+| `tabthrough.guideFile` | string | `.guide.json` | 3 |
+| `tabthrough.stash.includeUntracked` | boolean | `true` | 2 |
+| `tabthrough.maxLinesPerStep` | number | `24` | 3 |
+| `tabthrough.hideFormattingSteps` | boolean | `false` | 3 |
 
-Commands (plan P0-14): `guide-reviewer.start`, `.startFromCommit`, `.startFromRange`, `.next`, `.previous`, `.finish`, `.cancel`, `.restoreBackup`, plus `.cleanupBackups` and `.showStepDetail`. Every one carries an `enablement` clause driven by the context keys, so the palette never offers an action that will fail.
+Commands (plan P0-14): `tabthrough.start`, `.startFromCommit`, `.startFromRange`, `.next`, `.previous`, `.finish`, `.cancel`, `.restoreBackup`, plus `.cleanupBackups` and `.showStepDetail`. Every one carries an `enablement` clause driven by the context keys, so the palette never offers an action that will fail.
 
 ---
 
@@ -599,8 +599,8 @@ The plan's R5 is real: **VS Code decorations cannot delete lines.** The escape i
 Two read-only URIs per file, served by one `TextDocumentContentProvider`:
 
 ```
-guide-reviewer://base/<sessionId>/<path>?rev=<baseSha>   — the "before" text, static
-guide-reviewer://reveal/<sessionId>/<path>               — the "after so far" text, dynamic
+tabthrough://base/<sessionId>/<path>?rev=<baseSha>   — the "before" text, static
+tabthrough://reveal/<sessionId>/<path>               — the "after so far" text, dynamic
 ```
 
 The reveal document's content is `renderReveal(baseText, file, revealedGroups).text` — a pure fold over the groups revealed up to the cursor. The editor shows `vscode.diff(baseUri, revealUri)`. When the cursor moves, the provider fires `onDidChange(revealUri)`; VS Code re-reads and the native diff re-renders with real gutter markers, real syntax highlighting, real navigation. When the last step is revealed, the reveal document is byte-identical to the after blob.
@@ -614,7 +614,7 @@ The reveal document's content is `renderReveal(baseText, file, revealedGroups).t
 | Read-only by construction | yes | yes | no |
 | Cost per Tab | one memoized string fold | decoration recompute | file write + FS event + editor reload |
 
-`guideReviewer.reveal.mode` keeps the choice reversible, as the plan requires: `'dim'` renders the full after-text with unrevealed ranges dimmed, sharing the same provider, the same URIs, and the same `LineGroup` data. Only the fold differs. The spike the plan scheduled before Phase 5 therefore reduces to a one-file comparison rather than an architectural fork.
+`tabthrough.reveal.mode` keeps the choice reversible, as the plan requires: `'dim'` renders the full after-text with unrevealed ranges dimmed, sharing the same provider, the same URIs, and the same `LineGroup` data. Only the fold differs. The spike the plan scheduled before Phase 5 therefore reduces to a one-file comparison rather than an architectural fork.
 
 **Deletions** need no special case: a revealed deletion removes lines from the reveal document, and the native diff shows them as deleted on the base side. **Binary and generated files** produce stub steps whose reveal document is a one-line explanation, keeping ordering and `k/n` honest.
 
@@ -625,8 +625,8 @@ Decorations remain, as an enhancement: highlight the current step's ranges (from
 Finalised `when` clause (this answers the plan's open item — see §10.3):
 
 ```
-guideReviewer.sessionActive
-  && resourceScheme == 'guide-reviewer'
+tabthrough.sessionActive
+  && resourceScheme == 'tabthrough'
   && editorTextFocus
   && !suggestWidgetVisible
   && !inlineSuggestionVisible
@@ -635,10 +635,10 @@ guideReviewer.sessionActive
   && !parameterHintsVisible
   && !accessibilityModeEnabled
   && !editorTabMovesFocus
-  && config.guideReviewer.keybinding.useTab
+  && config.tabthrough.keybinding.useTab
 ```
 
-`Alt+]` / `Alt+[` are registered unconditionally as the always-available chord, gated only on `guideReviewer.sessionActive`.
+`Alt+]` / `Alt+[` are registered unconditionally as the always-available chord, gated only on `tabthrough.sessionActive`.
 
 ---
 
@@ -684,14 +684,14 @@ Doing (3) before (2) would tear down subscriptions while a restore is running. T
 **A single lock ref, acquired by compare-and-swap through `git update-ref`.**
 
 ```
-# the value names the owner: a blob holding "guide-reviewer-lock:<sessionId>"
+# the value names the owner: a blob holding "tabthrough-lock:<sessionId>"
 git hash-object -t blob -w --stdin
 
 # acquire — fails if the ref already exists, atomically, in git's ref transaction
-git update-ref refs/guide-reviewer/lock <lockBlob> 0000000000000000000000000000000000000000
+git update-ref refs/tabthrough/lock <lockBlob> 0000000000000000000000000000000000000000
 
 # release — fails if someone changed it underneath us
-git update-ref -d refs/guide-reviewer/lock <lockBlob>
+git update-ref -d refs/tabthrough/lock <lockBlob>
 ```
 
 Passing the zero oid as the expected old value makes this a genuine atomic create-if-absent.
@@ -711,7 +711,7 @@ The in-window atom guard stays as the fast path with a good error message; the r
 
 `globalState` rather than `workspaceState` for the token, for the same reason: a second window on the same repo must be able to see it, and it must survive the folder being reopened by another path.
 
-**Liveness: `heartbeatAt` on the token** (review 001 M2). Seeing the token is what a second window needs to offer recovery — and also what made it offer to "restore" the first window's *running* session, applying that window's stash and ending its isolation mid-review. From git state alone a crashed session and a live one are identical, so the owning window says which it is: while `sessionStatus` is `active` it rewrites `heartbeatAt` every seven seconds through the `StorePort`, and `isolate` stamps it so a slow isolation is not born stale. A token whose heartbeat is under 30 s old is live: the second window shows *"A Guide Reviewer session is active in another window"* and offers nothing. Older than that, or absent — every token written before the field existed — and the crash-recovery modal is exactly as it was.
+**Liveness: `heartbeatAt` on the token** (review 001 M2). Seeing the token is what a second window needs to offer recovery — and also what made it offer to "restore" the first window's *running* session, applying that window's stash and ending its isolation mid-review. From git state alone a crashed session and a live one are identical, so the owning window says which it is: while `sessionStatus` is `active` it rewrites `heartbeatAt` every seven seconds through the `StorePort`, and `isolate` stamps it so a slow isolation is not born stale. A token whose heartbeat is under 30 s old is live: the second window shows *"A Tabthrough session is active in another window"* and offers nothing. Older than that, or absent — every token written before the field existed — and the crash-recovery modal is exactly as it was.
 
 The beat runs only while `active`. In `stashing` and `restoring` the journal belongs to `isolate` and `restoreFromToken`, and a read-modify-write racing either of those could roll a stage back.
 
@@ -721,7 +721,7 @@ The beat runs only while `active`. In `stashing` and `restoring` the journal bel
 
 - **`!editorHasSelection` dropped.** In a read-only reveal document a selection carries no Tab semantics, and keeping the clause would break the common gesture of selecting a line to read it and then pressing Tab.
 - **`!editorReadonly` dropped and inverted in spirit.** The reveal document *is* read-only; that is precisely why Tab is free to take. The original clause would have disabled the binding everywhere it is safe.
-- **Added** `!parameterHintsVisible`, `!renameInputVisible`, `!accessibilityModeEnabled`, `!editorTabMovesFocus`, and the `config.guideReviewer.keybinding.useTab` gate.
+- **Added** `!parameterHintsVisible`, `!renameInputVisible`, `!accessibilityModeEnabled`, `!editorTabMovesFocus`, and the `config.tabthrough.keybinding.useTab` gate.
 
 Accessibility is the reason for the last two: users who navigate by keyboard rely on Tab moving focus, and both VS Code signals for that intent are honoured rather than overridden.
 

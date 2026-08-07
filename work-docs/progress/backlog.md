@@ -1,4 +1,4 @@
-# Guide Reviewer — Prioritized Backlog
+# Tabthrough — Prioritized Backlog
 
 **Last updated:** 2026-08-07 (Product Owner, track E + P1 sequencing)  
 **Ordering principle:** Safety → core Tab loop → offline guide → polish → LLM/agents → nice-to-have
@@ -16,12 +16,12 @@ Phases are defined in [plan.md](./plan.md).
 |----|------|-----------------|--------|-------|--------|
 | P0-0 | **Toolchain foundation** (Planner-added prerequisite) — deps, `@reatom/core`, extension identity, generated meta, vitest config | `pnpm lint && typecheck && test:ci` green on clean clone | — | 0 | **Done** |
 | P0-1 | **Git capability probe** — repo detection, dirty state, HEAD, shallow/missing objects | Commands disabled with clear message when git unusable | — | 1 | **Done** (`src/git/{exec,probe}.ts`) |
-| P0-2 | **Session entry: working tree** — diff staged+unstaged vs HEAD | Command produces step list; empty diff blocked | P0-1 | 4 | **Done** (`guide-reviewer.start`; whitespace-only now refused too) |
-| P0-3 | **Session entry: single commit** — show commit vs first parent | Works on linear history sample | P0-1 | 4 | **Done** (`guide-reviewer.startFromCommit`, QuickPick over `readRecentCommits` + free-form ref; root and merge commits covered) |
-| P0-4 | **Session entry: commit range** — `A..B` merge-base aware | Range diff matches `git diff A..B` | P0-1 | 4 | **Done** (`guide-reviewer.startFromRange`; `A..B` and `A...B` both resolve through merge-base) |
+| P0-2 | **Session entry: working tree** — diff staged+unstaged vs HEAD | Command produces step list; empty diff blocked | P0-1 | 4 | **Done** (`tabthrough.start`; whitespace-only now refused too) |
+| P0-3 | **Session entry: single commit** — show commit vs first parent | Works on linear history sample | P0-1 | 4 | **Done** (`tabthrough.startFromCommit`, QuickPick over `readRecentCommits` + free-form ref; root and merge commits covered) |
+| P0-4 | **Session entry: commit range** — `A..B` merge-base aware | Range diff matches `git diff A..B` | P0-1 | 4 | **Done** (`tabthrough.startFromRange`; `A..B` and `A...B` both resolve through merge-base) |
 | P0-5 | **Stash pipeline** — scoped message, backup ref, pre-flight summary | Automated test: stash → mutate → restore byte-identical | P0-1 | 2 | **Done** (`src/git/{snapshot,stash,refs,journal,isolate}.ts`; 17-case sacred suite) |
 | P0-6 | **Restore on all exit paths** — Finish, Cancel, deactivate, crash recovery command | Matrix test for Finish/Cancel; manual crash drill | P0-5 | 2 | **Done** for code + automated matrix; crash drill written in `test-matrix.md` §6.1 but **not yet run** |
-| P0-7 | **Single-session lock** — reject second start while active | Error toast if session already running | P0-5 | 2 | **Done** (CAS on `refs/guide-reviewer/lock`, valued by `sessionId`; token heartbeat keeps a second window out of a live session's recovery); two-window drill §6.2 not yet run |
+| P0-7 | **Single-session lock** — reject second start while active | Error toast if session already running | P0-5 | 2 | **Done** (CAS on `refs/tabthrough/lock`, valued by `sessionId`; token heartbeat keeps a second window out of a live session's recovery); two-window drill §6.2 not yet run |
 | P0-8 | **Reatom session model** — session, stashHandle, steps, cursor, status | All UI/commands read/write one model | — | 1 | **Done** (`src/model/{session,steps,ports,view,guide-source}.ts`) |
 | P0-9 | **Diff → step graph** — parse unified diff into hunks/lines | Fixture tests for split/join | P0-8 | 3 | **Done** (`src/guide/{types,parse-diff,groups,render}.ts`) |
 | P0-10 | **Heuristic orderer** — file tier + hunk significance + line groups | Foundation-before-consumer fixture passes | P0-9 | 3 | **Done** (`src/guide/{heuristic,steps}.ts`) |
@@ -49,8 +49,8 @@ Phases are defined in [plan.md](./plan.md).
 
 | ID | Item | Notes |
 |----|------|-------|
-| P1-1 | **`.guide.json` schema v1 + docs** — portable contract for agents | Described in [architecture/guide-schema.md](../architecture/guide-schema.md) and published as [`schema/guide-v1.json`](../../schema/guide-v1.json), which the reader is now diffed against on every run. **Remaining:** serve it at its `$id`, `https://guide-reviewer.dev/schema/guide-v1.json` — a DNS and hosting task, not a code one. The raw GitHub URL resolves in the meantime |
-| P1-2 | **Agent skill / prompt** — emit guide sidecar when producing PRs | Draft landed ([guides/agent-guide-authoring.md](../guides/agent-guide-authoring.md) long form + `.agents/skills/guide-reviewer/`). **Acceptance is dogfood, not docs:** an agent writes a guide for a real PR against the skill, and a reviewer reads only that guide |
+| P1-1 | **`.guide.json` schema v1 + docs** — portable contract for agents | Described in [architecture/guide-schema.md](../architecture/guide-schema.md) and published as [`schema/guide-v1.json`](../../schema/guide-v1.json), which the reader is now diffed against on every run. **Remaining:** serve it at its `$id`, `https://tabthrough.dev/schema/guide-v1.json` — a DNS and hosting task, not a code one. The raw GitHub URL resolves in the meantime |
+| P1-2 | **Agent skill / prompt** — emit guide sidecar when producing PRs | Draft landed ([guides/agent-guide-authoring.md](../guides/agent-guide-authoring.md) long form + `.agents/skills/tabthrough/`). **Acceptance is dogfood, not docs:** an agent writes a guide for a real PR against the skill, and a reviewer reads only that guide |
 | P1-3 | **Stale guide merge** — partial sidecar + heuristic fill + one warning | Per-file interleaving of the heuristic remainder, which MVP appends wholesale; `scope.diffDigest` detection already exists |
 | P1-4 | **LLM guide generator (BYOK)** — opt-in per session; provider config | Product brief: [guides/llm-guide-generation.md](../guides/llm-guide-generation.md). Off by default, per-session consent, key in `SecretStorage`, output is `.guide.json` v1 through the same validator and merge — no second format. Sequenced **after** P1-1/P1-2 (PO note below) |
 | P1-5 | **PR entry via `gh`** — optional; fallback instructions without CLI | |

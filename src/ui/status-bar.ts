@@ -10,14 +10,14 @@ export function useGuideStatusBar(): void {
   const tooltip = useAtomRef(statusTooltip)
 
   useStatusBarItem({
-    id: 'guideReviewer.session',
+    id: 'tabthrough.session',
     alignment: StatusBarAlignment.Left,
     priority: 100,
     text: () => text.value ?? '',
     tooltip: () => tooltip.value ?? undefined,
     // Clicking jumps to the current step rather than ending the review: the
     // status bar is the one always-visible way back into the reveal editor.
-    command: Commands.guideReviewerShowStepDetail,
+    command: Commands.showStepDetail,
     visible: () => text.value !== null,
   })
 }
@@ -34,15 +34,15 @@ export function useGuideContextKeys(): void {
   const recovery = useAtomRef(recoveryPending)
   const editor = useActiveTextEditor()
 
-  useVscodeContext('guideReviewer.gitUsable', () => usable.value)
-  useVscodeContext('guideReviewer.canStart', () => start.value)
-  useVscodeContext('guideReviewer.sessionActive', () => active.value)
+  useVscodeContext('tabthrough.gitUsable', () => usable.value)
+  useVscodeContext('tabthrough.canStart', () => start.value)
+  useVscodeContext('tabthrough.sessionActive', () => active.value)
   // Distinct from `sessionActive`: Cancel has to survive `blocked` and a
   // pre-flight that stalled, which are precisely the states `active` excludes.
-  useVscodeContext('guideReviewer.sessionOpen', () => open.value)
-  useVscodeContext('guideReviewer.recoveryPending', () => recovery.value)
+  useVscodeContext('tabthrough.sessionOpen', () => open.value)
+  useVscodeContext('tabthrough.recoveryPending', () => recovery.value)
   useVscodeContext(
-    'guideReviewer.reviewEditorFocused',
+    'tabthrough.reviewEditorFocused',
     () => editor.value?.document.uri.scheme === REVIEW_SCHEME,
   )
 }

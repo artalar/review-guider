@@ -104,14 +104,14 @@ export class IllegalTransitionError extends Error {
 export class SessionAlreadyActiveError extends Error {
   override readonly name = 'SessionAlreadyActiveError'
   constructor(readonly status: SessionStatus) {
-    super(`A Guide Reviewer session is already ${status}.`)
+    super(`A Tabthrough session is already ${status}.`)
   }
 }
 
 export class RecoveryPendingError extends Error {
   override readonly name = 'RecoveryPendingError'
   constructor() {
-    super('Guide Reviewer has work to restore from a previous session. Restore it before starting a new review.')
+    super('Tabthrough has work to restore from a previous session. Restore it before starting a new review.')
   }
 }
 
@@ -167,7 +167,7 @@ export const isSessionOpen = computed(() => sessionStatus() !== 'idle', 'session
 const NO_WORKSPACE: GitCapability = {
   ok: false,
   reason: 'no-workspace',
-  message: 'Open a folder to use Guide Reviewer.',
+  message: 'Open a folder to use Tabthrough.',
 }
 
 /**
@@ -239,7 +239,7 @@ export const recoveryToken = computed(async (): Promise<SessionToken | null> => 
   recoveryEpoch()
 
   // Not gated on `capability.ok`. A repository that is mid-rebase, or whose
-  // HEAD is unborn, is a repository Guide Reviewer will not *start* in — but it
+  // HEAD is unborn, is a repository Tabthrough will not *start* in — but it
   // may still be holding a stash of the user's work, and refusing to look would
   // hide exactly the thing this subsystem exists to surface.
   const root = capabilityRepoRoot(await wrap(capabilityPromise))
@@ -272,7 +272,7 @@ export const sessionLiveElsewhere = computed(() => {
   return isSessionLive(recoveryToken.data(), ports().clock.now())
 }, 'recovery.liveElsewhere')
 
-export const LIVE_ELSEWHERE_MESSAGE = 'A Guide Reviewer session is active in another window.'
+export const LIVE_ELSEWHERE_MESSAGE = 'A Tabthrough session is active in another window.'
 
 export const orphanRefs = computed(async (): Promise<readonly OrphanRef[]> => {
   const capabilityPromise = gitCapability()
@@ -325,7 +325,7 @@ export const recoverBackup = action(async (): Promise<RestoreOutcome | null> => 
     restoreBlock.set(null)
     if (peek(sessionStatus) !== 'idle')
       sessionStatus.to('idle')
-    await wrap(peek(ports).ui.notify('info', 'Guide Reviewer restored your work from the backup.'))
+    await wrap(peek(ports).ui.notify('info', 'Tabthrough restored your work from the backup.'))
   }
   else {
     restoreBlock.set(outcome)
@@ -344,7 +344,7 @@ export const discardRecovery = action(async (): Promise<boolean> => {
 
   const confirmed = await wrap(peek(ports).ui.notify(
     'warn',
-    'Forget the pending Guide Reviewer restore? The stash entry and backup refs stay in git.',
+    'Dismiss the pending Tabthrough restore reminder? The stash entry and backup refs stay in git until you clean them up.',
     ['Forget'],
   ))
   if (confirmed !== 'Forget')
@@ -662,10 +662,10 @@ export const startBlockedReason = computed((): string | null => {
   if (sessionLiveElsewhere())
     return LIVE_ELSEWHERE_MESSAGE
   if (recoveryPending())
-    return 'Guide Reviewer has work to restore from a previous session.'
+    return 'Tabthrough has work to restore from a previous session.'
   const status = sessionStatus()
   if (status !== 'idle')
-    return `A Guide Reviewer session is already ${status}.`
+    return `A Tabthrough session is already ${status}.`
   return null
 }, 'ui.startBlockedReason')
 
@@ -683,7 +683,7 @@ export function describeStartFailure(error: unknown): string {
     return error.message
   if (error instanceof RecoveryPendingError || error instanceof GitUnavailableError)
     return error.message
-  return `Guide Reviewer could not start: ${error instanceof Error ? error.message : String(error)}`
+  return `Tabthrough could not start: ${error instanceof Error ? error.message : String(error)}`
 }
 
 export function describeRestored(reason: CancelReason): string {
@@ -693,7 +693,7 @@ export function describeRestored(reason: CancelReason): string {
     case 'cancel':
       return 'Review cancelled. Your working tree is back.'
     case 'deactivate':
-      return 'Guide Reviewer restored your working tree before shutting down.'
+      return 'Tabthrough restored your working tree before shutting down.'
   }
 }
 

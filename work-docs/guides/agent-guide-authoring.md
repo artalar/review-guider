@@ -5,13 +5,13 @@
 **Status:** Published (track E)
 **Last updated:** 2026-08-07
 **Normative companion:** [architecture/guide-schema.md](../architecture/guide-schema.md) — field types, validation, and merge semantics live there and win any conflict with this document
-**Installable form:** [`.agents/skills/guide-reviewer/SKILL.md`](../../.agents/skills/guide-reviewer/SKILL.md)
+**Installable form:** [`.agents/skills/tabthrough/SKILL.md`](../../.agents/skills/tabthrough/SKILL.md)
 
 ---
 
 ## 1. What you are actually writing
 
-You produced a change. Someone now has to *own* it: extend it next month, debug it at 2am, or decide whether it belongs in their product. They will read it through Guide Reviewer, which hides the whole diff and reveals it one step at a time as they press Tab.
+You produced a change. Someone now has to *own* it: extend it next month, debug it at 2am, or decide whether it belongs in their product. They will read it through Tabthrough, which hides the whole diff and reveals it one step at a time as they press Tab.
 
 Your `.guide.json` decides two things, and only two:
 
@@ -24,7 +24,7 @@ A useful test before you write anything: *if I had to explain this change to a c
 
 ### The floor you are building on
 
-Guide Reviewer already has an offline heuristic that orders files by tier (types → domain → services → UI → tests → config) and weights hunks by significance. It is decent. Your guide replaces it only where you know something it cannot infer.
+Tabthrough already has an offline heuristic that orders files by tier (types → domain → services → UI → tests → config) and weights hunks by significance. It is decent. Your guide replaces it only where you know something it cannot infer.
 
 So the bar is not "produce an ordering." It is **"produce an ordering that beats a competent file-tier heuristic."** If your guide reproduces tier order with rationales that restate the tier, you have spent tokens to add nothing. The places you beat it are always the same places:
 
@@ -98,7 +98,7 @@ You have the whole change loaded. They have step one. Everything you write must 
 
 ### 2.6 No exams, no grading, no gates
 
-This one is a product rule, not a style preference, and it is checked. Guide Reviewer exists because review-as-a-test makes people skim faster. A guide that reintroduces the test is a bug.
+This one is a product rule, not a style preference, and it is checked. Tabthrough exists because review-as-a-test makes people skim faster. A guide that reintroduces the test is a bug.
 
 Never emit: questions to the reader, "make sure you understand X before continuing", difficulty labels, estimated reading times, checklists of things they should have noticed, scores, streaks, or anything that implies a pass/fail. `significance` is a hint about where *you* think the weight is, not a demand.
 
@@ -216,7 +216,7 @@ Nine steps, seven of them `critical`, one `high`.
 { "notes": "Before continuing, make sure you understand the lifecycle above." }
 ```
 
-**Fix:** answer your own question. `"The null case the previous step introduced"`. Guide Reviewer will treat the interrogative form as a bug in your guide, not a feature.
+**Fix:** answer your own question. `"The null case the previous step introduced"`. Tabthrough will treat the interrogative form as a bug in your guide, not a feature.
 
 ### The phantom step
 

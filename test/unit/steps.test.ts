@@ -21,7 +21,7 @@ const TOKEN: SessionToken = {
   entry: { kind: 'workingTree' },
   headBefore: { kind: 'branch', name: 'main' },
   lockValue: null,
-  afterRef: 'refs/guide-reviewer/after/s',
+  afterRef: 'refs/tabthrough/after/s',
   afterCommit: 'aaa',
   afterTree: 'ttt',
   statusDigest: null,

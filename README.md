@@ -1,64 +1,60 @@
-# Guide Reviewer
+# Tabthrough
 
-<a href="https://marketplace.visualstudio.com/items?itemName=artalar.guide-reviewer" target="__blank"><img src="https://badgen.net/vs-marketplace/v/artalar.guide-reviewer?color=333&label=VS%20Code%20Marketplace" alt="Visual Studio Marketplace Version" /></a>
+<a href="https://marketplace.visualstudio.com/items?itemName=artalar.tabthrough" target="__blank"><img src="https://badgen.net/vs-marketplace/v/artalar.tabthrough?color=333&label=VS%20Code%20Marketplace" alt="Visual Studio Marketplace Version" /></a>
 <a href="https://kermanx.github.io/reactive-vscode/" target="__blank"><img src="https://img.shields.io/badge/made_with-reactive--vscode-%23007ACC?style=flat&labelColor=%23229863"  alt="Made with reactive-vscode" /></a>
 
-**Read a diff the way it was written, not the way git sorted it.**
+**Understand every change, one Tab at a time.**
 
-A large change arrives as an alphabetical list of files. Guide Reviewer turns it into an ordered walk: the type before its callers, the schema before the migration, the fix before the test that proves it. You press <kbd>Tab</kbd>, the next piece of the change appears, and the status bar tells you why it comes next.
+Large diffs arrive as a list of files. Tabthrough turns your working changes, a commit, or a commit range into an ordered walkthrough: foundations before callers, schemas before migrations, implementation before proof. Press **Tab** to reveal one thought at a time in VS Code, at your pace. It works offline and restores your workspace when you are done.
 
-It works offline, with no API key and no account. The order comes from a heuristic that reads the diff; if the change ships a `.guide.json` sidecar, the author's order wins instead.
+**Install from the VS Code Marketplace → run “Tabthrough: Review Working Changes” → press Tab.**
 
-## How it works
+## Why ordinary diffs are hard
 
-1. **Pick what to review** — your working tree, one commit, or a commit range.
-2. **Guide Reviewer isolates the workspace.** Before anything is touched, your tracked *and* untracked state is captured into an immutable commit, and only then is the tree made clean. Nothing is reviewed against a target that can drift underneath you.
-3. **Press <kbd>Tab</kbd>.** Each press reveals the next step in a read-only diff editor. Everything you have already seen stays visible; nothing you have not reached yet is in the document at all.
-4. **<kbd>Shift</kbd>+<kbd>Tab</kbd> goes back.** The revealed set is a pure function of your position, so retreating is exact rather than an undo.
-5. **Finish or Cancel.** Both restore your working tree — staged and unstaged, tracked and untracked — to exactly what it was.
+Git sorts by path. Explanation order is different: types before callers, schema before migration, the fix before the test that proves it. Skimming the file list is fast; finishing with a mental model is not. Tabthrough is a **guided diff reader** — it sequences the source so you form the explanation yourself. It does not find bugs, post review comments, or replace PR tools.
 
-## Getting started
+## Try it in three steps
 
-Open the Command Palette and run one of:
-
-| Command | What it reviews |
-|---------|-----------------|
-| **Guide Reviewer: Start Review (Working Tree)** | Everything uncommitted, staged and unstaged together |
-| **Guide Reviewer: Start Review from Commit…** | One commit against its parent. Pick from recent history or type any ref |
-| **Guide Reviewer: Start Review from Commit Range…** | `main..HEAD` — the branch's own commits, resolved through the merge base |
-
-You will see a pre-flight summary of what is about to be stashed before anything happens. Nothing is mutated until you approve it.
-
-### Keys
+1. **Command Palette** → **Tabthrough: Review Working Changes** (or Review a Commit… / Review a Commit Range…).
+2. **Approve the pre-flight.** Your current work is captured and isolated for the session; nothing is mutated until you confirm.
+3. **Press Tab.** Each press reveals the next piece of the change. Shift+Tab goes back. Finish or Cancel restores the workspace.
 
 | Key | Action |
 |-----|--------|
-| <kbd>Tab</kbd> | Next step |
-| <kbd>Shift</kbd>+<kbd>Tab</kbd> | Previous step |
-| <kbd>Alt</kbd>+<kbd>]</kbd> / <kbd>Alt</kbd>+<kbd>[</kbd> | Next / previous, from anywhere |
+| <kbd>Tab</kbd> | Reveal next change |
+| <kbd>Shift</kbd>+<kbd>Tab</kbd> | Go back one change |
+| <kbd>Alt</kbd>+<kbd>]</kbd> / <kbd>Alt</kbd>+<kbd>[</kbd> | Next / previous from anywhere |
 
-<kbd>Tab</kbd> is only bound inside the review document, which is read-only and on its own URI scheme, so it never competes with indentation, snippets, IntelliSense, or inline suggestions in your real files. The alternate chord works regardless of focus, and `guideReviewer.keybinding.useTab` turns the <kbd>Tab</kbd> binding off entirely if you would rather it stayed out of the way.
+Tab is only bound inside the read-only review document (`tabthrough:` scheme), so it never competes with indent, snippets, or IntelliSense in your real files. Turn it off with `tabthrough.keybinding.useTab` if you prefer the alternate chord alone.
 
-Click the status bar item (`$(book) Step 4/17 · service.ts · types before callers`) to jump back to the current step at any time.
+## What you can review
 
-## Your work is never at risk
+| Command | Target |
+|---------|--------|
+| **Tabthrough: Review Working Changes** | Staged + unstaged (+ optional untracked) |
+| **Tabthrough: Review a Commit…** | One commit vs its parent (pick from recent history or type a ref) |
+| **Tabthrough: Review a Commit Range…** | `main..HEAD` style ranges, resolved through the merge base |
 
-This is the part of the extension with the most tests behind it, because reviewing your own uncommitted work means hiding it for the duration.
+Native one-click GitHub/GitLab PR entry is planned; today you review the local commits that make up the change.
 
-- **Capture before mutate.** A temp-index snapshot commits your tracked and untracked state to an unreachable ref *before* the first mutation. That commit, not the stash, is the guarantee.
-- **Journal before act.** Every stage is written down before it is attempted, so an interrupted session is a lookup rather than a guess.
-- **Restore is apply → verify → drop.** The backup ref survives until the restored tree has been verified byte for byte.
-- **One session per repository**, enforced by a compare-and-swap on a git ref, so a second window cannot start a review over the top of yours.
-- **Crash recovery.** If VS Code exits mid-session, the next window offers to restore before touching git. **Guide Reviewer: Restore from Backup** does it on demand; **Clean Up Backups** removes refs once you are done with them.
+## Designed to restore your workspace exactly
 
-Ignored files are never stashed, and `guideReviewer.stash.includeUntracked` controls whether untracked ones are.
+Reviewing uncommitted work means hiding it for a while. Tabthrough is built around that being safe and reversible:
 
-## Guiding a change with `.guide.json`
+- Capture tracked and untracked state into an immutable ref **before** the first mutation
+- Journal every stage before it runs, so a crash is a lookup rather than a guess
+- Restore with apply → verify → drop; backup refs survive until verification succeeds
+- One session per repository; a live session in another window will not be “restored” over
 
-If a repository (or the agent that wrote the change) ships a `.guide.json`, its order and its reasons replace the heuristic's. The minimal useful document is two file claims:
+Finish and Cancel both restore. If VS Code exits mid-session, the next window offers recovery before other git work. Details: [`work-docs/architecture/overview.md`](work-docs/architecture/overview.md).
+
+## Bring the author’s intent with `.guide.json`
+
+If a repository (or the agent that wrote the change) ships a `.guide.json`, its order and reasons replace the offline heuristic. Minimal example:
 
 ```json
 {
+  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
   "version": 1,
   "steps": [
     { "id": "types", "path": "src/types.ts", "rationale": "Types before callers" },
@@ -67,66 +63,55 @@ If a repository (or the agent that wrote the change) ships a `.guide.json`, its 
 }
 ```
 
-Steps can anchor to line ranges, declare dependencies, split a large region across several presses, and mark lockfile churn as `skip` so it stops costing attention without disappearing. A malformed guide can never block a review or hide a line: every failure degrades to the heuristic with one warning.
-
-The JSON Schema is [`schema/guide-v1.json`](schema/guide-v1.json) — point `$schema` at it for editor completion — and the full contract, including the merge rules, is in [`work-docs/architecture/guide-schema.md`](work-docs/architecture/guide-schema.md). If you are writing one — or pointing a coding agent at it — [`work-docs/guides/agent-guide-authoring.md`](work-docs/guides/agent-guide-authoring.md) covers how to order a change well, and [`.agents/skills/guide-reviewer/SKILL.md`](.agents/skills/guide-reviewer/SKILL.md) is the installable short form.
+Malformed guides never block a review: every failure falls back to the heuristic with one warning. Schema: [`schema/guide-v1.json`](schema/guide-v1.json). Authoring: [`work-docs/guides/agent-guide-authoring.md`](work-docs/guides/agent-guide-authoring.md). Agent skill: [`.agents/skills/tabthrough/SKILL.md`](.agents/skills/tabthrough/SKILL.md).
 
 ## Configurations
 
 <!-- configs -->
 
-| Key                                    | Description                                                                                                                  | Type      | Default         |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------- | --------------- |
-| `guideReviewer.showRationale`          | Show the one-line reason each step was ordered where it is (for example "types before callers") in the status bar.           | `boolean` | `true`          |
-| `guideReviewer.reveal.mode`            | How the reviewed change is revealed as you advance through steps.                                                            | `string`  | `"progressive"` |
-| `guideReviewer.guideFile`              | Repository-relative path of the optional guide sidecar that overrides the heuristic step order.                              | `string`  | `".guide.json"` |
-| `guideReviewer.keybinding.useTab`      | Bind Tab to the next review step while a review document is focused. Alt+] and Alt+[ always work regardless of this setting. | `boolean` | `true`          |
-| `guideReviewer.maxLinesPerStep`        | Upper bound on how many low-significance changed lines are coalesced into a single step.                                     | `number`  | `24`            |
-| `guideReviewer.hideFormattingSteps`    | Drop steps whose changes are whitespace or comments only.                                                                    | `boolean` | `false`         |
-| `guideReviewer.stash.includeUntracked` | Include untracked files when isolating the workspace. Ignored files are never included.                                      | `boolean` | `true`          |
+| Key | Description | Type | Default |
+| --- | --- | --- | --- |
+| `tabthrough.showRationale` | Show the one-line reason each step was ordered where it is | `boolean` | `true` |
+| `tabthrough.reveal.mode` | How the change is revealed (`progressive` hides unread lines; `dim` greys them) | `string` | `"progressive"` |
+| `tabthrough.guideFile` | Path of the optional `.guide.json` sidecar | `string` | `".guide.json"` |
+| `tabthrough.keybinding.useTab` | Bind Tab inside the review document | `boolean` | `true` |
+| `tabthrough.maxLinesPerStep` | Cap on low-significance lines per step | `number` | `24` |
+| `tabthrough.hideFormattingSteps` | Drop whitespace/comment-only steps | `boolean` | `false` |
+| `tabthrough.stash.includeUntracked` | Include untracked files when isolating (ignored files never) | `boolean` | `true` |
 
 <!-- configs -->
-
-`guideReviewer.reveal.mode` is worth knowing about: `progressive` (default) leaves unrevealed lines out of the document entirely, so they cannot be read ahead. `dim` renders the whole change and greys out what you have not reached — easier to orient in, easier to spoil.
 
 ## Commands
 
 <!-- commands -->
 
-| Command                          | Title                                             |
-| -------------------------------- | ------------------------------------------------- |
-| `guide-reviewer.start`           | Guide Reviewer: Start Review (Working Tree)       |
-| `guide-reviewer.startFromCommit` | Guide Reviewer: Start Review from Commit...       |
-| `guide-reviewer.startFromRange`  | Guide Reviewer: Start Review from Commit Range... |
-| `guide-reviewer.next`            | Guide Reviewer: Next Step                         |
-| `guide-reviewer.previous`        | Guide Reviewer: Previous Step                     |
-| `guide-reviewer.showStepDetail`  | Guide Reviewer: Go to Current Step                |
-| `guide-reviewer.finish`          | Guide Reviewer: Finish Review                     |
-| `guide-reviewer.cancel`          | Guide Reviewer: Cancel Review                     |
-| `guide-reviewer.restoreBackup`   | Guide Reviewer: Restore from Backup               |
-| `guide-reviewer.discardRecovery` | Guide Reviewer: Forget Pending Restore            |
-| `guide-reviewer.cleanupBackups`  | Guide Reviewer: Clean Up Backups                  |
+| Command | Title |
+| --- | --- |
+| `tabthrough.start` | Tabthrough: Review Working Changes |
+| `tabthrough.startFromCommit` | Tabthrough: Review a Commit... |
+| `tabthrough.startFromRange` | Tabthrough: Review a Commit Range... |
+| `tabthrough.next` | Tabthrough: Reveal Next Change |
+| `tabthrough.previous` | Tabthrough: Go Back One Change |
+| `tabthrough.showStepDetail` | Tabthrough: Go to Current Step |
+| `tabthrough.finish` | Tabthrough: Finish and Restore Workspace |
+| `tabthrough.cancel` | Tabthrough: Cancel and Restore Workspace |
+| `tabthrough.restoreBackup` | Tabthrough: Restore from Backup |
+| `tabthrough.discardRecovery` | Tabthrough: Dismiss Pending Restore... |
+| `tabthrough.cleanupBackups` | Tabthrough: Clean Up Backups |
 
 <!-- commands -->
 
 ## Known limitations
 
-Deliberate scope decisions, not bugs. Each is documented rather than silently degraded.
-
 | Limitation | Behaviour today |
 |------------|-----------------|
-| **Multi-root workspaces** | Best effort on the first folder's repository only |
-| **Rebase, merge, or cherry-pick in progress** | Start is refused with an explanation, rather than reviewing an ambiguous HEAD |
-| **Shallow clones with missing objects** | Detected early; you are told to fetch instead of getting a partial diff |
-| **Git LFS and external diff drivers** | Passed through to git, so an LFS pointer change may present as a binary step |
-| **Remote-only commits** | Must be fetched first; a ref that does not resolve locally is rejected |
-| **Non-UTF-8 encodings** | Best effort — text is decoded as UTF-8 and may render imperfectly |
-| **Custom diff tools** | Out of scope; the review always uses the built-in diff editor |
-| **Binary and mode-only changes** | Shown as a visible skipped step so the step count stays honest, with no content to reveal |
-| **Whitespace-only changes** | Start is refused — `git diff -w` returning nothing means there is nothing to teach |
-| **Editing during a review** | Your files are stashed for the duration, so edits made mid-session are outside the safety guarantee. Finish or Cancel first |
-
-Rename-aware steps, a compact mode for very large diffs, drift detection, PR entry through `gh`, and an opt-in LLM guide generator are planned follow-ups.
+| **Multi-root workspaces** | First folder’s repository only |
+| **Rebase / merge / cherry-pick in progress** | Start refused |
+| **Shallow clones missing parents** | Refused with a fetch hint |
+| **One-click remote PR URLs** | Planned — use commit/range locally for now |
+| **LLM-generated guides** | Planned (BYOK); default path is offline |
+| **Binary / mode-only changes** | Visible skipped steps so the count stays honest |
+| **Whitespace-only diffs** | Start refused |
 
 ## Contributing
 
@@ -135,8 +120,8 @@ pnpm install
 pnpm lint && pnpm typecheck && pnpm test:ci
 ```
 
-The git, guide, and model layers never import `vscode`, which is what lets the safety and ordering suites run under plain vitest with no extension host — and it is asserted by a test rather than left to convention. Design docs, decisions, and the phase plan live under [`work-docs/`](work-docs/).
+The git, guide, and model layers never import `vscode`, so safety and ordering suites run under plain vitest. Design docs live under [`work-docs/`](work-docs/). Built on [Reatom](https://v1001.reatom.dev) and [reactive-vscode](https://kermanx.github.io/reactive-vscode/).
 
 ## License
 
-[MIT](./LICENSE.md) License © 2022 [Anthony Fu](https://github.com/antfu)
+[MIT](./LICENSE.md) License © 2026 [artalar](https://github.com/artalar)

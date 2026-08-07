@@ -287,7 +287,7 @@ describe('the commit picker source', () => {
     expect(commits.map(commit => commit.subject)).toEqual(['add app', 'add types', 'initial commit'])
     expect(commits[0]?.sha).toBe(await repo.head())
     expect(commits[0]?.shortSha.length).toBeGreaterThan(3)
-    expect(commits[0]?.author).toBe('Guide Reviewer Test')
+    expect(commits[0]?.author).toBe('Tabthrough Test')
     expect(commits[0]?.relativeDate).not.toBe('')
     expect(commits.at(-1)?.parentCount).toBe(0)
   })

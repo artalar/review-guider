@@ -79,14 +79,14 @@ export interface TmpRepoOptions {
 }
 
 export async function makeTempRepo(options: TmpRepoOptions = {}): Promise<TmpRepo> {
-  const root = await mkdtemp(join(tmpdir(), 'guide-reviewer-test-'))
+  const root = await mkdtemp(join(tmpdir(), 'tabthrough-test-'))
   CREATED.push(root)
 
   const repo = createHandle(root)
 
   await repo.git('init', '--quiet', '--initial-branch=main', '.')
-  await repo.git('config', 'user.email', 'test@guide-reviewer.local')
-  await repo.git('config', 'user.name', 'Guide Reviewer Test')
+  await repo.git('config', 'user.email', 'test@tabthrough.local')
+  await repo.git('config', 'user.name', 'Tabthrough Test')
   await repo.git('config', 'commit.gpgsign', 'false')
   await repo.git('config', 'core.autocrlf', 'false')
 
@@ -108,7 +108,7 @@ export async function makeTempRepo(options: TmpRepoOptions = {}): Promise<TmpRep
  * name were never fetched, which is the whole point of the fixture.
  */
 export async function makeShallowClone(source: TmpRepo, depth = 1): Promise<TmpRepo> {
-  const root = await mkdtemp(join(tmpdir(), 'guide-reviewer-shallow-'))
+  const root = await mkdtemp(join(tmpdir(), 'tabthrough-shallow-'))
   CREATED.push(root)
 
   const clone = await run(root, ['clone', '--quiet', '--depth', String(depth), pathToFileURL(source.root).href, '.'])
@@ -116,8 +116,8 @@ export async function makeShallowClone(source: TmpRepo, depth = 1): Promise<TmpR
     throw new Error(`shallow clone failed (${clone.code}): ${clone.stderr || clone.stdout}`)
 
   const repo = createHandle(root)
-  await repo.git('config', 'user.email', 'test@guide-reviewer.local')
-  await repo.git('config', 'user.name', 'Guide Reviewer Test')
+  await repo.git('config', 'user.email', 'test@tabthrough.local')
+  await repo.git('config', 'user.name', 'Tabthrough Test')
   await repo.git('config', 'commit.gpgsign', 'false')
   await repo.git('config', 'core.autocrlf', 'false')
   return repo
@@ -125,7 +125,7 @@ export async function makeShallowClone(source: TmpRepo, depth = 1): Promise<TmpR
 
 /** A directory that is deliberately not a repository. */
 export async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'guide-reviewer-plain-'))
+  const dir = await mkdtemp(join(tmpdir(), 'tabthrough-plain-'))
   CREATED.push(dir)
   return dir
 }

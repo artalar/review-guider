@@ -66,16 +66,16 @@ export const checkRecoveryOnActivate = wrap(async (): Promise<void> => {
   // anything was lost. Restoring it would apply that window's stash and end
   // its isolation mid-review, so this window says so and stays out of the way.
   if (isSessionLive(token, peek(ports).clock.now())) {
-    logger.info(`Guide Reviewer session ${token.sessionId} is live in another window; skipping recovery.`)
+    logger.info(`Tabthrough session ${token.sessionId} is live in another window; skipping recovery.`)
     void window.showInformationMessage(LIVE_ELSEWHERE_MESSAGE)
       .then(undefined, (error: unknown) => logger.error('live-session notice failed', error))
     return
   }
 
-  logger.warn(`Guide Reviewer found an unfinished session (${token.stage}) for ${token.repoRoot}`)
+  logger.warn(`Tabthrough found an unfinished session (${token.stage}) for ${token.repoRoot}`)
 
   const answer = await wrap(window.showWarningMessage(
-    'Guide Reviewer did not finish restoring your work last time.',
+    'Tabthrough did not finish restoring your work last time.',
     { modal: true, detail: `Session ${token.sessionId} stopped at stage "${token.stage}". Nothing was discarded.` },
     'Restore now',
     'Later',
@@ -109,7 +109,7 @@ export function useGuideDiagnostics(): void {
       return
 
     const more = warnings.length > 1
-      ? ` (+${warnings.length - 1} more in the Guide Reviewer output channel)`
+      ? ` (+${warnings.length - 1} more in the Tabthrough output channel)`
       : ''
     void window.showWarningMessage(`${first.message}${more}`)
       .then(undefined, (error: unknown) => logger.error('guide diagnostics notice failed', error))

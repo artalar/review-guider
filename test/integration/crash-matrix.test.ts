@@ -151,7 +151,7 @@ describe('recovery is repeatable', () => {
     const repo = await dirtyRepo()
     const { token, store } = await isolateUpTo(repo, 'reviewing')
 
-    // Something outside Guide Reviewer changed the tree while the session was
+    // Something outside Tabthrough changed the tree while the session was
     // dead. Verification fails, so nothing is dropped and nothing is deleted.
     await repo.write('interference.txt', 'not ours\n')
 

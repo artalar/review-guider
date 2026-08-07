@@ -27,7 +27,7 @@ import { useAtomRef } from './binding'
  * editor supplies gutter markers, highlighting, and navigation for free.
  */
 
-const LOADING = '// Guide Reviewer is reading this file…\n'
+const LOADING = '// Tabthrough is reading this file…\n'
 
 export function reviewUri(ref: ReviewDocRef, rev?: string): VscodeUri {
   return Uri.from({

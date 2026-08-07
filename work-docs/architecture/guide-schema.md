@@ -31,7 +31,7 @@ The last row is the load-bearing one. A guide is an *enhancement*; the offline h
 
 Resolution order, first hit wins:
 
-1. The `guideReviewer.guideFile` setting, if non-empty, resolved relative to the repo root.
+1. The `tabthrough.guideFile` setting, if non-empty, resolved relative to the repo root.
 2. `.guide.json` at the repo root.
 3. No sidecar → pure heuristic.
 
@@ -128,8 +128,8 @@ Purely informational. The reader must never branch on it.
 
 | Where | Value |
 |-------|-------|
-| Canonical `$id` | `https://guide-reviewer.dev/schema/guide-v1.json` |
-| Resolvable today | `https://raw.githubusercontent.com/artalar/review-guider/main/schema/guide-v1.json` |
+| Canonical `$id` | `https://tabthrough.dev/schema/guide-v1.json` |
+| Resolvable today | `https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json` |
 | In this repo | `schema/guide-v1.json` |
 
 The `$id` is frozen with the version and does not change when the hosting does. Until the domain serves it, an author who wants editor completion should point `$schema` at the raw URL or at a repo-relative path; the reader ignores the field either way (§3.1), so nothing about a session depends on which one is used.
@@ -191,7 +191,7 @@ Result is deterministic for a given (diff, sidecar) pair — invariant I4, and a
 | `scope.diffDigest` mismatch | Guide is used, `Guide.stale = true`, one warning `stale-guide`. MVP does nothing more; P1-3 refines |
 | Valid guide, zero steps survive anchoring | Pure heuristic. One warning `anchor-unmatched` |
 
-"One warning" means literally one notification per session, however many diagnostics are behind it. The full list is available in the output channel and through `Guide Reviewer: Show guide diagnostics`.
+"One warning" means literally one notification per session, however many diagnostics are behind it. The full list is available in the output channel and through `Tabthrough: Show guide diagnostics`.
 
 ---
 
@@ -209,7 +209,7 @@ Significance is a **teaching weight**, not a severity. It answers "how much of t
 | `low` | May be coalesced with adjacent `low` steps in the same file up to `maxLinesPerStep` | Plain |
 | `skip` | Lines are still revealed, but they never own a step: they are merged into the following step in the same file, or into the preceding one if they are last | Not counted in `k/n` |
 
-`skip` is how you say "this is formatting churn" without hiding it. It is the only value with an interaction with a user setting: when `guideReviewer.hideFormattingSteps` is `false` (default), the heuristic will not *produce* `skip`, but an authored `skip` is always honoured.
+`skip` is how you say "this is formatting churn" without hiding it. It is the only value with an interaction with a user setting: when `tabthrough.hideFormattingSteps` is `false` (default), the heuristic will not *produce* `skip`, but an authored `skip` is always honoured.
 
 ### 6.2 `grouping`
 
@@ -291,7 +291,7 @@ A change that adds a `Guide` type, a builder that produces it, a caller, and a t
 
 ```json
 {
-  "$schema": "https://guide-reviewer.dev/schema/guide-v1.json",
+  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
   "version": 1,
   "createdAt": "2026-08-07T09:12:44Z",
   "generator": { "name": "cursor-agent", "version": "2.4.0", "model": "claude-sonnet-4.6" },

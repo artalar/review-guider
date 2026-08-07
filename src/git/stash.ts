@@ -14,7 +14,7 @@ export interface StashEntry {
   /** `stash@{0}` — valid only until the stash list changes. */
   readonly selector: string
   readonly sha: string
-  /** Reflog subject, e.g. `On main: guide-reviewer:<id>`. */
+  /** Reflog subject, e.g. `On main: tabthrough:<id>`. */
   readonly subject: string
 }
 

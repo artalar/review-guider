@@ -1,32 +1,36 @@
 {
   "publisher": "artalar",
-  "name": "guide-reviewer",
-  "displayName": "Guide Reviewer",
+  "name": "tabthrough",
+  "displayName": "Tabthrough — Guided Diff Review",
   "version": "0.0.0",
   "private": true,
   "packageManager": "pnpm@10.27.0",
-  "description": "Review a diff step by step: Guide Reviewer safely isolates your workspace, then reveals the change in pedagogical order, one Tab at a time.",
+  "description": "Turn local changes and commits into a step-by-step diff walkthrough, ordered for understanding.",
   "author": "artalar",
   "license": "MIT",
-  "homepage": "https://github.com/artalar/review-guider#readme",
+  "homepage": "https://github.com/artalar/tabthrough#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/artalar/review-guider"
+    "url": "https://github.com/artalar/tabthrough"
   },
   "bugs": {
-    "url": "https://github.com/artalar/review-guider/issues"
+    "url": "https://github.com/artalar/tabthrough/issues"
   },
   "keywords": [
     "code review",
-    "diff",
-    "git",
-    "learning",
-    "onboarding"
+    "diff viewer",
+    "git diff",
+    "guided review",
+    "change walkthrough",
+    "commit review",
+    "local changes",
+    "code understanding",
+    "onboarding",
+    "AI-generated code"
   ],
   "categories": [
-    "Other",
-    "SCM Providers",
-    "Education"
+    "Visualization",
+    "Other"
   ],
   "main": "./dist/index.cjs",
   "icon": "res/icon.png",
@@ -44,7 +48,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "Guide Reviewer runs git in the workspace and rewrites the working tree. A repository's own config can make git execute arbitrary commands, so it needs a trusted folder."
+      "description": "Tabthrough runs git in the workspace and rewrites the working tree. A repository's own config can make git execute arbitrary commands, so it needs a trusted folder."
     },
     "virtualWorkspaces": {
       "supported": false,
@@ -54,104 +58,104 @@
   "contributes": {
     "commands": [
       {
-        "command": "guide-reviewer.start",
-        "title": "Start Review (Working Tree)",
-        "category": "Guide Reviewer",
-        "enablement": "guideReviewer.canStart"
+        "command": "tabthrough.start",
+        "title": "Review Working Changes",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
       },
       {
-        "command": "guide-reviewer.startFromCommit",
-        "title": "Start Review from Commit...",
-        "category": "Guide Reviewer",
-        "enablement": "guideReviewer.canStart"
+        "command": "tabthrough.startFromCommit",
+        "title": "Review a Commit...",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
       },
       {
-        "command": "guide-reviewer.startFromRange",
-        "title": "Start Review from Commit Range...",
-        "category": "Guide Reviewer",
-        "enablement": "guideReviewer.canStart"
+        "command": "tabthrough.startFromRange",
+        "title": "Review a Commit Range...",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
       },
       {
-        "command": "guide-reviewer.next",
-        "title": "Next Step",
-        "category": "Guide Reviewer",
-        "enablement": "guideReviewer.sessionActive"
+        "command": "tabthrough.next",
+        "title": "Reveal Next Change",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.sessionActive"
       },
       {
-        "command": "guide-reviewer.previous",
-        "title": "Previous Step",
-        "category": "Guide Reviewer",
-        "enablement": "guideReviewer.sessionActive"
+        "command": "tabthrough.previous",
+        "title": "Go Back One Change",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.sessionActive"
       },
       {
-        "command": "guide-reviewer.showStepDetail",
+        "command": "tabthrough.showStepDetail",
         "title": "Go to Current Step",
-        "category": "Guide Reviewer",
-        "enablement": "guideReviewer.sessionActive"
+        "category": "Tabthrough",
+        "enablement": "tabthrough.sessionActive"
       },
       {
-        "command": "guide-reviewer.finish",
-        "title": "Finish Review",
-        "category": "Guide Reviewer",
-        "enablement": "guideReviewer.sessionActive"
+        "command": "tabthrough.finish",
+        "title": "Finish and Restore Workspace",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.sessionActive"
       },
       {
-        "command": "guide-reviewer.cancel",
-        "title": "Cancel Review",
-        "category": "Guide Reviewer",
-        "enablement": "guideReviewer.sessionOpen"
+        "command": "tabthrough.cancel",
+        "title": "Cancel and Restore Workspace",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.sessionOpen"
       },
       {
-        "command": "guide-reviewer.restoreBackup",
+        "command": "tabthrough.restoreBackup",
         "title": "Restore from Backup",
-        "category": "Guide Reviewer",
-        "enablement": "guideReviewer.recoveryPending && !guideReviewer.sessionActive"
+        "category": "Tabthrough",
+        "enablement": "tabthrough.recoveryPending && !tabthrough.sessionActive"
       },
       {
-        "command": "guide-reviewer.discardRecovery",
-        "title": "Forget Pending Restore",
-        "category": "Guide Reviewer",
-        "enablement": "guideReviewer.recoveryPending && !guideReviewer.sessionActive"
+        "command": "tabthrough.discardRecovery",
+        "title": "Dismiss Pending Restore...",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.recoveryPending && !tabthrough.sessionActive"
       },
       {
-        "command": "guide-reviewer.cleanupBackups",
+        "command": "tabthrough.cleanupBackups",
         "title": "Clean Up Backups",
-        "category": "Guide Reviewer",
-        "enablement": "guideReviewer.gitUsable"
+        "category": "Tabthrough",
+        "enablement": "tabthrough.gitUsable"
       }
     ],
     "keybindings": [
       {
-        "command": "guide-reviewer.next",
+        "command": "tabthrough.next",
         "key": "tab",
-        "when": "guideReviewer.sessionActive && resourceScheme == 'guide-reviewer' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.guideReviewer.keybinding.useTab"
+        "when": "tabthrough.sessionActive && resourceScheme == 'tabthrough' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.tabthrough.keybinding.useTab"
       },
       {
-        "command": "guide-reviewer.previous",
+        "command": "tabthrough.previous",
         "key": "shift+tab",
-        "when": "guideReviewer.sessionActive && resourceScheme == 'guide-reviewer' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.guideReviewer.keybinding.useTab"
+        "when": "tabthrough.sessionActive && resourceScheme == 'tabthrough' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.tabthrough.keybinding.useTab"
       },
       {
-        "command": "guide-reviewer.next",
+        "command": "tabthrough.next",
         "key": "alt+]",
-        "when": "guideReviewer.sessionActive"
+        "when": "tabthrough.sessionActive"
       },
       {
-        "command": "guide-reviewer.previous",
+        "command": "tabthrough.previous",
         "key": "alt+[",
-        "when": "guideReviewer.sessionActive"
+        "when": "tabthrough.sessionActive"
       }
     ],
     "configuration": {
       "type": "object",
-      "title": "Guide Reviewer",
+      "title": "Tabthrough",
       "properties": {
-        "guideReviewer.showRationale": {
+        "tabthrough.showRationale": {
           "type": "boolean",
           "default": true,
           "description": "Show the one-line reason each step was ordered where it is (for example \"types before callers\") in the status bar."
         },
-        "guideReviewer.reveal.mode": {
+        "tabthrough.reveal.mode": {
           "type": "string",
           "enum": [
             "progressive",
@@ -164,29 +168,29 @@
           "default": "progressive",
           "description": "How the reviewed change is revealed as you advance through steps."
         },
-        "guideReviewer.guideFile": {
+        "tabthrough.guideFile": {
           "type": "string",
           "default": ".guide.json",
           "description": "Repository-relative path of the optional guide sidecar that overrides the heuristic step order."
         },
-        "guideReviewer.keybinding.useTab": {
+        "tabthrough.keybinding.useTab": {
           "type": "boolean",
           "default": true,
           "description": "Bind Tab to the next review step while a review document is focused. Alt+] and Alt+[ always work regardless of this setting."
         },
-        "guideReviewer.maxLinesPerStep": {
+        "tabthrough.maxLinesPerStep": {
           "type": "number",
           "default": 24,
           "minimum": 1,
           "maximum": 500,
           "description": "Upper bound on how many low-significance changed lines are coalesced into a single step."
         },
-        "guideReviewer.hideFormattingSteps": {
+        "tabthrough.hideFormattingSteps": {
           "type": "boolean",
           "default": false,
           "description": "Drop steps whose changes are whitespace or comments only."
         },
-        "guideReviewer.stash.includeUntracked": {
+        "tabthrough.stash.includeUntracked": {
           "type": "boolean",
           "default": true,
           "description": "Include untracked files when isolating the workspace. Ignored files are never included."
@@ -198,7 +202,7 @@
     "build": "tsdown src/index.ts --external vscode",
     "dev": "nr build --watch --sourcemap",
     "prepare": "nr update",
-    "update": "vscode-ext-gen --output src/generated/meta.ts --scope guideReviewer",
+    "update": "vscode-ext-gen --output src/generated/meta.ts --scope tabthrough",
     "lint": "eslint .",
     "test": "vitest",
     "test:ci": "vitest run",

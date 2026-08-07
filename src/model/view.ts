@@ -9,14 +9,14 @@ import { session, sessionStatus, startBlockedReason } from './session'
  * UI layer holds no branching logic of its own.
  */
 
-export const REVIEW_SCHEME = 'guide-reviewer'
+export const REVIEW_SCHEME = 'tabthrough'
 
 /**
  * Two read-only documents per file (architecture/overview.md §7.1):
  *
  * ```
- * guide-reviewer://base/<sessionId>/<path>?rev=<baseRev>
- * guide-reviewer://reveal/<sessionId>/<path>
+ * tabthrough://base/<sessionId>/<path>?rev=<baseRev>
+ * tabthrough://reveal/<sessionId>/<path>
  * ```
  *
  * The kind is the URI authority and the repo-relative path is kept verbatim at
@@ -54,7 +54,7 @@ export function basename(path: string): string {
  * the editor tab on every Tab press. The status bar is where `k/n` belongs.
  */
 export function reviewDocTitle(path: string): string {
-  return `${basename(path)} (Guide Reviewer)`
+  return `${basename(path)} (Tabthrough)`
 }
 
 export const statusText = computed((): string | null => {
@@ -62,9 +62,12 @@ export const statusText = computed((): string | null => {
   if (model === null)
     return null
 
+  if (model.isComplete())
+    return '$(book) Walkthrough complete · Finish and restore'
+
   const { index, total } = model.progress()
   const step = model.currentStep()
-  const parts = [`$(book) Step ${index}/${total}`]
+  const parts = [`$(book) ${index} of ${total}`]
   if (step !== null)
     parts.push(basename(step.path))
   if (showRationale() && step !== null && step.rationale !== '')
@@ -76,17 +79,27 @@ export const statusTooltip = computed((): string | null => {
   const model = session()
   if (model === null) {
     const reason = startBlockedReason()
-    return reason === null ? null : `Guide Reviewer: ${reason}`
+    return reason === null ? null : `Tabthrough: ${reason}`
   }
 
+  if (sessionStatus() === 'blocked')
+    return 'Workspace restore needs attention'
+
   const step = model.currentStep()
-  const lines = [`Guide Reviewer — ${sessionStatus()}`]
+  const lines = [`Tabthrough — ${sessionStatus()}`]
   if (step !== null) {
     lines.push(step.title ?? step.path)
     if (step.rationale !== '')
       lines.push(step.rationale)
     if (step.notes !== undefined)
       lines.push(step.notes)
+  }
+  const upcoming = model.nextStep()
+  if (upcoming !== null) {
+    const nextBits = [`Next: ${basename(upcoming.path)}`]
+    if (showRationale() && upcoming.rationale !== '')
+      nextBits.push(upcoming.rationale)
+    lines.push(nextBits.join(' · '))
   }
   lines.push('Click to jump to the current step.')
   return lines.join('\n')
@@ -142,7 +155,7 @@ export const reviewViewModel = computed((): ReviewViewModel | null => {
     step,
     activePath,
     baseRev: model.baseRev,
-    title: activePath === null ? 'Guide Reviewer' : reviewDocTitle(activePath),
+    title: activePath === null ? 'Tabthrough' : reviewDocTitle(activePath),
     baseText: stub ? '' : active?.baseText.data() ?? null,
     revealText: stub && step !== null ? stubDocumentText(step) : active?.revealText() ?? null,
     ranges: stub ? [] : active?.currentRanges() ?? [],

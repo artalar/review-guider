@@ -39,8 +39,8 @@ async function manifest(): Promise<Manifest> {
 
 /** ADR 0002 D2, clause by clause. */
 const TAB_CLAUSES: readonly string[] = [
-  'guideReviewer.sessionActive',
-  'resourceScheme == \'guide-reviewer\'',
+  'tabthrough.sessionActive',
+  'resourceScheme == \'tabthrough\'',
   'editorTextFocus',
   '!suggestWidgetVisible',
   '!inlineSuggestionVisible',
@@ -49,7 +49,7 @@ const TAB_CLAUSES: readonly string[] = [
   '!parameterHintsVisible',
   '!accessibilityModeEnabled',
   '!editorTabMovesFocus',
-  'config.guideReviewer.keybinding.useTab',
+  'config.tabthrough.keybinding.useTab',
 ]
 
 describe('contributed commands', () => {
@@ -58,17 +58,17 @@ describe('contributed commands', () => {
     const declared = contributes.commands.map(entry => entry.command).sort()
 
     expect(declared).toEqual([
-      'guide-reviewer.cancel',
-      'guide-reviewer.cleanupBackups',
-      'guide-reviewer.discardRecovery',
-      'guide-reviewer.finish',
-      'guide-reviewer.next',
-      'guide-reviewer.previous',
-      'guide-reviewer.restoreBackup',
-      'guide-reviewer.showStepDetail',
-      'guide-reviewer.start',
-      'guide-reviewer.startFromCommit',
-      'guide-reviewer.startFromRange',
+      'tabthrough.cancel',
+      'tabthrough.cleanupBackups',
+      'tabthrough.discardRecovery',
+      'tabthrough.finish',
+      'tabthrough.next',
+      'tabthrough.previous',
+      'tabthrough.restoreBackup',
+      'tabthrough.showStepDetail',
+      'tabthrough.start',
+      'tabthrough.startFromCommit',
+      'tabthrough.startFromRange',
     ])
   })
 
@@ -79,36 +79,36 @@ describe('contributed commands', () => {
    */
   it('keeps the exit reachable from every state a session can be stuck in', async () => {
     const { contributes } = await manifest()
-    const cancel = contributes.commands.find(entry => entry.command === 'guide-reviewer.cancel')
+    const cancel = contributes.commands.find(entry => entry.command === 'tabthrough.cancel')
 
-    expect(cancel?.enablement).toBe('guideReviewer.sessionOpen')
+    expect(cancel?.enablement).toBe('tabthrough.sessionOpen')
   })
 
   it('keeps the recovery commands away from a live session', async () => {
     const { contributes } = await manifest()
     const recovery = contributes.commands.filter(entry =>
-      entry.command === 'guide-reviewer.restoreBackup' || entry.command === 'guide-reviewer.discardRecovery')
+      entry.command === 'tabthrough.restoreBackup' || entry.command === 'tabthrough.discardRecovery')
 
     expect(recovery).toHaveLength(2)
     for (const entry of recovery)
-      expect(entry.enablement).toBe('guideReviewer.recoveryPending && !guideReviewer.sessionActive')
+      expect(entry.enablement).toBe('tabthrough.recoveryPending && !tabthrough.sessionActive')
   })
 
   it('gates every command on a context key, so the palette never offers a failure', async () => {
     const { contributes } = await manifest()
     for (const entry of contributes.commands) {
       expect(entry.enablement, entry.command).toBeDefined()
-      expect(entry.enablement, entry.command).toMatch(/^guideReviewer\./)
+      expect(entry.enablement, entry.command).toMatch(/^tabthrough\./)
     }
   })
 
   it('only offers the three entry points when the model says a start can succeed', async () => {
     const { contributes } = await manifest()
-    const starts = contributes.commands.filter(entry => entry.command.startsWith('guide-reviewer.start'))
+    const starts = contributes.commands.filter(entry => entry.command.startsWith('tabthrough.start'))
 
     expect(starts).toHaveLength(3)
     for (const entry of starts)
-      expect(entry.enablement).toBe('guideReviewer.canStart')
+      expect(entry.enablement).toBe('tabthrough.canStart')
   })
 })
 
@@ -133,7 +133,7 @@ describe('keybindings', () => {
     const { contributes } = await manifest()
     const tab = contributes.keybindings.filter(entry => entry.key === 'tab' || entry.key === 'shift+tab')
 
-    expect(tab.map(entry => entry.command)).toEqual(['guide-reviewer.next', 'guide-reviewer.previous'])
+    expect(tab.map(entry => entry.command)).toEqual(['tabthrough.next', 'tabthrough.previous'])
     for (const entry of tab) {
       for (const clause of TAB_CLAUSES)
         expect(entry.when, `${entry.key} is missing ${clause}`).toContain(clause)
@@ -154,13 +154,13 @@ describe('keybindings', () => {
     const { contributes } = await manifest()
     const chord = contributes.keybindings.filter(entry => entry.key === 'alt+]' || entry.key === 'alt+[')
 
-    expect(chord.map(entry => entry.command)).toEqual(['guide-reviewer.next', 'guide-reviewer.previous'])
+    expect(chord.map(entry => entry.command)).toEqual(['tabthrough.next', 'tabthrough.previous'])
     for (const entry of chord)
-      expect(entry.when).toBe('guideReviewer.sessionActive')
+      expect(entry.when).toBe('tabthrough.sessionActive')
   })
 
   it('lets the user turn the Tab binding off entirely', async () => {
     const { contributes } = await manifest()
-    expect(contributes.configuration.properties['guideReviewer.keybinding.useTab']).toBeDefined()
+    expect(contributes.configuration.properties['tabthrough.keybinding.useTab']).toBeDefined()
   })
 })

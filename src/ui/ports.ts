@@ -9,7 +9,7 @@ import { describeTarget } from '../git/types'
 import { ports } from '../model/session'
 import { logger } from '../utils'
 
-const TOKEN_PREFIX = 'guideReviewer.token.'
+const TOKEN_PREFIX = 'tabthrough.token.'
 
 /**
  * `globalState`, not `workspaceState`: a second window on the same repository
@@ -49,13 +49,13 @@ export function describePreflight(request: PreflightRequest): { message: string,
 
   const lines: string[] = []
   lines.push(request.willStash
-    ? `Your ${scope.join(', ')} change${scope.length === 1 && files.staged.length + files.unstaged.length + files.untracked.length === 1 ? '' : 's'} will be stashed as "guide-reviewer:<session>". Ignored files are never touched.`
+    ? `Your ${scope.join(', ')} change${scope.length === 1 && files.staged.length + files.unstaged.length + files.untracked.length === 1 ? '' : 's'} will be stashed as "tabthrough:<session>". Ignored files are never touched.`
     : 'Your working tree is already clean, so nothing will be stashed.')
   if (request.willCheckout !== null)
     lines.push(`HEAD will detach at ${request.willCheckout.slice(0, 12)}.`)
   lines.push(
-    'Everything is captured to refs/guide-reviewer/after/<session> before anything is touched, '
-    + 'and "Guide Reviewer: Cancel Review" restores it at any time.',
+    'Everything is captured to refs/tabthrough/after/<session> before anything is touched, '
+    + 'and "Tabthrough: Cancel Review" restores it at any time.',
   )
 
   return {

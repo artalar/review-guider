@@ -3,11 +3,11 @@ import { splitLines, tryGit } from './exec'
 
 /**
  * Every artifact the safety protocol leaves behind is an ordinary git ref, so a
- * user can always inspect it with `git for-each-ref refs/guide-reviewer` and
+ * user can always inspect it with `git for-each-ref refs/tabthrough` and
  * recover by hand. See architecture/overview.md §3.5 and ADR 0002 D3/D5.
  */
 
-export const REF_NAMESPACE = 'refs/guide-reviewer'
+export const REF_NAMESPACE = 'refs/tabthrough'
 export const LOCK_REF = `${REF_NAMESPACE}/lock`
 export const ZERO_OID = '0000000000000000000000000000000000000000'
 
@@ -94,7 +94,7 @@ export async function listRefs(
  * and the ownership check recompute the value they compare against instead of
  * trusting the ref they are about to act on.
  */
-const LOCK_PAYLOAD_PREFIX = 'guide-reviewer-lock:'
+const LOCK_PAYLOAD_PREFIX = 'tabthrough-lock:'
 
 async function lockObject(
   repoRoot: string,

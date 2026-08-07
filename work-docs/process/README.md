@@ -1,4 +1,4 @@
-# Guide Reviewer — Agent Team Process
+# Tabthrough — Agent Team Process
 
 **Orchestrator:** Cloud agent (this run)  
 **Source of truth:** Everything under `work-docs/` — sync after every role turn.

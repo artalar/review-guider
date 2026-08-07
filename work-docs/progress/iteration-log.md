@@ -2,12 +2,12 @@
 
 ## 2026-08-07 — Iteration 0: Bootstrap (prior branch)
 
-- Prior agent on `cursor/guide-reviewer-extension-fbe4` seeded product docs
-- Cherry-picked into `cursor/guide-reviewer-33d9`
+- Prior agent on `cursor/tabthrough-extension-fbe4` seeded product docs
+- Cherry-picked into `cursor/tabthrough-33d9`
 
 ## 2026-08-07 — Iteration 1: Orchestrator bootstrap
 
-- Branch: `cursor/guide-reviewer-33d9`
+- Branch: `cursor/tabthrough-33d9`
 - Installed Reatom skills (`reatom`, `reatom-async`, `reatom-jsx`, `reatom-review`) via `npx skills add reatom/reatom`
 - Synced skills to `.agents/skills/` and `.cursor/skills/`
 - Process + role docs under `work-docs/process` and `work-docs/roles`
@@ -27,28 +27,28 @@
 - Risk register (9 entries, ordered by expected cost). Top three: **R2 stash conflict/data loss** (round-trip suite is a merge blocker for all later phases), **R5 reveal rendering** — VS Code decorations cannot hide lines, so a spike is required before P0-12 commits and `dim` is the default fallback — and **R1 Tab keybinding conflicts**, structurally mitigated by rendering into a read-only virtual document on its own URI scheme.
 - Load-bearing architectural constraint proposed for the Implementer: nothing under `src/git/`, `src/guide/`, or `src/model/` imports `vscode`, so the safety and ordering suites run under plain vitest with no extension host.
 - Handed **[ARCH]** markers to the Architect: Reatom scope lifetime vs `defineExtension` and disposal ordering, the repo-level session lock mechanism, the final Tab `when` clause, and `.guide.json` v1 shape (blocks P0-15).
-- **Next:** Implementer slice = Phase 0 in full + P0-1 (git probe with discriminated result, `guideReviewer.gitUsable` context key, disabled Start command). Stash pipeline explicitly deferred to its own review pass. Tester track B (`test/helpers/tmp-repo.ts`) should start in parallel — it is on the critical path for Phase 2.
+- **Next:** Implementer slice = Phase 0 in full + P0-1 (git probe with discriminated result, `tabthrough.gitUsable` context key, disabled Start command). Stash pipeline explicitly deferred to its own review pass. Tester track B (`test/helpers/tmp-repo.ts`) should start in parallel — it is on the critical path for Phase 2.
 
 ## Architect — 2026-08-07
 
 Published `architecture/overview.md`, `architecture/reatom-model.md`, `architecture/guide-schema.md`, and ADR `0002-architecture.md`. Track C is complete; P0-8 and P0-15 are unblocked. Docs only — no `src/` changes.
 
-**Reveal strategy (closes R5 without a spike).** Decorations cannot delete lines, so the reveal document is *built* rather than annotated: a read-only virtual document on the `guide-reviewer` scheme whose content is `renderReveal(baseText, file, revealedGroups)` — a pure fold of base text plus the line groups revealed so far — diffed against a static base document. Unrevealed lines are absent, not dimmed, and the native diff editor supplies gutter markers and highlighting. `guideReviewer.reveal.mode: "dim"` is retained as the planned fallback, sharing the same provider, URIs, and `LineGroup` data; only the fold differs, so the pre-Phase-5 spike shrinks to a one-file comparison.
+**Reveal strategy (closes R5 without a spike).** Decorations cannot delete lines, so the reveal document is *built* rather than annotated: a read-only virtual document on the `tabthrough` scheme whose content is `renderReveal(baseText, file, revealedGroups)` — a pure fold of base text plus the line groups revealed so far — diffed against a static base document. Unrevealed lines are absent, not dimmed, and the native diff editor supplies gutter markers and highlighting. `tabthrough.reveal.mode: "dim"` is retained as the planned fallback, sharing the same provider, URIs, and `LineGroup` data; only the fold differs, so the pre-Phase-5 spike shrinks to a one-file comparison.
 
-**Safety protocol — one change of substance from the plan.** Before anything is mutated, a temp-index snapshot (`GIT_INDEX_FILE=… read-tree HEAD; add -A; write-tree; commit-tree`) captures tracked *and* untracked state into an immutable commit at `refs/guide-reviewer/after/<id>`. That, not the stash, is the actual never-lose-WIP guarantee, and it happens before the first mutation. Two refs with two jobs: the after-ref is read to render review content; `refs/guide-reviewer/backup/<id>` (the stash-shaped commit) is what restore applies, because only it preserves the staged/unstaged split. Restore stays apply → verify → drop, exactly as the plan specified. `add -A` honours `.gitignore`, keeping us on the right side of R8.
+**Safety protocol — one change of substance from the plan.** Before anything is mutated, a temp-index snapshot (`GIT_INDEX_FILE=… read-tree HEAD; add -A; write-tree; commit-tree`) captures tracked *and* untracked state into an immutable commit at `refs/tabthrough/after/<id>`. That, not the stash, is the actual never-lose-WIP guarantee, and it happens before the first mutation. Two refs with two jobs: the after-ref is read to render review content; `refs/tabthrough/backup/<id>` (the stash-shaped commit) is what restore applies, because only it preserves the staged/unstaged split. Restore stays apply → verify → drop, exactly as the plan specified. `add -A` honours `.gitignore`, keeping us on the right side of R8.
 
 **Entry points unified.** Working tree, single commit, and range all resolve to an immutable `(base, after)` commit pair, and the working-tree entry is stashed like the others rather than special-cased. The consequence is real and PO-visible — reviewing your current changes hides them from disk for the session — but it means one restore path serves all three entries, the reviewed content cannot drift, and the safety suite exercises the common entry rather than skipping it.
 
 **Answers to the four `[ARCH]` handoffs:**
 
 1. *Reatom scope lifetime.* There is nothing to create. Atoms are module-level in the implicit global context; `context.start` is for tests and SSR. `context.reset()` is forbidden under `src/` — it rejects wrapped promises with abort errors, which during an in-flight restore is the one outcome the safety design exists to prevent. Disposal order at `deactivate` is load-bearing: context keys off, drain the restore against a ~4 s budget, *then* dispose the reactive-vscode scope. Disposing first would unsubscribe the projections mid-restore.
-2. *Repo-level lock.* Compare-and-swap on `refs/guide-reviewer/lock` — `git update-ref <ref> <sha> 000…0` fails atomically if the ref exists. Cross-process, cross-window, no filesystem-semantics reasoning, inspectable with `for-each-ref`. Breaking a stale lock is always an explicit user action.
-3. *Tab `when` clause.* Finalised in overview §7.2. `resourceScheme == 'guide-reviewer'` is the structural mitigation. Dropped `!editorHasSelection` (breaks select-then-Tab, and selection has no Tab meaning in a read-only doc) and `!editorReadonly` (read-only is exactly what makes Tab safe to take). Added `!parameterHintsVisible`, `!renameInputVisible`, `!accessibilityModeEnabled`, `!editorTabMovesFocus`, and a config gate.
+2. *Repo-level lock.* Compare-and-swap on `refs/tabthrough/lock` — `git update-ref <ref> <sha> 000…0` fails atomically if the ref exists. Cross-process, cross-window, no filesystem-semantics reasoning, inspectable with `for-each-ref`. Breaking a stale lock is always an explicit user action.
+3. *Tab `when` clause.* Finalised in overview §7.2. `resourceScheme == 'tabthrough'` is the structural mitigation. Dropped `!editorHasSelection` (breaks select-then-Tab, and selection has no Tab meaning in a read-only doc) and `!editorReadonly` (read-only is exactly what makes Tab safe to take). Added `!parameterHintsVisible`, `!renameInputVisible`, `!accessibilityModeEnabled`, `!editorTabMovesFocus`, and a config gate.
 4. *`.guide.json` v1.* Frozen. Steps anchor with file line ranges, not hunk offsets, and ranges *intersect* line groups rather than containing them — so groups stay atomic, coarse anchors are good enough, and the coverage invariant is checkable. Hard errors reject the whole document with one warning; soft errors keep it and record diagnostics; unknown fields are ignored so a 1.1 doc works in a 1.0 reader.
 
 **Reatom model shape.** Probes are `computed` + `withAsyncData` (`git.capability`, `git.repoStatus`, per-file `baseText`, `recovery.token`); mutations are `action` + `withAsync` with an explicit abort strategy per action (`session.start/finish/cancel`, `recovery.restore`). Restore paths never receive an abort signal — cancellation is a safety feature on reads and a hazard on writes. Status is a plain atom with one guarded transition action rather than `reatomEnum`, whose generated setters would be a second unguarded write path. Steps are frozen plain data; only `cursor` and async data are atoms, so Tab is synchronous. The bridge holds exactly one subscription, to `ui.reviewViewModel`, which also touches the next step's `baseText` so lookahead warming falls out of the dependency graph rather than a prefetch scheduler.
 
-**Deltas the Planner and Implementer should note:** `refs/guide-reviewer/after/<id>` and the lock ref are new artifacts for Phase 2; `src/guide/` gains `groups.ts`, `render.ts`, `schema.ts`, `merge.ts`, and `src/model/` gains `ports.ts` and `view.ts`; `guideReviewer.reveal.mode` becomes `'progressive' | 'dim'` with `progressive` default; the recovery token lives in `globalState` keyed by repo root (not `workspaceState`), which is what lets a second window see it.
+**Deltas the Planner and Implementer should note:** `refs/tabthrough/after/<id>` and the lock ref are new artifacts for Phase 2; `src/guide/` gains `groups.ts`, `render.ts`, `schema.ts`, `merge.ts`, and `src/model/` gains `ports.ts` and `view.ts`; `tabthrough.reveal.mode` becomes `'progressive' | 'dim'` with `progressive` default; the recovery token lives in `globalState` keyed by repo root (not `workspaceState`), which is what lets a second window see it.
 
 - **Next:** unchanged — Implementer starts Phase 0 + P0-1. Reviewer should apply `reatom-model.md §12` (12-item anti-pattern checklist) from the first Reatom slice; the silent-failure item is W5, an atom read placed after an `await` inside a `computed`.
 
@@ -78,7 +78,7 @@ Two smaller notes for whoever wires this up: `mergeWithNext` folds a step into i
 
 `pnpm lint && typecheck && test:ci` green: **320 tests**, 15 files, ~6s. Phase 2's exit criteria are met in code and in automation; three manual drills are written but not yet run against a packaged build.
 
-**Phase 0.** Extension identity (`artalar.guide-reviewer`), the five settings from the plan plus `guideReviewer.reveal.mode` as the Architect's `'progressive' | 'dim'`, `@reatom/core` v1001 in `devDependencies` so tsdown bundles it, `vscode-ext-gen --scope guideReviewer`, `vitest.config.ts`, and `test:ci`.
+**Phase 0.** Extension identity (`artalar.tabthrough`), the five settings from the plan plus `tabthrough.reveal.mode` as the Architect's `'progressive' | 'dim'`, `@reatom/core` v1001 in `devDependencies` so tsdown bundles it, `vscode-ext-gen --scope tabthrough`, `vitest.config.ts`, and `test:ci`.
 
 **Phase 1.** `src/git/exec.ts` is one injectable `spawn` wrapper — arg arrays, never `shell: true`, explicit `cwd`, timeout, `AbortSignal`, and a locale-stable non-interactive environment — and every git call in the codebase goes through it, which is what makes the unit probe tests possible against recorded output. `probe.ts` returns the discriminated capability. `src/model/` holds the status machine with one guarded transition action, and `ports.ts` defines Store/Ui/Clock so the model never imports `vscode`. The boundary is enforced twice: ESLint `no-restricted-imports` per directory, and `test/unit/import-boundaries.test.ts`, which reads the source rather than trusting the config.
 
@@ -100,7 +100,7 @@ One piece of dead code went with them: `session#<id>.trace` was an atom nothing 
 
 **Two deliberate deviations from the frozen docs**, both for the Architect to confirm or overrule:
 
-1. *The lock is checked before the pre-flight, not only inside `isolate`.* The compare-and-swap on `refs/guide-reviewer/lock` is still the only real protection — the early read is advisory and racy by construction. It exists so the user is never asked to approve a stash that cannot possibly proceed.
+1. *The lock is checked before the pre-flight, not only inside `isolate`.* The compare-and-swap on `refs/tabthrough/lock` is still the only real protection — the early read is advisory and racy by construction. It exists so the user is never asked to approve a stash that cannot possibly proceed.
 2. *A blocked restore is a terminal state that keeps everything, including the lock.* ADR 0002 D5 says breaking a lock is always an explicit user action, and **Clean Up Backups** therefore skips the lock ref. The consequence is that a hard crash plus a lost `globalState` needs `git update-ref -d` by hand; it is logged as a known gap rather than papered over with an automatic break.
 
 **Testing shape.** `test/helpers/protocol.ts` drives the isolation protocol by hand and stops at any journal stage — including the three crash windows *inside* a stage, where the journal announced an operation that never ran. That is how the crash matrix is produced deterministically, with no process killing and no test-only hooks in `isolate`. Coverage: 17 round-trip fixtures, 10 crash states, 11 lifecycle paths, and the journal transition table exhaustively.
@@ -119,7 +119,7 @@ One piece of dead code went with them: `session#<id>.trace` was an atom nothing 
 
 **Phase 5.** `reatomReviewFile` is one model per changed file: `baseText` as `computed` + `withAsyncData` over `showBlob`, `revealedGroups` as `steps[0..cursor]` filtered to that file, and `render` as `renderReveal` over the two. `revealText`, `currentRanges` and `pendingRanges` fall out of `render`. Tab is `cursor.set(k + 1)` and nothing else — no I/O, no `await`, no invalidation call — and every document, decoration and status string downstream is a derivation of that one number. `ui.reviewViewModel` touches the *next* step's `baseText`, so lookahead warming is a line in the dependency graph rather than a prefetch scheduler.
 
-`src/ui/documents.ts` is the whole bridge: a `TextDocumentContentProvider` on the `guide-reviewer` scheme serving `base/<sessionId>/<path>?rev=` and `reveal/<sessionId>/<path>`, one subscription to `reviewViewModel`, `vscode.diff` when the reveal URI changes, and two decoration types. It holds one `Map<string, string>` of published content, which is the only imperative state in the codebase and exists solely because `provideTextDocumentContent` is a synchronous pull.
+`src/ui/documents.ts` is the whole bridge: a `TextDocumentContentProvider` on the `tabthrough` scheme serving `base/<sessionId>/<path>?rev=` and `reveal/<sessionId>/<path>`, one subscription to `reviewViewModel`, `vscode.diff` when the reveal URI changes, and two decoration types. It holds one `Map<string, string>` of published content, which is the only imperative state in the codebase and exists solely because `provideTextDocumentContent` is a synchronous pull.
 
 **Six decisions the docs left open.** Same convention as Phase 3 — each is somewhere the frozen specs were silent or, in the first case, describe a world the implementation no longer lives in:
 
@@ -130,11 +130,11 @@ One piece of dead code went with them: `session#<id>.trace` was an atom nothing 
 5. **A stub step gets a synthetic document.** overview.md §7.1 says binary and mode-only files show "a one-line explanation" but does not say where it comes from. A stub carries no groups and a binary file has no base text, so the honest rendering is an empty diff against an empty document — a blank editor with no indication anything happened. The view model now substitutes `path + rationale` as the reveal text against an empty base, so the step reads as an added explanation. `k/n` was already honest; now the screen is too.
 6. **Guide diagnostics reach the user.** They were being collected into `session.diagnostics` and read by nobody, which quietly broke guide-schema.md §5.4 — a malformed sidecar fell back to the heuristic in silence. The bridge now watches that atom, logs every entry at its own severity, and raises exactly one notification for the warning-severity ones, with a count of the rest. There is still no `Show guide diagnostics` command; the output channel is the full list.
 
-**Keybindings shipped as ADR 0002 D2 finalised them**, not as plan.md drafted them: `resourceScheme == 'guide-reviewer'` rather than `reviewEditorFocused`, `!editorHasSelection` and `!editorReadonly` dropped, four widget guards and the config gate added. `test/unit/contributions.test.ts` asserts the clause term by term against the ADR, so drift is a test failure rather than a discovery. Two notes for the Reviewer: the `guideReviewer.reviewEditorFocused` context key is still published per overview §4's bridge table but is not used by the shipped clause — it is there for users writing their own keybindings, not dead code by accident. And both sides of the diff carry the `guide-reviewer` scheme, so Tab advances from the base pane too, which is what you want when you have clicked into the left side to read what was there before.
+**Keybindings shipped as ADR 0002 D2 finalised them**, not as plan.md drafted them: `resourceScheme == 'tabthrough'` rather than `reviewEditorFocused`, `!editorHasSelection` and `!editorReadonly` dropped, four widget guards and the config gate added. `test/unit/contributions.test.ts` asserts the clause term by term against the ADR, so drift is a test failure rather than a discovery. Two notes for the Reviewer: the `tabthrough.reviewEditorFocused` context key is still published per overview §4's bridge table but is not used by the shipped clause — it is there for users writing their own keybindings, not dead code by accident. And both sides of the diff carry the `tabthrough` scheme, so Tab advances from the base pane too, which is what you want when you have clicked into the left side to read what was there before.
 
 **Focus is event-driven, not timed.** The obvious way to scroll to a new step is `setTimeout(0)` after firing the provider's change event. Instead, `workspace.onDidChangeTextDocument` on the reveal document *is* the signal that VS Code has re-read the provider, so focus happens there, plus once directly after `vscode.diff` resolves for the case where the text did not change. No timers, nothing to dispose, and no frame where the scroll targets stale content. Ranges are clamped to the document anyway, so the worst case is a scroll to the last line rather than a thrown error.
 
-**Track D and E.** README is rewritten for the marketplace: how it works, the three entry points, the key table, the safety model in five bullets, `.guide.json` in one example, and a ten-row known-limitations table drawn from the P2 edge budget plus the real gaps. Track E has two pieces: `work-docs/guides/agent-guide-authoring.md` is the long form — six principles, an ordering recipe and its trap for each common change shape, nine anti-patterns agents actually produce, and a worked before/after on a real commit from this repository — and `.agents/skills/guide-reviewer/SKILL.md` (mirrored into `.cursor/skills/`) is the installable condensation an agent loads while working. Both carry the prohibitions explicitly, because "no quizzes, no scores" is a product principle an eager model will otherwise violate helpfully. The JSON Schema is still only inside guide-schema.md §4 and is not served at its `$id`, so `$schema` in an emitted document currently resolves to nothing.
+**Track D and E.** README is rewritten for the marketplace: how it works, the three entry points, the key table, the safety model in five bullets, `.guide.json` in one example, and a ten-row known-limitations table drawn from the P2 edge budget plus the real gaps. Track E has two pieces: `work-docs/guides/agent-guide-authoring.md` is the long form — six principles, an ordering recipe and its trap for each common change shape, nine anti-patterns agents actually produce, and a worked before/after on a real commit from this repository — and `.agents/skills/tabthrough/SKILL.md` (mirrored into `.cursor/skills/`) is the installable condensation an agent loads while working. Both carry the prohibitions explicitly, because "no quizzes, no scores" is a product principle an eager model will otherwise violate helpfully. The JSON Schema is still only inside guide-schema.md §4 and is not served at its `$id`, so `$schema` in an emitted document currently resolves to nothing.
 
 **What the Reviewer and Tester should look at first.** In order of how much I would want a second opinion:
 
@@ -153,12 +153,12 @@ Docs only; no `src/` touched. Three artifacts and one priority call.
 
 The load-bearing idea, and the one worth defending in review: **the bar is not "produce an ordering", it is "beat the heuristic"**. A guide that reproduces file-tier order with rationales restating the tier has spent tokens to add nothing. The four places an author beats a path heuristic — same-tier ordering the path cannot see, a change whose centre is not its largest hunk, churn that misrepresents its own weight, and files present only as consequence — are named explicitly so an agent has something to aim at.
 
-**`.agents/skills/guide-reviewer/SKILL.md`** — the installable condensation an agent loads while working: contract, procedure, minimal and typical documents, a field cheatsheet, seven rules, five prohibitions, the recipe table, and a pre-emit checklist. It links to `work-docs/architecture/guide-schema.md` by repo-relative path rather than a relative link, since the skill is meant to be installed into other repositories where that relative path does not resolve. Mirrored to `.cursor/skills/`.
+**`.agents/skills/tabthrough/SKILL.md`** — the installable condensation an agent loads while working: contract, procedure, minimal and typical documents, a field cheatsheet, seven rules, five prohibitions, the recipe table, and a pre-emit checklist. It links to `work-docs/architecture/guide-schema.md` by repo-relative path rather than a relative link, since the skill is meant to be installed into other repositories where that relative path does not resolve. Mirrored to `.cursor/skills/`.
 
 **`work-docs/guides/llm-guide-generation.md`** — the P1-4 brief for BYOK generation, ranked so a squeezed release cuts from the bottom. Four product decisions in it are worth the Planner's attention:
 
 1. **The output is `.guide.json` v1, not a variant.** The generator is one more producer of the same artifact, through the same validator and the same `mergeGuide`. If the LLM path needs a schema change, the schema changes for everyone or the feature does without it. This is what keeps invariant I1 true by construction and keeps "Save as `.guide.json`" a one-click feature rather than a converter.
-2. **Off means no traffic, and it is auditable.** `guideReviewer.llm.enabled` defaults false; with it false the extension makes no outbound request of any kind, and that is a test, not a claim. Consent is per session with Cancel as the default button, matching the pre-flight modal. There is no global "always allow", and no hosted service or Guide Reviewer key — BYOK or nothing.
+2. **Off means no traffic, and it is auditable.** `tabthrough.llm.enabled` defaults false; with it false the extension makes no outbound request of any kind, and that is a test, not a claim. Consent is per session with Cancel as the default button, matching the pre-flight modal. There is no global "always allow", and no hosted service or Tabthrough key — BYOK or nothing.
 3. **The network feature cannot reach the safety layer.** The generator sits behind the existing guide-source interface with no access to the stash pipeline, the refs, or the journal. Worth writing into the architecture doc as a constraint rather than leaving it as an accident of the current module graph.
 4. **Truncation order is a product decision, not a tuning knob.** Drop generated content, then context lines, then hunk interiors, and never drop a file silently — we would rather have a coarse guide over the whole change than a precise guide over a third of it, because a `k/n` the reader cannot trust is worse than a rough order.
 
@@ -182,7 +182,7 @@ The brief also carries a criterion that can kill the feature and should be able 
 - *Shallow clone*, above.
 - *Not a repo / no git.* The probe variants were covered; the gating the user actually sees was not. Three cases assert `canStart` is false **and** that the reason names the fix, on a plain directory, on an unborn branch, and with no workspace open.
 
-**`schema/guide-v1.json` is a real file now**, so `$schema` in an emitted guide points at something. The JSON Schema had been living as a fenced block inside `guide-schema.md` §4; §4 is now a pointer, because two copies of one format is one copy too many. The `$id` stays frozen at `https://guide-reviewer.dev/schema/guide-v1.json` — serving it there is a hosting task, and the raw GitHub URL resolves in the meantime.
+**`schema/guide-v1.json` is a real file now**, so `$schema` in an emitted guide points at something. The JSON Schema had been living as a fenced block inside `guide-schema.md` §4; §4 is now a pointer, because two copies of one format is one copy too many. The `$id` stays frozen at `https://tabthrough.dev/schema/guide-v1.json` — serving it there is a hosting task, and the raw GitHub URL resolves in the meantime.
 
 The interesting part is `test/unit/published-schema.test.ts`, which exists because the schema and the hand-rolled reader are two descriptions of one format and only one of them decides whether a session works. A schema that accepted a document the reader rejects would promise an author their guide works and then silently fall back to the heuristic — worse than shipping no schema. So the test diffs them: required fields at every level, every enum in both directions, the known-property sets, `MAX_STEPS` against `maxItems`, the two step-id patterns compared on the ids they accept rather than on their text (`\w` against an explicit class), and the numeric bounds. It also asserts the *divergence* is the documented one and only that one: the schema closes `additionalProperties` while the reader downgrades an unknown field to an info diagnostic, because a 1.1 document has to keep working in a 1.0 reader. Finally it validates every guide document embedded in `guide-schema.md`, `agent-guide-authoring.md` and the agent skill — those are the examples agents copy, and a rotted example is a broken contract.
 
@@ -273,9 +273,9 @@ three nits.
 one repository compute the same one, so the compare-and-swap release that ADR 0002 D5
 describes as unable to "clobber another owner" could not tell owners apart at all. The
 Reviewer's fix — use the `sessionId` — runs straight into something the finding did not
-anticipate: a ref can only point at an object, and `git update-ref refs/guide-reviewer/lock
+anticipate: a ref can only point at an object, and `git update-ref refs/tabthrough/lock
 window-a` is `fatal: not a valid SHA1`. So the id travels as a blob,
-`guide-reviewer-lock:<sessionId>` written with `hash-object -w`, and the ref points at that.
+`tabthrough-lock:<sessionId>` written with `hash-object -w`, and the ref points at that.
 Content addressing is the part that matters: `releaseLock` recomputes the value it compares
 against rather than trusting the ref it is about to delete. `readLock` reports the owning
 session id and falls back to the raw object name for a lock we did not write, because the
@@ -286,7 +286,7 @@ value — still a compare-and-swap, just on the old shape.
 **Then the harder half.** From git state alone, a crashed session and one running in another
 window are identical — which is why window B, opened on a repository window A is reviewing,
 found A's live token and offered to restore it. The marker went on the token rather than on a
-`refs/guide-reviewer/heartbeat` ref: the token is already read on the path that needed the
+`refs/tabthrough/heartbeat` ref: the token is already read on the path that needed the
 answer, and a ref would have been a sixth artifact to clean up. `isolate` stamps
 `heartbeatAt` and stamps it again at `reviewing`, so a slow isolation is not born stale; the
 owning window rewrites it every 7 s; anything under 30 s old is live. `isSessionLive` covers
@@ -353,6 +353,14 @@ Agent-team loop completed for MVP v0.1:
 ## DevRel / Marketing — 2026-08-07 — branding and go-to-market
 
 - Published `marketing/branding-brief.md`: name audit, positioning, messaging, README and Marketplace guidance, audience copy, launch channels, and PO decision.
-- **Recommendation:** rename before first public Marketplace release to **Tabthrough — Guided Diff Review** (80% confidence on rename), subject to formal clearance; keep **Guide Reviewer — Guided Diff Review** as the fallback.
+- **Recommendation:** rename before first public Marketplace release to **Tabthrough — Guided Diff Review** (80% confidence on rename), subject to formal clearance; keep **Tabthrough — Guided Diff Review** as the fallback.
 - Primary tagline: **“Understand every change, one Tab at a time.”**
 - No package, command, repository, or source identity was changed; rename execution requires explicit PO approval.
+
+## 2026-08-07 — Branding: Tabthrough rename applied
+
+- Founder accepted DevRel option 1; ADR `0003-rename-tabthrough.md`
+- Identity: `artalar.tabthrough`, display **Tabthrough — Guided Diff Review**, tagline *Understand every change, one Tab at a time.*
+- Commands/settings/context/scheme/refs/skill renamed; `.guide.json` format unchanged
+- README rewritten per branding brief; status bar voice updated
+- **Owner action:** rename GitHub repo `review-guider` → **`tabthrough`**

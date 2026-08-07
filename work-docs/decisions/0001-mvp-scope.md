@@ -1,4 +1,4 @@
-# ADR 0001: MVP Scope for Guide Reviewer
+# ADR 0001: MVP Scope for Tabthrough
 
 **Status:** Accepted  
 **Date:** 2026-08-07  
@@ -9,7 +9,7 @@
 
 ## Context
 
-Guide Reviewer helps developers *own* reviewed code via Tab-stepped reveal of changes in pedagogical order. The founder specified:
+Tabthrough helps developers *own* reviewed code via Tab-stepped reveal of changes in pedagogical order. The founder specified:
 
 - Two guide sources: (1) agent-emitted guides, (2) LLM-generated guides from raw diffs
 - Hard technical constraint: **Reatom** state mental model

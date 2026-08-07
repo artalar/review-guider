@@ -25,24 +25,24 @@ import { logger } from '../utils'
  */
 export function useGuideCommands(): void {
   useCommands({
-    [Commands.guideReviewerStart]: wrap(() => guard('start', () => begin(async () => ({ kind: 'workingTree' })))),
-    [Commands.guideReviewerStartFromCommit]: wrap(() => guard('startFromCommit', () => begin(pickCommitEntry))),
-    [Commands.guideReviewerStartFromRange]: wrap(() => guard('startFromRange', () => begin(promptRangeEntry))),
-    [Commands.guideReviewerNext]: wrap(() => guard('next', advance)),
-    [Commands.guideReviewerPrevious]: wrap(() => guard('previous', retreat)),
-    [Commands.guideReviewerShowStepDetail]: wrap(() => guard('showStepDetail', revealCurrentStep)),
-    [Commands.guideReviewerFinish]: wrap(() => guard('finish', () => finishSession())),
-    [Commands.guideReviewerCancel]: wrap(() => guard('cancel', () => cancelSession('cancel'))),
-    [Commands.guideReviewerRestoreBackup]: wrap(() => guard('restoreBackup', () => recoverBackup())),
+    [Commands.start]: wrap(() => guard('start', () => begin(async () => ({ kind: 'workingTree' })))),
+    [Commands.startFromCommit]: wrap(() => guard('startFromCommit', () => begin(pickCommitEntry))),
+    [Commands.startFromRange]: wrap(() => guard('startFromRange', () => begin(promptRangeEntry))),
+    [Commands.next]: wrap(() => guard('next', advance)),
+    [Commands.previous]: wrap(() => guard('previous', retreat)),
+    [Commands.showStepDetail]: wrap(() => guard('showStepDetail', revealCurrentStep)),
+    [Commands.finish]: wrap(() => guard('finish', () => finishSession())),
+    [Commands.cancel]: wrap(() => guard('cancel', () => cancelSession('cancel'))),
+    [Commands.restoreBackup]: wrap(() => guard('restoreBackup', () => recoverBackup())),
     // The only way out of a restore that can never be made to verify. It
     // forgets the reminder; the stash entry and the refs stay in git.
-    [Commands.guideReviewerDiscardRecovery]: wrap(() => guard('discardRecovery', () => discardRecovery())),
-    [Commands.guideReviewerCleanupBackups]: wrap(() => guard('cleanupBackups', async () => {
+    [Commands.discardRecovery]: wrap(() => guard('discardRecovery', () => discardRecovery())),
+    [Commands.cleanupBackups]: wrap(() => guard('cleanupBackups', async () => {
       const removed = await wrap(cleanupBackups())
       await window.showInformationMessage(
         removed.length === 0
-          ? 'No Guide Reviewer backups to clean up.'
-          : `Removed ${removed.length} Guide Reviewer backup ref${removed.length === 1 ? '' : 's'}.`,
+          ? 'No Tabthrough backups to clean up.'
+          : `Removed ${removed.length} Tabthrough backup ref${removed.length === 1 ? '' : 's'}.`,
       )
     })),
   })
@@ -55,7 +55,7 @@ export function useGuideCommands(): void {
  */
 async function begin(pick: () => Promise<ReviewTarget | null>): Promise<void> {
   if (!peek(canStart)) {
-    await window.showWarningMessage(peek(startBlockedReason) ?? 'Guide Reviewer cannot start right now.')
+    await window.showWarningMessage(peek(startBlockedReason) ?? 'Tabthrough cannot start right now.')
     return
   }
   const entry = await wrap(pick())
@@ -91,6 +91,6 @@ async function guard(name: string, run: () => Promise<unknown>): Promise<void> {
     await run()
   }
   catch (error) {
-    logger.error(`guide-reviewer.${name} failed`, error)
+    logger.error(`tabthrough.${name} failed`, error)
   }
 }

@@ -1,4 +1,4 @@
-# Guide Reviewer — Product Specification
+# Tabthrough — Product Specification
 
 **Version:** 0.1 (MVP scope)  
 **Owner:** Product  
@@ -11,7 +11,7 @@
 
 Developers receive code through commits, PRs/MRs, or AI-generated patches, but **review is often shallow**: skim the diff, approve, move on. They do not *own* the change — they cannot explain it, extend it confidently, or spot subtle coupling.
 
-Existing tools optimize for **speed** (inline comments, AI summaries, bulk approve). Guide Reviewer optimizes for **understanding** without turning review into a test.
+Existing tools optimize for **speed** (inline comments, AI summaries, bulk approve). Tabthrough optimizes for **understanding** without turning review into a test.
 
 ### Pain points
 
@@ -26,7 +26,7 @@ Existing tools optimize for **speed** (inline comments, AI summaries, bulk appro
 
 ## Vision (one sentence)
 
-When a developer activates Guide Reviewer on a commit, PR/MR, or current changes, the extension **safely isolates their workspace**, then lets them press **Tab** to reveal changes **step by step** in pedagogical order — familiar AI-tab UX, but ordered for understanding, not completion speed.
+When a developer activates Tabthrough on a commit, PR/MR, or current changes, the extension **safely isolates their workspace**, then lets them press **Tab** to reveal changes **step by step** in pedagogical order — familiar AI-tab UX, but ordered for understanding, not completion speed.
 
 ---
 
@@ -174,7 +174,7 @@ Philosophy: **P0 = no data loss + honest happy path**; **P1 = common dev frictio
 | Tab when no steps remain | No-op + subtle “Review complete” toast; offer Finish |
 | Empty diff / whitespace-only | Block start with clear message |
 | Binary / generated files in diff | Skip with visible “skipped binary” step stub (don’t break ordering) |
-| Extension crash during review | Backup ref + recovery command “Restore from Guide Reviewer backup” |
+| Extension crash during review | Backup ref + recovery command “Restore from Tabthrough backup” |
 | Multiple concurrent sessions | **Disallow** — one active session; block second start |
 | Git not a repo / no git | Disable commands with explanation |
 | Detached HEAD / shallow clone missing objects | Detect early; fail with fetch hint |

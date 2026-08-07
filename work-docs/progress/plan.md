@@ -1,4 +1,4 @@
-# Guide Reviewer — Implementation Plan (v0.1 MVP)
+# Tabthrough — Implementation Plan (v0.1 MVP)
 
 **Owner:** Planner
 **Status:** Ready for Architect + Implementer
@@ -38,7 +38,7 @@ The template is unmodified and currently does not typecheck: `src/config.ts` and
 |---|------|--------|
 | 0-a | Install deps | `pnpm install` (no `node_modules` in a fresh clone) |
 | 0-b | Add Reatom | `@reatom/core` v1001. Put it in `devDependencies` to match the template: `ext:package` runs `vsce package --no-dependencies` and tsdown bundles everything except `vscode` |
-| 0-c | Extension identity | `package.json`: `publisher`, `name: guide-reviewer`, `displayName`, `description`, `categories: ["Other", "SCM Providers", "Education"]`, `repository`. Add config scope `guideReviewer` with the settings listed in [Configuration surface](#configuration-surface) |
+| 0-c | Extension identity | `package.json`: `publisher`, `name: tabthrough`, `displayName`, `description`, `categories: ["Other", "SCM Providers", "Education"]`, `repository`. Add config scope `tabthrough` with the settings listed in [Configuration surface](#configuration-surface) |
 | 0-d | Generate meta | `pnpm update` → `src/generated/meta.ts`. Confirm `.gitignore` treatment matches template intent |
 | 0-e | Test runner | `vitest.config.ts` with `environment: 'node'`, `include: ['test/**/*.test.ts']`, and a longer `testTimeout` for the git integration suite. Add `"test:ci": "vitest run"` so local `pnpm test` can stay in watch mode without ambiguity |
 | 0-f | CI | Existing `.github/workflows/ci.yml` already runs lint + typecheck + test on ubuntu/windows/macos. Leave the matrix intact — it is the mitigation for [R7](#r7--git-version--platform-variance) |
@@ -74,7 +74,7 @@ fail:  { ok: false, reason: 'git-missing' | 'not-a-repo' | 'bare-repo' | 'shallo
 
 - All git access goes through one `exec` wrapper: `spawn` (never `shell: true`), explicit `cwd`, arg array, timeout, captured stdout/stderr, non-zero exit surfaced as a typed error. The wrapper is **injectable** so unit tests can feed recorded outputs.
 - `rebase-or-merge-in-progress` is a P2 "refuse start" row in the product edge table — detect it here, do not implement recovery.
-- The probe drives a VS Code context key (`guideReviewer.gitUsable`) so command `enablement` in `package.json` disables Start with an explanation, per the P0 edge row "Git not a repo / no git".
+- The probe drives a VS Code context key (`tabthrough.gitUsable`) so command `enablement` in `package.json` disables Start with an explanation, per the P0 edge row "Git not a repo / no git".
 
 ### P0-8 — Reatom session model
 
@@ -121,9 +121,9 @@ Order of operations matters and is itself the safety property:
 2. Compute the pre-flight summary: file list split into staged / unstaged / untracked, with counts.
 3. Show pre-flight UI. **Cancel is the default action.** State exactly what will be stashed and how to abort.
 4. Write the **durable recovery token** to `globalState` *before* any mutation.
-5. `git stash push --include-untracked -m "guide-reviewer:<sessionId>"`.
+5. `git stash push --include-untracked -m "tabthrough:<sessionId>"`.
    - **Never `--all`.** `--all` sweeps ignored files (`node_modules`, `.env`, build output) — slow, and a restore failure there is catastrophic. See [R8](#r8--untracked--ignored-scope-in-stash).
-6. Resolve the stash commit SHA and pin it with `git update-ref refs/guide-reviewer/backup/<sessionId> <sha>`. The ref is what makes the work survive a `git stash drop` or `git stash clear` by the user or another tool.
+6. Resolve the stash commit SHA and pin it with `git update-ref refs/tabthrough/backup/<sessionId> <sha>`. The ref is what makes the work survive a `git stash drop` or `git stash clear` by the user or another tool.
 7. Update the token with `stashSha` + `backupRef`, then enter the target revision.
 
 If any step fails, unwind the ones already done and refuse to start. A failed start must leave the tree exactly as found.
@@ -136,7 +136,7 @@ If any step fails, unwind the ones already done and refuse to start. A failed st
 | Cancel | Identical to Finish — cancel is not a "discard" |
 | `deactivate()` | Best-effort restore; token guarantees completion on next activation |
 | Window close / crash | Nothing at the time; next activation sees the token and offers **Resume restore** *before any other git operation* |
-| Recovery command | `Guide Reviewer: Restore from backup` works standalone, even with no session |
+| Recovery command | `Tabthrough: Restore from backup` works standalone, even with no session |
 
 Restore algorithm: **apply → verify → then drop.** Use `git stash apply`, never `pop` (pop drops on partial success). Verify by comparing `git status --porcelain=v2 -z` and content hashes against the pre-stash snapshot. Only on a verified match do we `stash drop` and delete the backup ref.
 
@@ -271,11 +271,11 @@ VS Code decorations **cannot delete lines**. There is no supported "hide these r
 | **Fold** | Programmatic folding of unrevealed ranges | Fights user folding; folding API is coarse |
 | **Staged apply** | Write revealed hunks into real files progressively | Couples reveal to the working tree — exactly what the stash pipeline is trying to keep clean. Highest risk |
 
-Spike output: a short recommendation appended to `architecture/overview.md`. **Default to dim** unless the spike shows fold is clean. Expose `guideReviewer.reveal.mode` so the choice is not permanent.
+Spike output: a short recommendation appended to `architecture/overview.md`. **Default to dim** unless the spike shows fold is clean. Expose `tabthrough.reveal.mode` so the choice is not permanent.
 
 ### P0-12 — Reveal rendering
 
-Render into a **read-only virtual document** (`TextDocumentContentProvider`, scheme `guide-reviewer:`) holding the target-revision content. This buys three things at once:
+Render into a **read-only virtual document** (`TextDocumentContentProvider`, scheme `tabthrough:`) holding the target-revision content. This buys three things at once:
 
 - The working tree is never written to during reveal, so stash safety is independent of rendering.
 - Read-only means Tab has no competing indent/completion/snippet semantics in that editor — the single biggest mitigation for [R1](#r1--tab-keybinding-conflicts).
@@ -288,20 +288,20 @@ Prior steps stay visible: revealed set is `steps[0..cursor]`, monotonic on advan
 Recommended `when` clause shape (**[ARCH]** to finalise):
 
 ```
-guideReviewer.sessionActive && editorTextFocus && resourceScheme == 'guide-reviewer'
+tabthrough.sessionActive && editorTextFocus && resourceScheme == 'tabthrough'
   && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode
   && !editorHasSelection && !editorReadonly
 ```
 
-Always ship an **alternate chord** (`alt+]` / `alt+[`) bound unconditionally, plus a `guideReviewer.keybinding.useTab` setting to switch Tab off entirely. If the conflict matrix cannot be made clean, the fallback position is to make the alternate chord the default and Tab opt-in — that is a UX downgrade, not a scope change.
+Always ship an **alternate chord** (`alt+]` / `alt+[`) bound unconditionally, plus a `tabthrough.keybinding.useTab` setting to switch Tab off entirely. If the conflict matrix cannot be made clean, the fallback position is to make the alternate chord the default and Tab opt-in — that is a UX downgrade, not a scope change.
 
 ### P0-13 — Status bar
 
-`$(book) Step k/n · service.ts · types before callers`. Driven by `computed` values so it updates synchronously with the model, never by imperative refresh calls. Rationale suppressed when `guideReviewer.showRationale` is false. Clicking jumps to the current step.
+`$(book) Step k/n · service.ts · types before callers`. Driven by `computed` values so it updates synchronously with the model, never by imperative refresh calls. Rationale suppressed when `tabthrough.showRationale` is false. Clicking jumps to the current step.
 
 ### P0-14 — Commands
 
-`guide-reviewer.start`, `.startFromCommit`, `.startFromRange`, `.next`, `.previous`, `.finish`, `.cancel`, `.restoreBackup`. All registered in `contributes.commands` with `enablement` clauses driven by the same context keys, so the palette never offers an action that will fail.
+`tabthrough.start`, `.startFromCommit`, `.startFromRange`, `.next`, `.previous`, `.finish`, `.cancel`, `.restoreBackup`. All registered in `contributes.commands` with `enablement` clauses driven by the same context keys, so the palette never offers an action that will fail.
 
 ### UX guardrails (PO checklist, verified this phase)
 
@@ -398,7 +398,7 @@ The one failure mode that kills the product. A single lost-work report in dogfoo
 
 Decorations cannot hide lines. If "reveal" degrades to "dim", the core demo is weaker than the pitch.
 
-*Mitigations:* spike before Phase 5 commits; read-only virtual document makes all three options viable; `guideReviewer.reveal.mode` setting keeps the choice reversible; dim is an acceptable MVP floor.
+*Mitigations:* spike before Phase 5 commits; read-only virtual document makes all three options viable; `tabthrough.reveal.mode` setting keeps the choice reversible; dim is an acceptable MVP floor.
 *Trigger:* if the spike shows dim is unconvincing in a real session, escalate to PO — this is a UX decision, not an engineering one.
 
 ### R1 — Tab keybinding conflicts
@@ -521,11 +521,11 @@ Settings to declare in Phase 0 so later phases can read them without re-touching
 
 | Setting | Type | Default | Phase |
 |---------|------|---------|-------|
-| `guideReviewer.keybinding.useTab` | boolean | `true` | 5 |
-| `guideReviewer.showRationale` | boolean | `true` | 5 |
-| `guideReviewer.reveal.mode` | `'dim' \| 'fold'` | `'dim'` | 5 |
-| `guideReviewer.guideFile` | string | `.guide.json` | 3 |
-| `guideReviewer.stash.includeUntracked` | boolean | `true` | 2 |
+| `tabthrough.keybinding.useTab` | boolean | `true` | 5 |
+| `tabthrough.showRationale` | boolean | `true` | 5 |
+| `tabthrough.reveal.mode` | `'dim' \| 'fold'` | `'dim'` | 5 |
+| `tabthrough.guideFile` | string | `.guide.json` | 3 |
+| `tabthrough.stash.includeUntracked` | boolean | `true` | 2 |
 
 ---
 
@@ -560,9 +560,9 @@ Per the Planner rules, **every P0 has a gate**: P0-1/8 in Phase 1, P0-5/6/7 in P
 **Phase 0 in full, plus P0-1.** One branch, small commits.
 
 1. `pnpm install`; add `@reatom/core`; fix the `generated/meta` gap so `pnpm typecheck` passes for the first time.
-2. Rename the extension (`guide-reviewer`) and declare the five settings above.
+2. Rename the extension (`tabthrough`) and declare the five settings above.
 3. Add `vitest.config.ts` and `test:ci`; land the Reatom smoke test.
-4. Implement `git/exec.ts` and `git/probe.ts` with the discriminated result, and wire `guideReviewer.gitUsable` to a stub Start command that is disabled with a reason when the probe fails.
+4. Implement `git/exec.ts` and `git/probe.ts` with the discriminated result, and wire `tabthrough.gitUsable` to a stub Start command that is disabled with a reason when the probe fails.
 5. Tests: probe variants against recorded outputs; a real temp repo and a real non-repo directory.
 
 Do **not** start the stash pipeline in this slice. Phase 2 deserves its own review pass, and the temp-repo helper (Track B) should land first.

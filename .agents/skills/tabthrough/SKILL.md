@@ -1,19 +1,19 @@
 ---
-name: guide-reviewer
-description: Emits a Guide Reviewer `.guide.json` v1 sidecar alongside a PR, commit, or working-tree change, so a human can unfold the diff step by step in pedagogical order. Use whenever you finish producing a code change that another person will review, or when asked to write, fix, or validate a `.guide.json`.
+name: tabthrough
+description: Emits a Tabthrough `.guide.json` v1 sidecar alongside a PR, commit, or working-tree change, so a human can unfold the diff step by step in order that builds understanding. Use whenever you finish producing a code change that another person will review, or when asked to write, fix, or validate a `.guide.json`.
 ---
 
-# Guide Reviewer sidecar
+# Tabthrough sidecar
 
-A `.guide.json` tells Guide Reviewer **the order in which your change should be read, and one line per step explaining why it comes there**. The reader presses Tab to unfold it. It is not a review, a summary, or a quiz.
+A `.guide.json` tells Tabthrough **the order in which your change should be read, and one line per step explaining why it comes there**. The reader presses Tab to unfold it. It is not a review, a summary, or a quiz.
 
 Write one whenever you hand a non-trivial change to a human. Skip it for a one-file, one-hunk change — there is no order to convey.
 
 ## Contract
 
-- **Schema (normative):** `schema/guide-v1.json` in this repo — JSON Schema draft 2020-12, validate against it directly. Prose and merge semantics: `work-docs/architecture/guide-schema.md`. Canonical `$schema` URL is `https://guide-reviewer.dev/schema/guide-v1.json`; the copy that resolves today is `https://raw.githubusercontent.com/artalar/review-guider/main/schema/guide-v1.json`.
+- **Schema (normative):** `schema/guide-v1.json` in this repo — JSON Schema draft 2020-12, validate against it directly. Prose and merge semantics: `work-docs/architecture/guide-schema.md`. Canonical `$schema` URL is `https://tabthrough.dev/schema/guide-v1.json`; the copy that resolves today is `https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json`.
 - **Pedagogy and worked examples:** `work-docs/guides/agent-guide-authoring.md`.
-- **Location:** `.guide.json` at the repo root (or the path in `guideReviewer.guideFile`).
+- **Location:** `.guide.json` at the repo root (or the path in `tabthrough.guideFile`).
 - **Guarantee you rely on:** a broken guide never breaks a session — the extension falls back to its offline heuristic and shows one warning. Which means nobody will tell the user your guide was wrong. Validate it yourself.
 
 ## Procedure
@@ -56,7 +56,7 @@ A step with no `ranges` claims every unclaimed change in its file. This is the d
 
 ```json
 {
-  "$schema": "https://guide-reviewer.dev/schema/guide-v1.json",
+  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
   "version": 1,
   "scope": { "kind": "commit", "base": "9f2c1ab", "head": "4d81e30" },
   "summary": "One paragraph on the shape of the change, read once before step one.",

@@ -72,7 +72,7 @@ export interface SessionToken {
   readonly entry: ReviewTarget
   readonly headBefore: HeadPosition
   /**
-   * Owner written to `refs/guide-reviewer/lock` — the `sessionId`, so the
+   * Owner written to `refs/tabthrough/lock` — the `sessionId`, so the
    * compare-and-swap release cannot clobber another window (see `refs.ts`).
    */
   readonly lockValue: string | null
@@ -106,7 +106,7 @@ export function repoKey(repoRoot: string): string {
 }
 
 export function stashMessageFor(sessionId: string): string {
-  return `guide-reviewer:${sessionId}`
+  return `tabthrough:${sessionId}`
 }
 
 export function withStage(token: SessionToken, stage: IsolationStage): SessionToken {

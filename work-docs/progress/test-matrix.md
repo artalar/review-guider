@@ -191,25 +191,25 @@ Every drill passes only if, at the end:
 ```bash
 git status --porcelain=v2 --untracked-files=all -z | tr '\0' '\n' | diff - /tmp/drill-before.txt
 find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 sha256sum | diff - /tmp/drill-hashes-before.txt
-git for-each-ref refs/guide-reviewer     # must print nothing
-git stash list                           # must contain no guide-reviewer: entry
+git for-each-ref refs/tabthrough     # must print nothing
+git stash list                           # must contain no tabthrough: entry
 ```
 
 ### 6.1 Crash drill — extension host killed mid-session
 
 Covers the product edge rows *"extension crash during review"* and *"user closes VS Code mid-session"* (§2 rows 3 and 7).
 
-1. Open `/tmp/drill` in VS Code and run **Guide Reviewer: Start Review (Working Tree)**. Approve the pre-flight.
-2. Confirm the isolation is real: the working tree is clean (`git status`), `git stash list` shows one `guide-reviewer:<id>` entry, and `git for-each-ref refs/guide-reviewer` shows `after/<id>`, `backup/<id>` and `lock`.
+1. Open `/tmp/drill` in VS Code and run **Tabthrough: Start Review (Working Tree)**. Approve the pre-flight.
+2. Confirm the isolation is real: the working tree is clean (`git status`), `git stash list` shows one `tabthrough:<id>` entry, and `git for-each-ref refs/tabthrough` shows `after/<id>`, `backup/<id>` and `lock`.
 3. Advance two or three steps.
 4. **Kill the extension host without letting `deactivate` run:**
    - Command Palette → *Developer: Open Process Explorer*, right-click the `extensionHost` process → **Kill Process**.
    - Or from a terminal: `pkill -f 'extensionHost'` (macOS/Linux), `taskkill /F /IM Code.exe` (Windows, kills the window too — that is the harsher variant, run it at least once).
 5. Verify the crash left the safe state: the tree is still clean, and the stash entry, both refs and the lock are all still present. **Nothing should have been restored yet** — that is the point of the durable token.
 6. Reload the window (*Developer: Reload Window*), or reopen VS Code.
-7. Guide Reviewer must prompt **before any other git operation**: *"Guide Reviewer did not finish restoring your work last time."* naming the session id and the stage it stopped at.
+7. Tabthrough must prompt **before any other git operation**: *"Tabthrough did not finish restoring your work last time."* naming the session id and the stage it stopped at.
 8. Choose **Restore now**. Run the four verification commands above.
-9. Repeat once choosing **Later**: Start must stay disabled with the reason *"Guide Reviewer has work to restore from a previous session"*, and **Guide Reviewer: Restore from Backup** must then complete the job.
+9. Repeat once choosing **Later**: Start must stay disabled with the reason *"Tabthrough has work to restore from a previous session"*, and **Tabthrough: Restore from Backup** must then complete the job.
 
 **Fail conditions:** any hash differs; the prompt does not appear; Start is enabled while a token is outstanding; a stash entry or ref is left behind after a successful restore.
 
@@ -222,8 +222,8 @@ Covers the product edge row *"multiple concurrent sessions"* (§2 row 8) and pla
 1. Open `/tmp/drill` in two VS Code windows (*File → New Window*, open the same folder).
 2. Start a review in window A. Approve.
 3. In window B, run **Start Review**. It must refuse with *"Another window is already reviewing this repository."* and must not create a second stash entry, a second after-ref, or move HEAD.
-4. `git for-each-ref refs/guide-reviewer` must show exactly one `after/` and one `backup/` ref, and `git cat-file blob refs/guide-reviewer/lock` must print `guide-reviewer-lock:<A's session id>` — the lock names its owner (review 001 M3).
-5. **Recovery must not fire in window B.** Reload window B (*Developer: Reload Window*) while A is still reviewing. B sees A's token in `globalState`, so this is the path that used to offer *"Guide Reviewer did not finish restoring your work last time."* and, if accepted, applied A's stash out from under it. B must instead show *"A Guide Reviewer session is active in another window."*, offer no restore, and leave A's stash entry, refs and token untouched — check A can still Tab and still finishes cleanly.
+4. `git for-each-ref refs/tabthrough` must show exactly one `after/` and one `backup/` ref, and `git cat-file blob refs/tabthrough/lock` must print `tabthrough-lock:<A's session id>` — the lock names its owner (review 001 M3).
+5. **Recovery must not fire in window B.** Reload window B (*Developer: Reload Window*) while A is still reviewing. B sees A's token in `globalState`, so this is the path that used to offer *"Tabthrough did not finish restoring your work last time."* and, if accepted, applied A's stash out from under it. B must instead show *"A Tabthrough session is active in another window."*, offer no restore, and leave A's stash entry, refs and token untouched — check A can still Tab and still finishes cleanly.
 6. **Then let the heartbeat go stale.** Kill window A's extension host (§6.1 step 4) and wait 30 s. Reload window B: now it must raise the crash-recovery modal, and **Restore now** must complete the job.
 7. Finish in window A (or restore from B, if step 6 was run). Verify with the commands above.
 8. Start in window B. It must now succeed.
@@ -236,11 +236,11 @@ Covers the product edge row *"multiple concurrent sessions"* (§2 row 8) and pla
 
 Not a product edge row, but a direct consequence of the compare-and-swap lock (ADR 0002 D5). Breaking a lock is always an explicit user action, so the escape hatch has to work.
 
-1. Simulate an abandoned lock with no token: `git update-ref refs/guide-reviewer/lock HEAD`.
+1. Simulate an abandoned lock with no token: `git update-ref refs/tabthrough/lock HEAD`.
 2. Run **Start Review**. It must refuse with the "another window" message *without showing the pre-flight* — the user is never asked to approve a stash that cannot happen.
-3. `git update-ref -d refs/guide-reviewer/lock`, then Start again — it must succeed.
+3. `git update-ref -d refs/tabthrough/lock`, then Start again — it must succeed.
 
-**Known gap:** there is no in-product command to break a stale lock. **Guide Reviewer: Clean Up Backups** deliberately skips the lock ref so it cannot yank the rug out from under a live session. Tracked in §7.
+**Known gap:** there is no in-product command to break a stale lock. **Tabthrough: Clean Up Backups** deliberately skips the lock ref so it cannot yank the rug out from under a live session. Tracked in §7.
 
 **Status:** ☐ not yet run.
 
@@ -253,7 +253,7 @@ Start any review, then for each row put the editor in that state and press <kbd>
 | Focus / state | Expected |
 |---------------|----------|
 | Review document, nothing else open | Advances one step |
-| Review document, IntelliSense list open | Accepts the suggestion — Guide Reviewer does not advance |
+| Review document, IntelliSense list open | Accepts the suggestion — Tabthrough does not advance |
 | Review document, inline (ghost-text) suggestion showing | Accepts the suggestion |
 | Review document, snippet placeholder active | Jumps to the next placeholder |
 | Review document, rename box or parameter hints open | The widget consumes Tab |
@@ -263,13 +263,13 @@ Start any review, then for each row put the editor in that state and press <kbd>
 | A normal source file, session active | Inserts a tab or indents, exactly as usual |
 | Terminal, session active | Terminal handles it |
 | Any tree view, search box, or the Command Palette | The widget handles it |
-| `guideReviewer.keybinding.useTab: false`, review document | Nothing happens; <kbd>Alt</kbd>+<kbd>]</kbd> still advances |
+| `tabthrough.keybinding.useTab: false`, review document | Nothing happens; <kbd>Alt</kbd>+<kbd>]</kbd> still advances |
 | <kbd>Alt</kbd>+<kbd>]</kbd> / <kbd>Alt</kbd>+<kbd>[</kbd> from a normal editor, session active | Advances / retreats |
 | <kbd>Alt</kbd>+<kbd>]</kbd> with no session | Nothing happens |
 
 While you are here, the two toasts no test can see: pressing <kbd>Tab</kbd> past the last step must show the subtle "Review complete" offering Finish (§2 row 4), and a binary file's step must render as its own explanation document rather than a blank editor (§2 row 6, whose *content* is asserted in §5.2).
 
-**Fail conditions:** any row where Guide Reviewer advances while a widget was open, or where a normal editor loses its ordinary Tab behaviour.
+**Fail conditions:** any row where Tabthrough advances while a widget was open, or where a normal editor loses its ordinary Tab behaviour.
 
 **Status:** ☐ not yet run.
 

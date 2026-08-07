@@ -28,7 +28,7 @@ const TOKEN: SessionToken = {
   entry: { kind: 'workingTree' },
   headBefore: { kind: 'branch', name: 'main' },
   lockValue: null,
-  afterRef: 'refs/guide-reviewer/after/view',
+  afterRef: 'refs/tabthrough/after/view',
   afterCommit: 'aaa',
   afterTree: 'ttt',
   statusDigest: null,
@@ -98,32 +98,35 @@ describe('review document addresses', () => {
   })
 
   it('titles the diff by file, not by step', () => {
-    expect(reviewDocTitle('src/api/client.ts')).toBe('client.ts (Guide Reviewer)')
+    expect(reviewDocTitle('src/api/client.ts')).toBe('client.ts (Tabthrough)')
     expect(basename('src/api/client.ts')).toBe('client.ts')
     expect(basename('client.ts')).toBe('client.ts')
   })
 })
 
 describe('status bar composition', () => {
-  it('reads $(book) Step k/n · file · rationale', () => {
+  it('reads $(book) k of n · file · rationale', () => {
     context.start(() => {
       const model = makeSession([step(), step({ id: 'h:second', path: 'src/ui/panel.tsx' })])
       session.set(model)
 
-      expect(peek(statusText)).toBe('$(book) Step 0/2')
+      expect(peek(statusText)).toBe('$(book) 0 of 2')
 
       model.next()
-      expect(peek(statusText)).toBe('$(book) Step 1/2 · client.ts · Types before callers')
+      expect(peek(statusText)).toBe('$(book) 1 of 2 · client.ts · Types before callers')
 
       showRationale.set(false)
-      expect(peek(statusText)).toBe('$(book) Step 1/2 · client.ts')
+      expect(peek(statusText)).toBe('$(book) 1 of 2 · client.ts')
+
+      model.next()
+      expect(peek(statusText)).toBe('$(book) Walkthrough complete · Finish and restore')
     })
   })
 
   it('has no text at all without a session, and explains why in the tooltip', () => {
     context.start(() => {
       expect(peek(statusText)).toBeNull()
-      expect(peek(statusTooltip)).toContain('Guide Reviewer')
+      expect(peek(statusTooltip)).toContain('Tabthrough')
     })
   })
 
@@ -172,7 +175,7 @@ describe('the view model', () => {
       const view = peek(reviewViewModel)
       expect(view?.progress).toEqual({ index: 1, total: 2 })
       expect(view?.baseRev).toBe('base')
-      expect(view?.title).toBe('client.ts (Guide Reviewer)')
+      expect(view?.title).toBe('client.ts (Tabthrough)')
       expect(view?.complete).toBe(false)
     })
   })
