@@ -312,9 +312,9 @@ No score, no timer, no streak, no "did you get it?" gate, no red/green judgment 
 - [x] Tab advances through ≥10 steps with monotonic visibility on a sample diff (ADR gate) — `reveal-loop.test.ts`, three modules, twelve-odd steps, driven by `next()`
 - [x] Shift+Tab retreats without corrupting the revealed set — the previous document is restored byte for byte, not undone
 - [x] Tab at the end no-ops and offers Finish — the no-op is asserted in the model; the toast itself is bridge code with no host test
-- [ ] Tab in a normal editor with a session active still does normal Tab things — **needs a keyboard**, runbook at `test-matrix.md` §5.4
+- [ ] Tab in a normal editor with a session active still does normal Tab things — **needs a keyboard**, runbook at `test-matrix.md` §6.4
 - [x] Status bar `k/n` matches the model at every step — it is a computed over the same cursor, so there is no path by which it can disagree
-- [ ] Time-to-first-reveal <3s on a 500-line diff (product metric) — **unmeasured**, runbook at `test-matrix.md` §5.5
+- [ ] Time-to-first-reveal <3s on a 500-line diff (product metric) — **unmeasured**, runbook at `test-matrix.md` §6.5
 - [x] PO UX checklist: zero exam-like elements — no score, timer, streak, or comprehension gate anywhere in the surface
 
 ### Test gate
@@ -339,20 +339,20 @@ Walk all ten P0 edge rows in `specs/product.md` and give each one a passing test
 |--------------|-----------|----------------|
 | Dirty tree at start | Phase 2 | — |
 | Stash pop conflict | Phase 2 | — |
-| VS Code closed mid-session | Phase 2 token | Manual drill |
+| VS Code closed mid-session | Phase 2 token | Manual drill (`test-matrix.md` §6.1) |
 | Tab with no steps remaining | Phase 5 | — |
 | Empty / whitespace-only diff | Phase 4 | — |
-| Binary / generated files | Phase 3 stub | End-to-end check |
-| Extension crash | Phase 2 backup ref | Manual drill |
-| Concurrent sessions | Phase 2 lock | Two-window drill |
-| Not a repo / no git | Phase 1 | — |
-| Detached HEAD / shallow | Phase 1 | Shallow-clone fixture |
+| Binary / generated files | Phase 3 stub | ~~End-to-end check~~ — `test/integration/edge-cases.test.ts` |
+| Extension crash | Phase 2 backup ref | Manual drill (`test-matrix.md` §6.1) |
+| Concurrent sessions | Phase 2 lock | Two-window drill (`test-matrix.md` §6.2) |
+| Not a repo / no git | Phase 1 | ~~—~~ model-level gating now asserted too |
+| Detached HEAD / shallow | Phase 1 | ~~Shallow-clone fixture~~ — and it found a defect: `test-matrix.md` §2.1 |
 
 Also in this phase: README with a "Known limitations" section covering the P2 rows, marketplace metadata review, and five dogfood sessions.
 
 ### Exit criteria — MVP done
 
-- [ ] Every P0 edge row has a test or a documented runbook (`progress/test-matrix.md` complete)
+- [x] Every P0 edge row has a test or a documented runbook (`progress/test-matrix.md` §2 — all ten rows automated; four also carry a human drill that has not been run)
 - [ ] ADR 0001 acceptance gates 1–5 all satisfied
 - [ ] Product spec MVP acceptance checklist all ticked
 - [ ] Dogfood: 5 sessions, zero restore failures
