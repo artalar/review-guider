@@ -160,7 +160,10 @@ export function reatomSession(init: SessionInit) {
   const fileByPath = new Map(files.map(entry => [entry.path, entry]))
 
   const activeFile = computed((): ReviewFile | null => {
-    const step = currentStep()
+    // Before the first Tab there is no current step, but there is still a
+    // document to show: the first step's file with nothing revealed, which is
+    // the base text. It is also where Shift+Tab off step 0 has to land.
+    const step = currentStep() ?? nextStep()
     return step === null ? null : fileByPath.get(step.path) ?? null
   }, `${name}.activeFile`)
 
