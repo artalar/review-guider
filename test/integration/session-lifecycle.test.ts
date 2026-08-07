@@ -148,7 +148,7 @@ describe('session lifecycle over the real protocol', () => {
     expect(await readLock(repo.root)).not.toBeNull()
     expect(await harness.store.readToken(repo.root)).not.toBeNull()
 
-    // The stub guide still has to produce an honest k/n for the reveal loop.
+    // One step per changed file here: an edited tracked file and an untracked one.
     const model = peek(session)
     expect(model).not.toBeNull()
     expect(peek(model!.progress)).toEqual({ index: 1, total: 2 })

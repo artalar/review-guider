@@ -2,7 +2,6 @@ import type { IsolationHandle, IsolationPlan, OrphanRef, RestoreOutcome } from '
 import type { SessionToken } from '../git/journal'
 import type { GitCapability, RepoStatus } from '../git/probe'
 import type { PreflightRequest, ReviewTarget } from '../git/types'
-import type { HeuristicOptions } from '../guide/heuristic'
 import type { GuideDiagnostic } from '../guide/types'
 import type { Ports } from './ports'
 import type { Session } from './steps'
@@ -34,10 +33,14 @@ import { isRecoverable } from '../git/journal'
 import { probeGit, readStatus } from '../git/probe'
 import { readLock } from '../git/refs'
 import { describeTarget } from '../git/types'
-import { DEFAULT_HEURISTIC_OPTIONS } from '../guide/heuristic'
+import { guideFile, heuristicOptions, stashIncludeUntracked } from './config'
 import { guideSource } from './guide-source'
 import { inertPorts } from './ports'
 import { reatomSession } from './steps'
+
+// Settings live in `./config` so `steps.ts` can read `revealMode` without a
+// cycle; re-exported here because the bridge treats the model as one surface.
+export { guideFile, heuristicOptions, revealMode, showRationale, stashIncludeUntracked } from './config'
 
 /**
  * The single source of truth (architecture/reatom-model.md).
@@ -58,13 +61,6 @@ export const ports = atom<Ports>(inertPorts, 'ports')
 
 /** Bumped by the bridge's FileSystemWatcher on `.git/**` and workspace writes. */
 export const gitWatchToken = atom(0, 'git.watchToken')
-
-// Settings flow one way, VS Code → atoms. The model never writes settings.
-export const showRationale = atom(true, 'config.showRationale')
-export const heuristicOptions = atom<HeuristicOptions>(DEFAULT_HEURISTIC_OPTIONS, 'config.heuristicOptions')
-export const guideFile = atom('.guide.json', 'config.guideFile')
-export const revealMode = atom<'progressive' | 'dim'>('progressive', 'config.revealMode')
-export const stashIncludeUntracked = atom(true, 'config.stashIncludeUntracked')
 
 // ---------------------------------------------------------------------------
 // Probes
@@ -150,10 +146,14 @@ export class GitUnavailableError extends Error {
   }
 }
 
+export type EmptyDiffReason = 'empty' | 'whitespace'
+
 export class EmptyDiffError extends Error {
   override readonly name = 'EmptyDiffError'
-  constructor(readonly entry: ReviewTarget) {
-    super(`Nothing to review in ${describeTarget(entry)}.`)
+  constructor(readonly entry: ReviewTarget, readonly reason: EmptyDiffReason = 'empty') {
+    super(reason === 'whitespace'
+      ? `Only whitespace changed in ${describeTarget(entry)} — there is nothing to review.`
+      : `Nothing to review in ${describeTarget(entry)}.`)
   }
 }
 
@@ -373,7 +373,9 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
   // Stat-only pass: resolves base/after and counts changed lines. Touches nothing.
   const plan: IsolationPlan = await wrap(planIsolation(repoRoot, { entry: request.entry, includeUntracked }, { signal }))
   if (plan.preflight.changedLineCount === 0)
-    throw new EmptyDiffError(request.entry)
+    throw new EmptyDiffError(request.entry, 'empty')
+  if (plan.substantiveLineCount === 0)
+    throw new EmptyDiffError(request.entry, 'whitespace')
 
   // Confirmation as a reactive event rather than a callback: the bridge renders
   // `preflight.request` as a modal and calls `preflight.answer`. Declining

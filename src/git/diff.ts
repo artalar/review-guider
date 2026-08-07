@@ -59,6 +59,26 @@ export async function mergeBase(repoRoot: string, a: string, b: string, options:
   return result.code === 0 && sha !== '' ? sha : null
 }
 
+export interface CountOptions extends GitOptions {
+  /**
+   * Adds `-w`. A count of zero under this flag is the plan's definition of a
+   * whitespace-only diff, which blocks the start rather than opening a review
+   * with nothing in it.
+   */
+  readonly ignoreWhitespace?: boolean
+}
+
+function numstatArgs(options: CountOptions): string[] {
+  return [
+    'diff',
+    '--no-color',
+    '--no-ext-diff',
+    '-M',
+    '--numstat',
+    ...(options.ignoreWhitespace === true ? ['-w'] : []),
+  ]
+}
+
 /**
  * Total added + deleted lines between two revisions. Binary files contribute
  * `-`/`-` in numstat and are counted as one changed line each so they stay
@@ -68,20 +88,18 @@ export async function countChangedLines(
   repoRoot: string,
   base: string,
   after: string,
-  options: GitOptions = {},
+  options: CountOptions = {},
 ): Promise<number> {
-  const raw = await runGit(repoRoot, ['diff', '--no-color', '--no-ext-diff', '-M', '--numstat', base, after], options)
-  return sumNumstat(raw)
+  return sumNumstat(await runGit(repoRoot, [...numstatArgs(options), base, after], options))
 }
 
 /** Same count, but for the tracked part of the working tree against a revision. */
 export async function countWorkingTreeChangedLines(
   repoRoot: string,
   base: string,
-  options: GitOptions = {},
+  options: CountOptions = {},
 ): Promise<number> {
-  const raw = await runGit(repoRoot, ['diff', '--no-color', '--no-ext-diff', '-M', '--numstat', base], options)
-  return sumNumstat(raw)
+  return sumNumstat(await runGit(repoRoot, [...numstatArgs(options), base], options))
 }
 
 export function sumNumstat(raw: string): number {

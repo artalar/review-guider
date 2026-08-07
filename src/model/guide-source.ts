@@ -1,17 +1,21 @@
-import type { GitExec } from '../git/exec'
+import type { GitOptions } from '../git/exec'
 import type { HeuristicOptions } from '../guide/heuristic'
-import type { DiffFile, FileStatus, Guide, GuideDiagnostic, GuideStep, ReviewDiff } from '../guide/types'
+import type { SidecarSource } from '../guide/sidecar'
+import type { Guide, GuideDiagnostic, ReviewDiff } from '../guide/types'
 import { atom } from '@reatom/core'
-import { readNameStatus } from '../git/diff'
+import { readDiff, showBlob } from '../git/diff'
+import { buildHeuristicGuide } from '../guide/heuristic'
+import { mergeGuide } from '../guide/merge'
+import { parseUnifiedDiff } from '../guide/parse-diff'
+import { isSafeRepoPath, loadSidecar, resolveGuideFile } from '../guide/sidecar'
 
 /**
- * The seam between the session and the guide engine (plan Phase 3).
+ * The seam between the session and the guide engine.
  *
  * The session knows only that *something* turns an immutable `(base, after)`
- * pair into a frozen `Guide`. Phase 3 installs the real pipeline —
- * `parseUnifiedDiff` → `buildHeuristicGuide` → `validateGuideDoc` →
- * `mergeGuide` — by writing `guideSource`. Until then the stub below keeps the
- * safety protocol end-to-end testable.
+ * pair into a frozen `Guide`. Everything below the seam is the pure pipeline —
+ * `parseUnifiedDiff` → `buildHeuristicGuide` → `loadSidecar` → `mergeGuide` —
+ * with exactly two effectful steps: reading the patch and reading the sidecar.
  */
 
 export interface GuideRequest {
@@ -21,7 +25,7 @@ export interface GuideRequest {
   readonly options: HeuristicOptions
   readonly guideFile: string
   readonly signal?: AbortSignal
-  readonly exec?: GitExec
+  readonly exec?: GitOptions['exec']
 }
 
 export interface GuideResult {
@@ -32,61 +36,64 @@ export interface GuideResult {
 
 export type GuideSource = (request: GuideRequest) => Promise<GuideResult>
 
-const STATUS_BY_CODE: Readonly<Record<string, FileStatus>> = {
-  A: 'added',
-  M: 'modified',
-  D: 'deleted',
-  R: 'renamed',
-  C: 'added',
-  T: 'mode-only',
+/**
+ * The after revision first, base second.
+ *
+ * An agent that authored the change writes the guide beside it, so the after
+ * tree is where a fresh sidecar lives — and for the working-tree entry it is
+ * the *only* place it still exists, because the capture commit is taken before
+ * the stash and the file is gone from disk by the time this runs. Reading the
+ * working copy here would be worse than useless: post-stash the disk holds the
+ * base content, which is exactly what the second lookup returns anyway.
+ */
+async function readSidecar(request: GuideRequest, options: GitOptions): Promise<SidecarSource | null> {
+  const path = resolveGuideFile(request.guideFile)
+  if (!isSafeRepoPath(path))
+    return null
+
+  for (const rev of [request.afterRev, request.baseRev]) {
+    const text = await showBlob(request.repoRoot, rev, path, options)
+    if (text !== null && text.trim() !== '')
+      return { path, text }
+  }
+  return null
 }
 
-/**
- * One visible step per changed file, so `k/n` is honest and the reveal loop has
- * something to walk even before the guide engine lands.
- */
-export const stubGuideSource: GuideSource = async (request) => {
-  const entries = await readNameStatus(request.repoRoot, request.baseRev, request.afterRev, {
-    signal: request.signal,
-    exec: request.exec,
+export const buildGuideSource: GuideSource = async (request) => {
+  const options: GitOptions = { signal: request.signal, exec: request.exec }
+
+  const raw = await readDiff(request.repoRoot, request.baseRev, request.afterRev, options)
+  const sidecar = await readSidecar(request, options)
+
+  // Pure from here down: no I/O, no clock, no randomness — which is what makes
+  // the ordering suite a fixture test rather than an integration test.
+  const diff = parseUnifiedDiff(raw.patch, raw.nameStatus, { gap: request.options.intraHunkGap })
+  const heuristic = buildHeuristicGuide(diff, request.options)
+  const loaded = loadSidecar(sidecar)
+  const merged = mergeGuide({
+    diff,
+    heuristic,
+    ...(loaded.doc === null ? {} : { sidecar: loaded.doc }),
+    options: request.options,
   })
 
-  const files: DiffFile[] = entries.map(entry => ({
-    path: entry.path,
-    oldPath: entry.oldPath,
-    status: STATUS_BY_CODE[entry.code[0] ?? 'M'] ?? 'modified',
-    isBinary: false,
-    isGenerated: false,
-    noTrailingNewline: false,
-    hunks: [],
-    groups: [],
-  }))
-
-  const steps: GuideStep[] = files.map(file => ({
-    id: `stub:${file.path}`,
-    path: file.path,
-    groups: [],
-    kind: 'stub',
-    significance: 'normal',
-    rationale: 'Whole file — guide engine not installed',
-    source: 'heuristic',
-  }))
+  const diagnostics: readonly GuideDiagnostic[] = [...loaded.diagnostics, ...merged.diagnostics]
 
   return {
-    diff: { files, digest: 'sha256:stub' },
-    guide: { steps, stale: false, diagnostics: [] },
-    diagnostics: [],
+    diff,
+    guide: { ...merged.guide, diagnostics },
+    diagnostics,
   }
 }
 
 /**
- * Written once by the guide engine at import time; read by `session.start`.
+ * Read by `session.start`.
  *
  * Boxed in an object because `atom(fn)` is the `computed` overload — storing a
  * bare function would make Reatom call it as a derivation instead of holding it
- * as state.
+ * as state. Tests substitute a scripted source through the same atom.
  */
 export const guideSource = atom<{ readonly build: GuideSource }>(
-  { build: stubGuideSource },
+  { build: buildGuideSource },
   'guide.source',
 )

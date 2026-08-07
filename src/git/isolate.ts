@@ -51,6 +51,12 @@ export interface IsolationPlan {
   readonly checkout: string | null
   readonly needsStash: boolean
   readonly headBefore: HeadPosition
+  /**
+   * The same count under `git diff -w`. Zero here with a non-zero
+   * `preflight.changedLineCount` is a whitespace-only diff, which the P0 edge
+   * table refuses to start on.
+   */
+  readonly substantiveLineCount: number
   readonly preflight: PreflightRequest
 }
 
@@ -92,9 +98,13 @@ export async function planIsolation(
   const { entry } = request
   if (entry.kind === 'workingTree') {
     const baseRev = await requireCommit(repoRoot, 'HEAD', options)
+    const untrackedLineCount = await countUntrackedLines(repoRoot, untracked)
     const changedLineCount
       = await countWorkingTreeChangedLines(repoRoot, baseRev, options)
-        + await countUntrackedLines(repoRoot, untracked)
+        + untrackedLineCount
+    const substantiveLineCount
+      = await countWorkingTreeChangedLines(repoRoot, baseRev, { ...options, ignoreWhitespace: true })
+        + untrackedLineCount
 
     return {
       entry,
@@ -104,6 +114,7 @@ export async function planIsolation(
       checkout: null,
       needsStash,
       headBefore,
+      substantiveLineCount,
       preflight: {
         entry,
         repoRoot,
@@ -121,6 +132,10 @@ export async function planIsolation(
     : await resolveRangeEntry(repoRoot, entry.from, entry.to, options)
 
   const changedLineCount = await countChangedLines(repoRoot, baseRev, afterRev, options)
+  const substantiveLineCount = await countChangedLines(repoRoot, baseRev, afterRev, {
+    ...options,
+    ignoreWhitespace: true,
+  })
 
   return {
     entry,
@@ -130,6 +145,7 @@ export async function planIsolation(
     checkout: afterRev,
     needsStash,
     headBefore,
+    substantiveLineCount,
     preflight: {
       entry,
       repoRoot,
