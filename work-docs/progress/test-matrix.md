@@ -50,6 +50,7 @@ Run everything with `pnpm test:ci`. Integration suites shell out to the real `gi
 | Staged rename | Restored as a rename | Pass |
 | Mixed subtree: edit + delete + staged add + untracked | All four restored | Pass |
 | Commit entry from a branch | HEAD returns to the branch | Pass |
+| Root commit entry | Base resolves to the empty tree | Pass |
 | Commit entry from a detached HEAD | HEAD returns to the same detached sha | Pass |
 | Apply conflict (tree edited mid-session) | Blocked, nothing discarded, retry succeeds | Pass |
 | Restore run twice | Second run is a verified no-op | Pass |

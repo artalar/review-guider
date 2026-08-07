@@ -234,6 +234,20 @@ describe('stash round trip — head movement', () => {
     expect(await repo.read('a.txt')).toBe('work in progress\n')
   })
 
+  it('reviews a root commit against the empty tree', async () => {
+    const repo = await makeTempRepo({ files: { 'a.txt': 'one\n' } })
+    const root = await repo.head()
+    await repo.write('a.txt', 'wip\n')
+
+    const trip = await beginTrip(repo, { sessionId: 'root', entry: { kind: 'commit', rev: root } })
+    expect(trip.handle.afterRev).toBe(root)
+    // Everything in a root commit is an addition, so the base is the empty tree.
+    expect((await repo.git('cat-file', '-t', trip.handle.baseRev)).trim()).toBe('tree')
+    expect((await repo.git('ls-tree', trip.handle.baseRev)).trim()).toBe('')
+
+    await endTrip(repo, trip)
+  })
+
   it('returns HEAD to a detached position it started from', async () => {
     const repo = await makeTempRepo({ files: { 'a.txt': 'one\n' } })
     const first = await repo.head()

@@ -156,8 +156,12 @@ async function resolveCommitEntry(
   const parent = await resolveCommit(repoRoot, `${afterRev}^1`, options)
   if (parent !== null)
     return { baseRev: parent, afterRev }
-  const emptyTree = (await tryGit(repoRoot, ['hash-object', '-t', 'tree', '/dev/null'], options)).stdout.trim()
-  return { baseRev: emptyTree || '4b825dc642cb6eb9a060e54bf8d69288fbee4904', afterRev }
+
+  // A root commit diffs against the empty tree. Hashing empty stdin gets it
+  // portably and, unlike the well-known SHA-1 constant, is also right in a
+  // SHA-256 repository.
+  const empty = await tryGit(repoRoot, ['hash-object', '-t', 'tree', '--stdin'], { ...options, stdin: '' })
+  return { baseRev: empty.stdout.trim(), afterRev }
 }
 
 async function resolveRangeEntry(
