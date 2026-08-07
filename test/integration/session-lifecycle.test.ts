@@ -2,9 +2,9 @@ import type { NotifyLevel, Ports, StorePort } from '../../src/model/ports'
 import type { TmpRepo } from '../helpers/tmp-repo'
 import { context, peek } from '@reatom/core'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { listGuideRefs } from '../../src/git/isolate'
+import { listGuideRefs, RepoLockedError } from '../../src/git/isolate'
 import { readStatus } from '../../src/git/probe'
-import { backupRefName, readLock, resolveRef, writeRef } from '../../src/git/refs'
+import { backupRefName, LOCK_REF, readLock, resolveRef, writeRef } from '../../src/git/refs'
 import { listStash } from '../../src/git/stash'
 import { memoryStore } from '../../src/model/ports'
 import {
@@ -222,6 +222,23 @@ describe('session lifecycle over the real protocol', () => {
 
     expect(peek(sessionStatus)).toBe('active')
     await cancelSession('cancel')
+  })
+
+  it('refuses before the pre-flight when another window holds the lock', async () => {
+    const repo = await dirtyRepo()
+    const before = await repo.fingerprint()
+    const harness = await bootstrap(repo)
+
+    await writeRef(repo.root, LOCK_REF, await repo.head())
+
+    // Refused up front rather than after the user approves a stash that could
+    // never have happened.
+    await expect(startSession({ entry: { kind: 'workingTree' } })).rejects.toBeInstanceOf(RepoLockedError)
+
+    expect(peek(preflightRequest)).toBeNull()
+    expect(peek(sessionStatus)).toBe('idle')
+    expect(await repo.fingerprint()).toEqual(before)
+    expect(harness.notifications.at(-1)?.message).toContain('Another window')
   })
 })
 

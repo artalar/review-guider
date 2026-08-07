@@ -32,6 +32,7 @@ import {
 } from '../git/isolate'
 import { isRecoverable } from '../git/journal'
 import { probeGit, readStatus } from '../git/probe'
+import { readLock } from '../git/refs'
 import { describeTarget } from '../git/types'
 import { DEFAULT_HEURISTIC_OPTIONS } from '../guide/heuristic'
 import { guideSource } from './guide-source'
@@ -349,6 +350,13 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
 
   const signal = abortVar.require().signal
   const includeUntracked = peek(stashIncludeUntracked)
+
+  // An early, honest refusal. The compare-and-swap in `isolate` is still the
+  // real protection; checking here just means the user is never asked to
+  // approve a pre-flight that cannot possibly proceed.
+  const lockOwner = await wrap(readLock(repoRoot, { signal }))
+  if (lockOwner !== null)
+    throw new RepoLockedError(lockOwner)
 
   sessionStatus.to('preflight')
 
