@@ -69,7 +69,7 @@ If a repository (or the agent that wrote the change) ships a `.guide.json`, its 
 
 Steps can anchor to line ranges, declare dependencies, split a large region across several presses, and mark lockfile churn as `skip` so it stops costing attention without disappearing. A malformed guide can never block a review or hide a line: every failure degrades to the heuristic with one warning.
 
-The full contract is in [`work-docs/architecture/guide-schema.md`](work-docs/architecture/guide-schema.md), and [`.agents/skills/guide-reviewer/SKILL.md`](.agents/skills/guide-reviewer/SKILL.md) is the version written for coding agents to follow when they emit one.
+The full contract is in [`work-docs/architecture/guide-schema.md`](work-docs/architecture/guide-schema.md). If you are writing one — or pointing a coding agent at it — [`work-docs/guides/agent-guide-authoring.md`](work-docs/guides/agent-guide-authoring.md) covers how to order a change well, and [`.agents/skills/guide-reviewer/SKILL.md`](.agents/skills/guide-reviewer/SKILL.md) is the installable short form.
 
 ## Configurations
 

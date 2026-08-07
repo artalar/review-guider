@@ -41,7 +41,7 @@ Phases are defined in [plan.md](./plan.md).
 | B | `test/helpers/tmp-repo.ts`, diff fixtures, `progress/test-matrix.md` | Tester | **Done** (helper + `test/helpers/protocol.ts` crash driver + matrix published; the three manual drills in §5 still need a human) |
 | C | `architecture/overview.md`, `reatom-model.md`, `guide-schema.md` | Architect | **Done** |
 | D | README, marketplace metadata, settings docs | Implementer | **Done** (usage, safety model, settings, known-limitations table; marketplace fields were set in Phase 0) |
-| E | `.guide.json` schema publication + agent skill draft (docs only, no `src/`) | — | **Draft** (`.agents/skills/guide-reviewer/SKILL.md`, mirrored to `.cursor/skills/`; the JSON Schema itself is still only inside `guide-schema.md` §4, not published at its `$id`) |
+| E | `.guide.json` schema publication + agent skill draft (docs only, no `src/`) | — | **Draft** (`work-docs/guides/agent-guide-authoring.md` long form + `.agents/skills/guide-reviewer/SKILL.md`, mirrored to `.cursor/skills/`; the JSON Schema itself is still only inside `guide-schema.md` §4, not served at its `$id`) |
 
 ---
 
@@ -50,7 +50,7 @@ Phases are defined in [plan.md](./plan.md).
 | ID | Item | Notes |
 |----|------|-------|
 | P1-1 | **`.guide.json` schema v1 + docs** — portable contract for agents | JSON Schema + example in repo |
-| P1-2 | **Agent skill / prompt** — emit guide sidecar when producing PRs | Draft landed at `.agents/skills/guide-reviewer/SKILL.md`; needs a real agent to write a guide against it before it is called done |
+| P1-2 | **Agent skill / prompt** — emit guide sidecar when producing PRs | Draft landed (`work-docs/guides/agent-guide-authoring.md` + `.agents/skills/guide-reviewer/`); needs a real agent to write a guide against it before it is called done |
 | P1-3 | **Stale guide merge** — partial sidecar + heuristic fill + one warning | |
 | P1-4 | **LLM guide generator (BYOK)** — opt-in per session; provider config | OpenAI-compatible first; offline still default |
 | P1-5 | **PR entry via `gh`** — optional; fallback instructions without CLI | |
