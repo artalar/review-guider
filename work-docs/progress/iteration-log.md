@@ -84,7 +84,7 @@ Two smaller notes for whoever wires this up: `mergeWithNext` folds a step into i
 
 **Phase 2.** The protocol is capture → journal → mutate, and restore is apply → verify → drop, as specified. Notable in the implementation: the journal stage is written *before* the operation it names, so a token found at stage X means at most X happened, and that single property is what makes recovery a lookup rather than a guess.
 
-**Seven bugs the suites caught, all of them in code that read correctly.** Listing them because each one is a place where the tests were load-bearing rather than confirmatory:
+**Nine bugs the suites caught, all of them in code that read correctly.** Listing them because each one is a place where the tests were load-bearing rather than confirmatory:
 
 1. `throwAbort()` inside a `take` selector means *"not this value, keep waiting"*, not *"cancel"*. A declined pre-flight hung forever. The abort now happens after the take resolves.
 2. `atom(fn)` is the `computed` overload, so `guideSource` was calling the guide source as a derivation instead of holding it. It is boxed in an object now — worth knowing before Phase 3 writes to that atom.
@@ -93,6 +93,10 @@ Two smaller notes for whoever wires this up: `mergeWithNext` folds a step into i
 5. `git status --porcelain=v2` collapses an untracked directory to a single `? dir/` record, which made the restore digest blind to *which* files inside came back. Status now runs with `--untracked-files=all`, and the round-trip fingerprint is genuinely sensitive to untracked content.
 6. Restore keyed its "nothing was captured" shortcut on the journal stage, so a restore interrupted after writing `restoring` was permanently blocked on retry. It keys on the token payload now, and `finalize` deletes the after-ref unconditionally so the ref cannot outlive a crash in the window before the journal names its commit.
 7. The recovery gate in `startSession` read `recoveryPending`, a `computed` + `withAsyncData` whose cached value is only as fresh as its last subscriber. A gate standing between the user and unrestored work cannot depend on someone being subscribed, so it reads the journal directly.
+8. **The worst of the nine.** The recovery token is *written* keyed on the repository root and was *read* keyed on the workspace folder. Open `packages/app` inside a monorepo, or reach the repo through a symlink — which is every macOS temp path — and the two differ, so recovery silently never fired. Both sides now use the probed root. There is a regression test that opens a subdirectory.
+9. `hash-object -t tree /dev/null` resolved the empty tree for a root-commit entry. There is no `/dev/null` on Windows, and the well-known SHA-1 constant it fell back to is wrong in a SHA-256 repository. It hashes empty stdin now.
+
+One piece of dead code went with them: `session#<id>.trace` was an atom nothing subscribed to, so its connect hook never fired and the `effect` inside it never ran. `connectLogger` already traces named atoms, which is all it was trying to add.
 
 **Two deliberate deviations from the frozen docs**, both for the Architect to confirm or overrule:
 
