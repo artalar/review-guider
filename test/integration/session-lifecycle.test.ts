@@ -12,6 +12,7 @@ import {
   cancelSession,
   canStart,
   cleanupBackups,
+  discardRecovery,
   EmptyDiffError,
   gitCapability,
   isolation,
@@ -61,17 +62,19 @@ interface Harness {
   readonly notifications: Notification[]
   /** Answers the pre-flight the way `src/ui/prompts.ts` does. */
   approve: boolean
+  /** Which action button a notification comes back with, if any. */
+  answer: string | undefined
 }
 
 function install(store: StorePort = memoryStore()): Harness {
-  const harness: Harness = { store, notifications: [], approve: true }
+  const harness: Harness = { store, notifications: [], approve: true, answer: undefined }
   const installed: Ports = {
     store,
     ui: {
       confirm: async () => harness.approve,
       notify: async (level, message) => {
         harness.notifications.push({ level, message })
-        return undefined
+        return harness.answer
       },
       openReview: async () => {},
     },
@@ -245,6 +248,7 @@ describe('session lifecycle over the real protocol', () => {
     expect(await repo.fingerprint()).toEqual(before)
     expect(harness.notifications.at(-1)?.message).toContain('Another window')
   })
+
 })
 
 describe('recovery', () => {
@@ -303,6 +307,69 @@ describe('recovery', () => {
     expect(await listStash(repo.root)).toHaveLength(1)
     expect(await resolveRef(repo.root, backupRefName('stuck'))).not.toBeNull()
     expect(await store.readToken(repo.root)).not.toBeNull()
+  })
+
+  /**
+   * The state machine has to come home, not just the files. A restore that
+   * verifies leaves `blocked` behind; if it did not, `canStart` would stay
+   * false for the rest of the window and only a reload would clear it.
+   */
+  it('returns a blocked session to idle once the restore finally verifies', async () => {
+    const repo = await dirtyRepo()
+    const before = await repo.fingerprint()
+    const harness = await bootstrap(repo)
+
+    await start(harness)
+
+    // Interference the teardown cannot reconcile: the tree will not match the
+    // capture however the stash is applied.
+    await repo.write('interference.txt', 'not ours\n')
+    await cancelSession('cancel')
+
+    expect(peek(sessionStatus)).toBe('blocked')
+    expect(peek(restoreBlock)?.kind).toBe('blocked')
+    expect(peek(canStart)).toBe(false)
+    expect(peek(isolation)).not.toBeNull()
+
+    await repo.remove('interference.txt')
+    expect((await recoverBackup())?.kind).toBe('restored')
+
+    expect(peek(sessionStatus)).toBe('idle')
+    expect(peek(session)).toBeNull()
+    expect(peek(isolation)).toBeNull()
+    expect(peek(restoreBlock)).toBeNull()
+    expect(await repo.fingerprint()).toEqual(before)
+
+    await recoveryToken()
+    expect(peek(canStart)).toBe(true)
+  })
+
+  /**
+   * The escape hatch of last resort: a restore that can never be made to
+   * verify would otherwise pin `recoveryPending` forever. Forgetting it keeps
+   * every artifact in git and only stops this window waiting on them.
+   */
+  it('lets the user forget a restore that cannot be completed', async () => {
+    const repo = await dirtyRepo()
+    const harness = await bootstrap(repo)
+
+    await start(harness)
+    await repo.write('interference.txt', 'not ours\n')
+    await cancelSession('cancel')
+    expect(peek(sessionStatus)).toBe('blocked')
+
+    harness.answer = 'Forget'
+    expect(await discardRecovery()).toBe(true)
+
+    expect(peek(sessionStatus)).toBe('idle')
+    expect(peek(isolation)).toBeNull()
+    await recoveryToken()
+    expect(peek(recoveryPending)).toBe(false)
+    expect(peek(canStart)).toBe(true)
+
+    // Nothing was destroyed — the backup is still there to recover by hand.
+    expect(await listStash(repo.root)).toHaveLength(1)
+    expect(await resolveRef(repo.root, backupRefName('model-session'))).not.toBeNull()
   })
 
   it('cleans up orphan refs but never while a restore is pending', async () => {

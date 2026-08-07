@@ -7,6 +7,7 @@ import {
   cancelSession,
   canStart,
   cleanupBackups,
+  discardRecovery,
   finishSession,
   recoverBackup,
   session,
@@ -33,6 +34,9 @@ export function useGuideCommands(): void {
     [Commands.guideReviewerFinish]: wrap(() => guard('finish', () => finishSession())),
     [Commands.guideReviewerCancel]: wrap(() => guard('cancel', () => cancelSession('cancel'))),
     [Commands.guideReviewerRestoreBackup]: wrap(() => guard('restoreBackup', () => recoverBackup())),
+    // The only way out of a restore that can never be made to verify. It
+    // forgets the reminder; the stash entry and the refs stay in git.
+    [Commands.guideReviewerDiscardRecovery]: wrap(() => guard('discardRecovery', () => discardRecovery())),
     [Commands.guideReviewerCleanupBackups]: wrap(() => guard('cleanupBackups', async () => {
       const removed = await wrap(cleanupBackups())
       await window.showInformationMessage(

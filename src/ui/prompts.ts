@@ -1,6 +1,7 @@
 import { peek, wrap } from '@reatom/core'
 import { watch } from 'reactive-vscode'
 import { window } from 'vscode'
+import { isRecoverable } from '../git/journal'
 import {
   guideDiagnostics,
   ports,
@@ -17,7 +18,17 @@ const answerPreflight = wrap(async (): Promise<void> => {
   const request = peek(preflightRequest)
   if (request === null)
     return
-  const approved = await wrap(peek(ports).ui.confirm(request))
+
+  let approved = false
+  try {
+    approved = await wrap(peek(ports).ui.confirm(request))
+  }
+  catch (error) {
+    // `startSession` is parked on `take(preflightAnswer)`. An unanswered
+    // pre-flight leaves the machine in `preflight` forever, which disables
+    // Start with no way back, so a failed modal has to count as a decline.
+    logger.error('pre-flight prompt failed; treating it as declined', error)
+  }
   preflightAnswer(approved)
 })
 
@@ -32,7 +43,7 @@ export function usePreflightPrompt(): void {
   watch(request, (next) => {
     if (next === null)
       return
-    void answerPreflight()
+    void answerPreflight().catch((error: unknown) => logger.error('pre-flight prompt failed', error))
   })
 }
 
@@ -43,7 +54,11 @@ export function usePreflightPrompt(): void {
  */
 export const checkRecoveryOnActivate = wrap(async (): Promise<void> => {
   const token = await wrap(recoveryToken())
-  if (token === null)
+  // `isRecoverable`, not `!== null`: a token still at `planned` never touched
+  // the tree, and one at `done` was already restored. Opening a modal about
+  // either is a false alarm about data loss, which is the one kind of noise
+  // this extension cannot afford to make.
+  if (!isRecoverable(token))
     return
 
   logger.warn(`Guide Reviewer found an unfinished session (${token.stage}) for ${token.repoRoot}`)
@@ -90,7 +105,12 @@ export function useGuideDiagnostics(): void {
   })
 }
 
-/** A blocked restore is loud in the output channel, with the manual commands. */
+/**
+ * A blocked restore is loud in the output channel, with the manual commands,
+ * and the channel is revealed rather than merely written to: the toast the
+ * model raises says "nothing was discarded", and this is where the user finds
+ * out what to run next.
+ */
 export function useRestoreBlockNotice(): void {
   const blocked = useAtomRef(restoreBlock)
 
@@ -100,5 +120,6 @@ export function useRestoreBlockNotice(): void {
     logger.error(`Restore blocked (${outcome.reason}): ${outcome.message}`)
     for (const command of outcome.commands)
       logger.error(`  ${command}`)
+    logger.show(true)
   })
 }

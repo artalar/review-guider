@@ -173,6 +173,14 @@ export const sessionStatus = atom<SessionStatus>('idle', 'session.status').exten
 
 export const isSessionActive = computed(() => sessionStatus() === 'active', 'session.isActive')
 
+/**
+ * Anything but `idle`. `isSessionActive` gates the reveal loop; this gates the
+ * way *out* of a session, so Cancel stays reachable from `blocked`, `error`
+ * and a pre-flight that never got answered — the states a user most needs an
+ * exit from, and exactly the ones `active` excludes.
+ */
+export const isSessionOpen = computed(() => sessionStatus() !== 'idle', 'session.isOpen')
+
 // ---------------------------------------------------------------------------
 // Session state
 // ---------------------------------------------------------------------------
@@ -224,9 +232,24 @@ export const orphanRefs = computed(async (): Promise<readonly OrphanRef[]> => {
   return await wrap(listGuideRefs(capability.repoRoot, { signal: abortVar.require().signal }))
 }, 'recovery.orphanRefs').extend(withAsyncData({ initState: [] as readonly OrphanRef[] }))
 
+/**
+ * Recovery for a session this window is not already driving: a live session
+ * owns its own restore through `teardownSession`, and a restore already
+ * draining must never be raced — two `git stash apply` runs against one entry
+ * is the outcome the protocol cannot survive.
+ */
 export const recoverBackup = action(async (): Promise<RestoreOutcome | null> => {
+  const entryStatus = peek(sessionStatus)
+  if (entryStatus !== 'idle' && entryStatus !== 'blocked')
+    return null
+
   const token = await wrap(recoveryToken())
   if (token === null)
+    return null
+
+  if (peek(sessionStatus) === 'blocked')
+    sessionStatus.to('restoring')
+  else if (peek(sessionStatus) !== 'idle')
     return null
 
   // No signal: an interrupted `git stash apply` is the one outcome we cannot survive.
@@ -234,11 +257,19 @@ export const recoverBackup = action(async (): Promise<RestoreOutcome | null> => 
   recoveryEpoch.set(value => value + 1)
 
   if (outcome.kind === 'restored') {
+    // The machine has to come home too. Leaving it `blocked` after a restore
+    // that actually worked keeps Start disabled until the window is reloaded.
+    isolation.set(null)
+    session.set(null)
     restoreBlock.set(null)
+    if (peek(sessionStatus) !== 'idle')
+      sessionStatus.to('idle')
     await wrap(peek(ports).ui.notify('info', 'Guide Reviewer restored your work from the backup.'))
   }
   else {
     restoreBlock.set(outcome)
+    if (peek(sessionStatus) === 'restoring')
+      sessionStatus.to('blocked')
     await wrap(peek(ports).ui.notify('warn', describeBlocked(outcome)))
   }
   return outcome
@@ -260,6 +291,16 @@ export const discardRecovery = action(async (): Promise<boolean> => {
 
   await wrap(peek(ports).store.clearToken(token.repoRoot))
   recoveryEpoch.set(value => value + 1)
+
+  // Forgetting the reminder releases the machine as well. The stash entry and
+  // the refs stay in git; this window simply stops waiting on them, which is
+  // the only escape from a restore that can never be made to verify.
+  if (peek(sessionStatus) === 'blocked') {
+    isolation.set(null)
+    session.set(null)
+    restoreBlock.set(null)
+    sessionStatus.to('idle')
+  }
   return true
 }, 'recovery.discard').extend(withAsync())
 
@@ -463,9 +504,12 @@ const teardownSession = action(async ({ reason }: { reason: CancelReason }): Pro
 
   // Conflict or verification mismatch: keep everything. Stash entry, both refs,
   // the lock and the token all stay, so the next activation can finish the job.
+  // The commands are already in the message; `restoreBlock` is what carries
+  // them to the output channel. An action button here would have nothing to
+  // dispatch to, because the model cannot open a VS Code view.
   restoreBlock.set(outcome)
   sessionStatus.to('blocked')
-  await wrap(peek(ports).ui.notify('warn', describeBlocked(outcome), ['Show recovery commands']))
+  await wrap(peek(ports).ui.notify('warn', describeBlocked(outcome)))
 }, 'session.teardown').extend(withAsync())
 
 export const finishSession = action(async (): Promise<void> => {
@@ -480,7 +524,13 @@ export const finishSession = action(async (): Promise<void> => {
  * discard: it runs exactly the same restore as Finish, only the message differs.
  */
 export const cancelSession = action(async (reason: CancelReason = 'cancel'): Promise<void> => {
-  if (peek(sessionStatus) === 'idle')
+  const status = peek(sessionStatus)
+  if (status === 'idle')
+    return
+  // `finish` and `cancel` are separate actions, so their `first-in-win` guards
+  // cannot see each other: without this, Cancel during an in-flight Finish
+  // would start a second `git stash apply` over the first one.
+  if (status === 'restoring')
     return
   await wrap(teardownSession({ reason }))
 }, 'session.cancel').extend(withAsync({ status: true }), withAbort('first-in-win'))

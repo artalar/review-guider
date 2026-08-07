@@ -1,7 +1,7 @@
 import { useActiveTextEditor, useStatusBarItem, useVscodeContext } from 'reactive-vscode'
 import { StatusBarAlignment } from 'vscode'
 import { commands as Commands } from '../generated/meta'
-import { canStart, gitUsable, isSessionActive, recoveryPending } from '../model/session'
+import { canStart, gitUsable, isSessionActive, isSessionOpen, recoveryPending } from '../model/session'
 import { REVIEW_SCHEME, statusText, statusTooltip } from '../model/view'
 import { useAtomRef } from './binding'
 
@@ -30,12 +30,16 @@ export function useGuideContextKeys(): void {
   const usable = useAtomRef(gitUsable)
   const start = useAtomRef(canStart)
   const active = useAtomRef(isSessionActive)
+  const open = useAtomRef(isSessionOpen)
   const recovery = useAtomRef(recoveryPending)
   const editor = useActiveTextEditor()
 
   useVscodeContext('guideReviewer.gitUsable', () => usable.value)
   useVscodeContext('guideReviewer.canStart', () => start.value)
   useVscodeContext('guideReviewer.sessionActive', () => active.value)
+  // Distinct from `sessionActive`: Cancel has to survive `blocked` and a
+  // pre-flight that stalled, which are precisely the states `active` excludes.
+  useVscodeContext('guideReviewer.sessionOpen', () => open.value)
   useVscodeContext('guideReviewer.recoveryPending', () => recovery.value)
   useVscodeContext(
     'guideReviewer.reviewEditorFocused',

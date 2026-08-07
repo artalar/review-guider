@@ -51,6 +51,7 @@ describe('contributed commands', () => {
     expect(declared).toEqual([
       'guide-reviewer.cancel',
       'guide-reviewer.cleanupBackups',
+      'guide-reviewer.discardRecovery',
       'guide-reviewer.finish',
       'guide-reviewer.next',
       'guide-reviewer.previous',
@@ -60,6 +61,28 @@ describe('contributed commands', () => {
       'guide-reviewer.startFromCommit',
       'guide-reviewer.startFromRange',
     ])
+  })
+
+  /**
+   * `sessionActive` means "the reveal loop is running", which is false in
+   * `blocked`, `error`, and a stalled `preflight`. Gating the way *out* on it
+   * would hide Cancel in exactly the states a user needs it.
+   */
+  it('keeps the exit reachable from every state a session can be stuck in', async () => {
+    const { contributes } = await manifest()
+    const cancel = contributes.commands.find(entry => entry.command === 'guide-reviewer.cancel')
+
+    expect(cancel?.enablement).toBe('guideReviewer.sessionOpen')
+  })
+
+  it('keeps the recovery commands away from a live session', async () => {
+    const { contributes } = await manifest()
+    const recovery = contributes.commands.filter(entry =>
+      entry.command === 'guide-reviewer.restoreBackup' || entry.command === 'guide-reviewer.discardRecovery')
+
+    expect(recovery).toHaveLength(2)
+    for (const entry of recovery)
+      expect(entry.enablement).toBe('guideReviewer.recoveryPending && !guideReviewer.sessionActive')
   })
 
   it('gates every command on a context key, so the palette never offers a failure', async () => {

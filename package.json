@@ -89,13 +89,19 @@
         "command": "guide-reviewer.cancel",
         "title": "Cancel Review",
         "category": "Guide Reviewer",
-        "enablement": "guideReviewer.sessionActive"
+        "enablement": "guideReviewer.sessionOpen"
       },
       {
         "command": "guide-reviewer.restoreBackup",
         "title": "Restore from Backup",
         "category": "Guide Reviewer",
-        "enablement": "guideReviewer.recoveryPending"
+        "enablement": "guideReviewer.recoveryPending && !guideReviewer.sessionActive"
+      },
+      {
+        "command": "guide-reviewer.discardRecovery",
+        "title": "Forget Pending Restore",
+        "category": "Guide Reviewer",
+        "enablement": "guideReviewer.recoveryPending && !guideReviewer.sessionActive"
       },
       {
         "command": "guide-reviewer.cleanupBackups",
