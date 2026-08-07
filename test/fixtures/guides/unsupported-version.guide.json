@@ -1,0 +1,6 @@
+{
+  "version": 2,
+  "steps": [
+    { "id": "types", "path": "src/types.ts", "rationale": "Types before callers" }
+  ]
+}

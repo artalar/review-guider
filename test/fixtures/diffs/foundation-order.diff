@@ -1,0 +1,68 @@
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 9999999..aaaaaaa 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -10,3 +10,4 @@ packages:
+   /foo@1.0.0:
+     resolution: {integrity: sha512-aaa}
+     dev: true
++  /bar@2.0.0: {}
+diff --git a/res/icon.png b/res/icon.png
+index bbbbbbb..ccccccc 100644
+Binary files a/res/icon.png and b/res/icon.png differ
+diff --git a/src/service.ts b/src/service.ts
+index 3333333..4444444 100644
+--- a/src/service.ts
++++ b/src/service.ts
+@@ -1,6 +1,12 @@
+-import type { User } from './types'
++import type { Session, User } from './types'
+ 
+ export function login(user: User): void {
+   store.set(user)
+ }
++
++export function resume(session: Session): Session {
++  if (session.startedAt === 0)
++    throw new Error('session never started')
++  return session
++}
+ 
+diff --git a/src/types.ts b/src/types.ts
+index 1111111..2222222 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -1,4 +1,9 @@
+ export interface User {
+   id: string
+ }
++
++export interface Session {
++  user: User
++  startedAt: number
++}
+ 
+diff --git a/src/ui/Component.tsx b/src/ui/Component.tsx
+index 5555555..6666666 100644
+--- a/src/ui/Component.tsx
++++ b/src/ui/Component.tsx
+@@ -1,5 +1,6 @@
+ import { login } from '../service'
+ 
+ export function Panel() {
+-  return <button onClick={() => login(user)}>Go</button>
++  return <button onClick={() => resume(session)}>Go</button>
+ }
+diff --git a/test/unit/service.test.ts b/test/unit/service.test.ts
+index 7777777..8888888 100644
+--- a/test/unit/service.test.ts
++++ b/test/unit/service.test.ts
+@@ -1,4 +1,8 @@
+ import { login } from '../../src/service'
+ 
+ it('logs in', () => {
+ })
++
++it('resumes', () => {
++  expect(resume(session)).toBe(session)
++})

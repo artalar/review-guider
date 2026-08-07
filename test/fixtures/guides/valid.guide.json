@@ -1,0 +1,38 @@
+{
+  "$schema": "https://guide-reviewer.dev/schema/guide-v1.json",
+  "version": 1,
+  "createdAt": "2026-08-07T09:12:44Z",
+  "generator": { "name": "cursor-agent", "version": "2.4.0" },
+  "scope": { "kind": "workingTree" },
+  "summary": "Read the resume flow first: it is the reason the type and the panel changed at all.",
+  "defaults": { "mergeStrategy": "merge", "maxLinesPerStep": 24 },
+  "files": {
+    "pnpm-lock.yaml": { "significance": "skip", "rationale": "Lockfile churn from the same install" }
+  },
+  "steps": [
+    {
+      "id": "service-resume",
+      "order": 10,
+      "path": "src/service.ts",
+      "ranges": [{ "side": "new", "start": 7, "end": 12 }],
+      "significance": "critical",
+      "title": "resume()",
+      "rationale": "The behaviour the rest of the change exists for",
+      "notes": "Start here: every other step is either the shape this needs or a caller of it."
+    },
+    {
+      "id": "component",
+      "order": 20,
+      "path": "src/ui/Component.tsx",
+      "rationale": "First UI consumer of resume()",
+      "dependsOn": ["types-session"]
+    },
+    {
+      "id": "types-session",
+      "order": 30,
+      "path": "src/types.ts",
+      "significance": "high",
+      "rationale": "The shape resume() consumes"
+    }
+  ]
+}

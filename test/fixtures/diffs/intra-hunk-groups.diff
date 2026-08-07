@@ -1,0 +1,20 @@
+diff --git a/src/lib/calc.ts b/src/lib/calc.ts
+index 1111111..2222222 100644
+--- a/src/lib/calc.ts
++++ b/src/lib/calc.ts
+@@ -1,11 +1,12 @@
+-const a = 1
++const a = 2
+ const b = 2
+-const c = 3
++const c = 4
+ const d = 4
+ const e = 5
+ const f = 6
+ const g = 7
+-const h = 8
++const h = 9
++const i = 10
+ const j = 10
+ const k = 11
+ const l = 12
