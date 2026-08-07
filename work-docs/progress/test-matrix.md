@@ -49,7 +49,7 @@ The ten rows of [specs/product.md → Edge-case budget → P0](../specs/product.
 | 5 | Empty diff / whitespace-only | Block the start with a clear message | §5.1, four refusal cases; §5 "Empty diff". Both refusals happen in the stat-only pass, so nothing is mutated | **Automated** |
 | 6 | Binary / generated files in the diff | Skip with a visible stub step, without breaking the ordering | `edge-cases.test.ts` → "binary and generated files", four cases: the stub and its rationale, `k/n` honesty, the ordering around it, the stub's own document, invariant I1, and a full walk that restores byte-identically | **Automated — new in Phase 6** |
 | 7 | Extension crash during review | Backup ref plus a recovery command | §4; §5 "Recovery command with no session" and "Orphan ref cleanup" | **Automated + drill §6.1** |
-| 8 | Multiple concurrent sessions | Disallow — one active session, block the second start | §3 "Second session on the same repo" (`RepoLockedError`); §5 "Second Start in one window" and "Lock held by another window". One process only; two real windows are §6.2 | **Automated + drill §6.2** |
+| 8 | Multiple concurrent sessions | Disallow — one active session, block the second start | §3 "Second session on the same repo" (`RepoLockedError`), "will not let one window release another window's lock"; §5 "Second Start in one window", "Lock held by another window", and the second window's *recovery* path — "does not offer to restore a session that is live in another window" plus its stale-heartbeat twin. One process only; two real windows are §6.2 | **Automated + drill §6.2** |
 | 9 | Git not a repo / no git | Disable the commands with an explanation | `edge-cases.test.ts` → "git unusable": a plain directory, an unborn branch, and no workspace at all, each asserting `canStart` is false *and* that the reason names the fix; `probe.test.ts` (unit + integration) for every capability variant; `contributions.test.ts` for the `enablement` clauses | **Automated — new in Phase 6** |
 | 10 | Detached HEAD / shallow clone missing objects | Detect early; fail with a fetch hint | Detached: `probe.test.ts` integration, §3 "Commit entry from a detached HEAD". Shallow: `edge-cases.test.ts` → "shallow clone with missing objects", five cases | **Automated — new in Phase 6** |
 
@@ -222,11 +222,13 @@ Covers the product edge row *"multiple concurrent sessions"* (§2 row 8) and pla
 1. Open `/tmp/drill` in two VS Code windows (*File → New Window*, open the same folder).
 2. Start a review in window A. Approve.
 3. In window B, run **Start Review**. It must refuse with *"Another window is already reviewing this repository."* and must not create a second stash entry, a second after-ref, or move HEAD.
-4. `git for-each-ref refs/guide-reviewer` must show exactly one `after/` and one `backup/` ref.
-5. Finish in window A. Verify with the commands above.
-6. Start in window B. It must now succeed.
+4. `git for-each-ref refs/guide-reviewer` must show exactly one `after/` and one `backup/` ref, and `git cat-file blob refs/guide-reviewer/lock` must print `guide-reviewer-lock:<A's session id>` — the lock names its owner (review 001 M3).
+5. **Recovery must not fire in window B.** Reload window B (*Developer: Reload Window*) while A is still reviewing. B sees A's token in `globalState`, so this is the path that used to offer *"Guide Reviewer did not finish restoring your work last time."* and, if accepted, applied A's stash out from under it. B must instead show *"A Guide Reviewer session is active in another window."*, offer no restore, and leave A's stash entry, refs and token untouched — check A can still Tab and still finishes cleanly.
+6. **Then let the heartbeat go stale.** Kill window A's extension host (§6.1 step 4) and wait 30 s. Reload window B: now it must raise the crash-recovery modal, and **Restore now** must complete the job.
+7. Finish in window A (or restore from B, if step 6 was run). Verify with the commands above.
+8. Start in window B. It must now succeed.
 
-**Fail conditions:** two stash entries; the lock ref is present after A finishes; B's refusal leaves any artifact behind; B's refusal disturbs A's session in any way.
+**Fail conditions:** two stash entries; the lock ref is present after A finishes; B's refusal leaves any artifact behind; B's refusal disturbs A's session in any way; **B offers to restore a live session, or fails to offer once A is really gone**.
 
 **Status:** ☐ not yet run.
 

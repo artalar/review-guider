@@ -261,3 +261,72 @@ I looked for the check in `@vscode/vsce` and there is none; it only guards `npm 
   first stop being hypothetical. Then M1, which is a two-line `retryComputed` once someone
   decides where to debounce it. Drill §6.2 needs a sixth step covering the second window's
   recovery prompt; it currently stops at the refused Start.
+
+## Implementer — 2026-08-07 — review 001 M1, M2, M3: the second window
+
+`pnpm lint && typecheck && test:ci` green — 423 tests before, 436 after. One commit,
+`80752e7`. Review [`reviews/001.md`](reviews/001.md) updated: M1, M2 and M3 are marked fixed,
+each with the test that fails without it. What is left open there is m3, m4, m5, m6 and the
+three nits.
+
+**The lock did not know whose it was.** Its value was the HEAD commit sha, and two windows on
+one repository compute the same one, so the compare-and-swap release that ADR 0002 D5
+describes as unable to "clobber another owner" could not tell owners apart at all. The
+Reviewer's fix — use the `sessionId` — runs straight into something the finding did not
+anticipate: a ref can only point at an object, and `git update-ref refs/guide-reviewer/lock
+window-a` is `fatal: not a valid SHA1`. So the id travels as a blob,
+`guide-reviewer-lock:<sessionId>` written with `hash-object -w`, and the ref points at that.
+Content addressing is the part that matters: `releaseLock` recomputes the value it compares
+against rather than trusting the ref it is about to delete. `readLock` reports the owning
+session id and falls back to the raw object name for a lock we did not write, because the
+stale-lock drill points the ref at HEAD by hand and "held by something" is still the honest
+answer. Old tokens recorded the ref value itself, so the release retries the CAS on the raw
+value — still a compare-and-swap, just on the old shape.
+
+**Then the harder half.** From git state alone, a crashed session and one running in another
+window are identical — which is why window B, opened on a repository window A is reviewing,
+found A's live token and offered to restore it. The marker went on the token rather than on a
+`refs/guide-reviewer/heartbeat` ref: the token is already read on the path that needed the
+answer, and a ref would have been a sixth artifact to clean up. `isolate` stamps
+`heartbeatAt` and stamps it again at `reviewing`, so a slow isolation is not born stale; the
+owning window rewrites it every 7 s; anything under 30 s old is live. `isSessionLive` covers
+every recoverable stage rather than only `reviewing`, deliberately — a second window that
+catches the first mid-isolation is the most dangerous one to race.
+
+**The beat runs only while `active`, and that is the one real compromise.** In `stashing` and
+`restoring` the journal belongs to `isolate` and `restoreFromToken`, and a read-modify-write
+racing either of those could roll a stage back — a worse bug than the one being fixed, since
+the journal is the artifact recovery cannot afford to have lied to. The cost is that a
+session spending more than 30 s isolating is briefly indistinguishable from a crash, narrowed
+by `isolate` doing its own stamping but not closed. Two smaller notes: the token stays `v: 1`
+because every reader builds it field by field, so a token from an older build parses with
+`heartbeatAt: null`, which reads as not live — at worst one recovery prompt nobody needed.
+And `recoveryToken` still only re-reads the store when `recoveryEpoch` bumps, so window B's
+picture of A goes stale the moment A finishes; that was already true of `recoveryPending` and
+is recorded in the review as residual rather than quietly fixed.
+
+**M1 was two lines and one move.** `gitCapability` reads `gitWatchToken()` only when
+`sessionStatus()` is `idle`. Unconditional would re-probe six subprocesses on top of every
+ref write during isolation; no dependency at all is what the review found — a computed
+without dependencies is never reevaluated, so Start went on looking available over a merge
+that began after the window opened. Reading `sessionStatus` reactively is the part that is
+easy to get wrong: without it the computed would drop its last dependency when a session
+started and never come back. The move is that the Probes section now sits *below* the state
+machine in `session.ts`, because the probe names `sessionStatus`. `startSession` still probes
+for itself — a watcher event is not instantaneous, and that is the last gate before a stash.
+
+**Testing.** 13 new tests. `isSessionLive` gets the fresh/stale/absent/future matrix and the
+stage sweep; the second window gets a live-session case that asserts window A's stash, refs
+and token are all still there afterwards, and a stale-heartbeat twin that restores exactly as
+before; the owning window gets one proving it beats on its own token and stops when the
+session ends. The lock gets three: two windows at one HEAD failing to release each other, the
+token recording its owner and `RepoLockedError` reporting it, and a hand-written lock still
+reading as held. M1 gets the merge-while-idle case, which bumps the watch token the way the
+bridge's watcher does. Each was run against the code with its fix removed — the second-window
+case, with only the guard in `recoverBackup` taken out, really does restore A's session.
+
+- **Next:** drill §6.2 now has the second window's recovery prompt in it (steps 5 and 6,
+  including letting the heartbeat go stale), and it needs a human with a packaged build. The
+  automated coverage drives two token states from one process, which is not the same thing.
+  After that, dogfood — the two-window case has stopped being hypothetical, which was the
+  Reviewer's argument for doing this before gate 3 rather than after.

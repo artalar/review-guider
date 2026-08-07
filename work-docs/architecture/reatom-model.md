@@ -48,9 +48,11 @@ git.repoStatus               computed + withAsyncData            porcelain=v2, r
 recovery.epoch               atom<number>
 recovery.token               computed + withAsyncData            persisted SessionToken via StorePort
 recovery.pending             computed<boolean>
+recovery.liveElsewhere       computed<boolean>                   fresh heartbeat = another window is reviewing
 recovery.orphanRefs          computed + withAsyncData            refs/guide-reviewer/** with no token
 recovery.restore             action + withAsync({status}) + withAbort('first-in-win')
 recovery.discard             action + withAsync
+session.heartbeat            action + withAsync                  stamps heartbeatAt while active
 
 preflight.request            atom<PreflightRequest | null>
 preflight.answer             action<(approved: boolean) => boolean>
@@ -119,6 +121,10 @@ export const gitWatchToken = atom(0, 'git.watchToken')
 
 export const gitCapability = computed(async (): Promise<GitCapability | null> => {
   const root = workspaceRoot()
+  // A dependency only while idle — see the bullet below.
+  if (sessionStatus() === 'idle')
+    gitWatchToken()
+
   if (!root)
     return { ok: false, reason: 'no-workspace', message: 'Open a folder to use Guide Reviewer.' }
 
@@ -140,6 +146,7 @@ export const repoStatus = computed(async (): Promise<RepoStatus | null> => {
 
 - `withAsyncData` already includes `withAbort()`, so `abortVar.require()` is available and a stale probe is cancelled the instant its dependencies change. The subprocess dies with it, because `git/exec.ts` forwards the signal.
 - `git.repoStatus` refetches **reactively**: the bridge never calls a refresh function, it writes `gitWatchToken.set(v => v + 1)`. That difference — dependency-driven refresh versus an imperative `refresh()` method — is the whole reason for using Reatom here.
+- `git.capability` reads the same token **conditionally**, and the condition is load-bearing (review 001 M1). A computed with no live dependency is never reevaluated, so probing once per workspace change left Start looking available over a rebase that began afterwards. Depending on the token unconditionally is the opposite failure: during isolation the extension is itself writing refs under `.git/`, so every write would re-probe (~6 subprocesses) on top of the last. `idle` is both the only state where a stale answer misleads anyone and the state where nothing of ours is writing. Reading `sessionStatus` reactively is what lets the dependency come back when a session ends.
 - Neither probe takes a write lock (`GIT_OPTIONAL_LOCKS=0`), so background polling can never collide with the user's own git commands.
 
 ---
@@ -546,6 +553,8 @@ export const discardRecovery = action(async () => {
 ```
 
 `discardRecovery` forgets a reminder; it never destroys a backup. Deleting refs is a separate, explicitly named command.
+
+**Liveness (review 001 M2).** The journal is in `globalState` so a second window can see it, which also means a second window sees a *running* session's token and used to offer to restore it. `recovery.liveElsewhere` is `isSessionLive(recoveryToken.data(), now)` and false whenever this window's own `sessionStatus` is not `idle` — the owning window must never diagnose itself as somebody else. `recoverBackup` refuses on it with an info notice, and `checkRecoveryOnActivate` says *"A Guide Reviewer session is active in another window"* instead of raising the crash modal. The other half is `session.heartbeat`, an `action + withAsync` that rewrites `heartbeatAt` on the token this window owns; the bridge ticks it from an `effect` created at activation (`bindSessionHeartbeat`), never from module scope, and only while the status is `active`.
 
 ### 6.5 Gating
 

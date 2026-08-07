@@ -346,6 +346,7 @@ export interface SessionToken {
   v: 1
   sessionId: string
   createdAt: number
+  heartbeatAt: number | null        // refreshed by the owning window; see §10.2
   repoRoot: string
   stage: IsolationStage
   afterRef: string                  // refs/guide-reviewer/after/<id>
@@ -683,14 +684,21 @@ Doing (3) before (2) would tear down subscriptions while a restore is running. T
 **A single lock ref, acquired by compare-and-swap through `git update-ref`.**
 
 ```
+# the value names the owner: a blob holding "guide-reviewer-lock:<sessionId>"
+git hash-object -t blob -w --stdin
+
 # acquire — fails if the ref already exists, atomically, in git's ref transaction
-git update-ref refs/guide-reviewer/lock <headSha> 0000000000000000000000000000000000000000
+git update-ref refs/guide-reviewer/lock <lockBlob> 0000000000000000000000000000000000000000
 
 # release — fails if someone changed it underneath us
-git update-ref -d refs/guide-reviewer/lock <headSha>
+git update-ref -d refs/guide-reviewer/lock <lockBlob>
 ```
 
-Passing the zero oid as the expected old value makes this a genuine atomic create-if-absent. Why this over the alternatives:
+Passing the zero oid as the expected old value makes this a genuine atomic create-if-absent.
+
+**The value is the session id, not the HEAD sha** (review 001 M3). A ref can only point at an object, so the id travels as a blob and the ref points at that; content addressing means the release recomputes the value it compares against rather than trusting the ref it is about to delete. With the HEAD sha, two windows on one repository computed the same value and the compare-and-swap could not distinguish owners at all — the property this design exists for. A lock written by hand (the stale-lock drill points the ref at HEAD) still reads as held; `readLock` reports its raw object name.
+
+Why this over the alternatives:
 
 | Mechanism | Verdict |
 |-----------|---------|
@@ -702,6 +710,10 @@ Passing the zero oid as the expected old value makes this a genuine atomic creat
 The in-window atom guard stays as the fast path with a good error message; the ref is the real protection. A stale lock (owner crashed) is broken only through the recovery UI, never silently, and the recovery flow already has the user's attention because the token is present in `globalState`.
 
 `globalState` rather than `workspaceState` for the token, for the same reason: a second window on the same repo must be able to see it, and it must survive the folder being reopened by another path.
+
+**Liveness: `heartbeatAt` on the token** (review 001 M2). Seeing the token is what a second window needs to offer recovery — and also what made it offer to "restore" the first window's *running* session, applying that window's stash and ending its isolation mid-review. From git state alone a crashed session and a live one are identical, so the owning window says which it is: while `sessionStatus` is `active` it rewrites `heartbeatAt` every seven seconds through the `StorePort`, and `isolate` stamps it so a slow isolation is not born stale. A token whose heartbeat is under 30 s old is live: the second window shows *"A Guide Reviewer session is active in another window"* and offers nothing. Older than that, or absent — every token written before the field existed — and the crash-recovery modal is exactly as it was.
+
+The beat runs only while `active`. In `stashing` and `restoring` the journal belongs to `isolate` and `restoreFromToken`, and a read-modify-write racing either of those could roll a stage back.
 
 ### 10.3 Final Tab `when` clause (plan P0-11)
 
