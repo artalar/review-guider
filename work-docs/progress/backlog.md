@@ -1,6 +1,6 @@
 # Guide Reviewer — Prioritized Backlog
 
-**Last updated:** 2026-08-07 (Implementer, Phases 4–5)  
+**Last updated:** 2026-08-07 (Product Owner, track E + P1 sequencing)  
 **Ordering principle:** Safety → core Tab loop → offline guide → polish → LLM/agents → nice-to-have
 
 Legend: **P0** MVP ship blocker · **P1** fast follow (v0.2) · **P2** later
@@ -49,16 +49,22 @@ Phases are defined in [plan.md](./plan.md).
 
 | ID | Item | Notes |
 |----|------|-------|
-| P1-1 | **`.guide.json` schema v1 + docs** — portable contract for agents | JSON Schema + example in repo |
-| P1-2 | **Agent skill / prompt** — emit guide sidecar when producing PRs | Draft landed (`work-docs/guides/agent-guide-authoring.md` + `.agents/skills/guide-reviewer/`); needs a real agent to write a guide against it before it is called done |
-| P1-3 | **Stale guide merge** — partial sidecar + heuristic fill + one warning | |
-| P1-4 | **LLM guide generator (BYOK)** — opt-in per session; provider config | OpenAI-compatible first; offline still default |
+| P1-1 | **`.guide.json` schema v1 + docs** — portable contract for agents | Frozen in [architecture/guide-schema.md](../architecture/guide-schema.md) §4 and implemented by the v1 reader. **Remaining:** extract it to a standalone `schema/guide-v1.json` and serve it at its `$id`, so `$schema` in an emitted document resolves and editors complete |
+| P1-2 | **Agent skill / prompt** — emit guide sidecar when producing PRs | Draft landed ([guides/agent-guide-authoring.md](../guides/agent-guide-authoring.md) long form + `.agents/skills/guide-reviewer/`). **Acceptance is dogfood, not docs:** an agent writes a guide for a real PR against the skill, and a reviewer reads only that guide |
+| P1-3 | **Stale guide merge** — partial sidecar + heuristic fill + one warning | Per-file interleaving of the heuristic remainder, which MVP appends wholesale; `scope.diffDigest` detection already exists |
+| P1-4 | **LLM guide generator (BYOK)** — opt-in per session; provider config | Product brief: [guides/llm-guide-generation.md](../guides/llm-guide-generation.md). Off by default, per-session consent, key in `SecretStorage`, output is `.guide.json` v1 through the same validator and merge — no second format. Sequenced **after** P1-1/P1-2 (PO note below) |
 | P1-5 | **PR entry via `gh`** — optional; fallback instructions without CLI | |
 | P1-6 | **Peek-ahead decoration** — dim next related hunk | No rationale spoil |
 | P1-7 | **Large diff compact mode** — file-level steps above LOC threshold | User setting |
 | P1-8 | **Drift detection** — warn if files change on disk during session | |
 | P1-9 | **Rename-aware diff steps** | |
 | P1-10 | **Settings panel** — keybinding hint, rationale toggle, LLM keys | |
+
+### PO order within P1 (2026-08-07)
+
+**P1-1 → P1-2 → P1-3 → P1-5 → P1-7 → P1-4 → P1-6 → P1-8 → P1-9 → P1-10.**
+
+The portable contract compounds: every agent that learns to emit `.guide.json` produces guides forever, in any repo, with no key, no latency, and no consent dialog — and each is better than a generated one because the author knew why they made the change. The LLM path does not compound; it re-derives discarded intent and bills for it every time. So it stays the fill-in for repos the contract has not reached, and it ships after the contract is real. P1-3 comes early because a sidecar that goes stale on the first rebase is how the contract loses its credibility. P1-7 precedes P1-4 because "too large to generate" is one of the LLM path's own failure modes.
 
 ---
 
