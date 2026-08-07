@@ -349,3 +349,10 @@ Agent-team loop completed for MVP v0.1:
 **Remaining before Marketplace dogfood:** five manual drills in `test-matrix.md` §6 (crash, two-window, stale lock, keybinding matrix, time-to-first-reveal).
 
 **P1 next (PO):** portable contract (schema hosting + agent skill dogfood) before BYOK LLM.
+
+## DevRel / Marketing — 2026-08-07 — branding and go-to-market
+
+- Published `marketing/branding-brief.md`: name audit, positioning, messaging, README and Marketplace guidance, audience copy, launch channels, and PO decision.
+- **Recommendation:** rename before first public Marketplace release to **Tabthrough — Guided Diff Review** (80% confidence on rename), subject to formal clearance; keep **Guide Reviewer — Guided Diff Review** as the fallback.
+- Primary tagline: **“Understand every change, one Tab at a time.”**
+- No package, command, repository, or source identity was changed; rename execution requires explicit PO approval.
