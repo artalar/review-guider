@@ -23,13 +23,13 @@ Phases are defined in [plan.md](./plan.md).
 | P0-6 | **Restore on all exit paths** — Finish, Cancel, deactivate, crash recovery command | Matrix test for Finish/Cancel; manual crash drill | P0-5 | 2 | Not started |
 | P0-7 | **Single-session lock** — reject second start while active | Error toast if session already running | P0-5 | 2 | Not started |
 | P0-8 | **Reatom session model** — session, stashHandle, steps, cursor, status | All UI/commands read/write one model | — | 1 | Not started (needs `architecture/reatom-model.md`) |
-| P0-9 | **Diff → step graph** — parse unified diff into hunks/lines | Fixture tests for split/join | P0-8 | 3 | Not started |
-| P0-10 | **Heuristic orderer** — file tier + hunk significance + line groups | Foundation-before-consumer fixture passes | P0-9 | 3 | Not started |
+| P0-9 | **Diff → step graph** — parse unified diff into hunks/lines | Fixture tests for split/join | P0-8 | 3 | **Done** (`src/guide/{types,parse-diff,groups,render}.ts`) |
+| P0-10 | **Heuristic orderer** — file tier + hunk significance + line groups | Foundation-before-consumer fixture passes | P0-9 | 3 | **Done** (`src/guide/{heuristic,steps}.ts`) |
 | P0-11 | **Tab / Shift+Tab advance** — configurable keybinding, default avoids IntelliSense conflict | Step k→k+1 reveals new regions; Shift+Tab undoes | P0-10 | 5 | Not started |
 | P0-12 | **Reveal rendering** — decorations or staged apply in diff editor | Prior steps stay visible; binary skip stub | P0-11 | 5 | Not started (blocked on reveal spike, risk R5) |
 | P0-13 | **Status bar UI** — `step k/n`, file, one-line rationale | Updates synchronously with model | P0-8 | 5 | Not started |
 | P0-14 | **Commands** — Start, Next, Previous, Finish, Cancel | Palette + keybindings registered | P0-6, P0-11 | 5 | Not started |
-| P0-15 | **Sidecar guide read (minimal)** — load `.guide.json` if present; validate or fallback | Override step order for fixture guide | P0-10 | 3 | Not started (blocked on `architecture/guide-schema.md`) |
+| P0-15 | **Sidecar guide read (minimal)** — load `.guide.json` if present; validate or fallback | Override step order for fixture guide | P0-10 | 3 | **Done** (`src/guide/{schema,sidecar,merge}.ts`; file read is injected, still to be wired in Phase 4) |
 | P0-16 | **P0 edge cases** — see product.md table | Each row has test or runbook | P0-5–P0-12 | 6 | Not started |
 
 **MVP milestone:** P0-1 through P0-16 complete + dogfood sign-off.
@@ -41,7 +41,7 @@ Phases are defined in [plan.md](./plan.md).
 | B | `test/helpers/tmp-repo.ts`, diff fixtures, `progress/test-matrix.md` | Tester | **Next** (unblocks Phase 2) |
 | C | `architecture/overview.md`, `reatom-model.md`, `guide-schema.md` | Architect | **Next** (blocks P0-8, P0-15) |
 | D | README, marketplace metadata, settings docs | Implementer | Not started |
-| E | `.guide.json` schema publication + agent skill draft (docs only, no `src/`) | — | Not started (after Phase 3) |
+| E | `.guide.json` schema publication + agent skill draft (docs only, no `src/`) | — | Unblocked (Phase 3 green; the v1 reader now exists and matches `architecture/guide-schema.md`) |
 
 ---
 
