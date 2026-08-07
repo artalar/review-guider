@@ -15,7 +15,16 @@ interface Contribution {
   readonly when?: string
 }
 
+interface Capability {
+  readonly supported: boolean
+  readonly description?: string
+}
+
 interface Manifest {
+  readonly capabilities?: {
+    readonly untrustedWorkspaces?: Capability
+    readonly virtualWorkspaces?: Capability
+  }
   readonly contributes: {
     readonly commands: readonly Contribution[]
     readonly keybindings: readonly Contribution[]
@@ -100,6 +109,22 @@ describe('contributed commands', () => {
     expect(starts).toHaveLength(3)
     for (const entry of starts)
       expect(entry.enablement).toBe('guideReviewer.canStart')
+  })
+})
+
+/**
+ * Left undeclared, VS Code assumes an extension is merely "limited" in an
+ * untrusted folder and loads it anyway. This one shells out to git, and a
+ * repository's own config can make git run arbitrary commands, so the default
+ * is the wrong one to inherit silently.
+ */
+describe('workspace trust', () => {
+  it('refuses untrusted and virtual workspaces, with a reason the user can read', async () => {
+    const { capabilities } = await manifest()
+
+    expect(capabilities?.untrustedWorkspaces?.supported).toBe(false)
+    expect(capabilities?.untrustedWorkspaces?.description).toBeTruthy()
+    expect(capabilities?.virtualWorkspaces?.supported).toBe(false)
   })
 })
 

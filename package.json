@@ -41,6 +41,16 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Guide Reviewer runs git in the workspace and rewrites the working tree. A repository's own config can make git execute arbitrary commands, so it needs a trusted folder."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Isolation stashes and restores real files, which a virtual file system does not provide."
+    }
+  },
   "contributes": {
     "commands": [
       {
