@@ -364,3 +364,9 @@ Agent-team loop completed for MVP v0.1:
 - Commands/settings/context/scheme/refs/skill renamed; `.guide.json` format unchanged
 - README rewritten per branding brief; status bar voice updated
 - **Owner action:** rename GitHub repo `review-guider` → **`tabthrough`**
+
+## 2026-08-07 — CI: macOS/Windows failures
+
+- Token lookup failed when `mkdtemp` path ≠ `git --show-toplevel` (macOS `/var`↔`/private/var`, Windows drive case)
+- Windows: `URL.pathname` doubled the drive; CRLF broke fixtures + ````json` fence regex
+- Fix: `canonicalizeRepoRoot` + `repoKey`, `memoryStore` via `repoKey`, `realpath` temps, `.gitattributes` LF, `fileURLToPath`
