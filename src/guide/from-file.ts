@@ -1,8 +1,8 @@
 import type { GuideScopeDoc } from './schema'
 
-/** Basename match for `*.guide.json` (includes `.guide.json`). */
+/** Basename match for `.tabthrough-guide.json` and legacy `*.guide.json`. */
 export function isGuideFileName(fileName: string): boolean {
-  return fileName.endsWith('.guide.json')
+  return fileName.endsWith('.tabthrough-guide.json') || fileName.endsWith('.guide.json')
 }
 
 /**

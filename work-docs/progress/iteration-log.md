@@ -865,3 +865,7 @@ Still open for Phase 7: **G3** (drift tree-to-tree), G6/G7.
 
 **Next:** Dual re-review of [004](./reviews/004.md) + [003](./reviews/003.md). Do not start Phase 8
 until 004 re-opens the gate. Remaining: G3 drift, F6–F7/F9–F10, rest of F11.
+
+## Reviewer (Fable) — 2026-09-05 — sidebar Simple/Agent flow
+
+[Review 006](./reviews/006.md): **changes needed**. Stash contract intact (no isolate until Start). Headline Simple working-tree flow is stale by construction (`git diff` vs Start's `add -A` snapshot). Next: Implementer pass on 006 blocker + majors, then re-review.

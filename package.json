@@ -37,7 +37,7 @@
   "files": [
     "LICENSE.md",
     "dist/*",
-    "res/*",
+    "res/**",
     "schema/guide-v1.json"
   ],
   "engines": {
@@ -59,6 +59,12 @@
   "contributes": {
     "commands": [
       {
+        "command": "tabthrough.review",
+        "title": "Review…",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
         "command": "tabthrough.start",
         "title": "Review Working Changes",
         "category": "Tabthrough",
@@ -78,9 +84,63 @@
       },
       {
         "command": "tabthrough.startFromGuide",
-        "title": "Review Using This Guide",
+        "title": "Start Review from This Guide",
         "category": "Tabthrough",
         "enablement": "tabthrough.canStart && tabthrough.activeGuideValid"
+      },
+      {
+        "command": "tabthrough.installSkill",
+        "title": "Install /tabthrough Skill",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.gitUsable"
+      },
+      {
+        "command": "tabthrough.pickWorkingTree",
+        "title": "Pick Working Changes",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
+        "command": "tabthrough.pickCommit",
+        "title": "Pick a Commit",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
+        "command": "tabthrough.pickRange",
+        "title": "Pick a Commit Range",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
+        "command": "tabthrough.selectCommit",
+        "title": "Select Commit",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
+        "command": "tabthrough.submitRange",
+        "title": "Use Commit Range",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
+        "command": "tabthrough.generateSimple",
+        "title": "Generate Simple Guide",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
+        "command": "tabthrough.generateAgent",
+        "title": "Generate Agent Guide",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
+        "command": "tabthrough.setupBack",
+        "title": "Back",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
       },
       {
         "command": "tabthrough.next",
@@ -161,20 +221,54 @@
       "explorer/context": [
         {
           "command": "tabthrough.startFromGuide",
-          "when": "tabthrough.canStart && resourceFilename =~ /\\.guide\\.json$/",
+          "when": "tabthrough.canStart && resourceFilename =~ /\\.(tabthrough-)?guide\\.json$/",
           "group": "navigation@10"
         }
       ],
       "view/title": [
         {
-          "command": "tabthrough.start",
-          "when": "view == tabthrough.sidebar && tabthrough.canStart",
+          "command": "tabthrough.review",
+          "when": "view == tabthrough.sidebar && tabthrough.canStart && !tabthrough.sessionOpen",
           "group": "navigation@1"
         },
         {
           "command": "tabthrough.cancel",
           "when": "view == tabthrough.sidebar && tabthrough.sessionOpen",
           "group": "navigation@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "tabthrough.pickWorkingTree",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.pickCommit",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.pickRange",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.selectCommit",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.submitRange",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.generateSimple",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.generateAgent",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.setupBack",
+          "when": "false"
         }
       ]
     },
@@ -199,6 +293,10 @@
     "jsonValidation": [
       {
         "fileMatch": [
+          ".tabthrough-guide.json",
+          "**/.tabthrough-guide.json",
+          "*.tabthrough-guide.json",
+          "**/*.tabthrough-guide.json",
           ".guide.json",
           "**/.guide.json",
           "*.guide.json",
@@ -268,7 +366,7 @@
         },
         "tabthrough.guideFile": {
           "type": "string",
-          "default": ".guide.json",
+          "default": ".tabthrough-guide.json",
           "description": "Repository-relative path of the optional guide sidecar that overrides the heuristic step order."
         },
         "tabthrough.keybinding.useTab": {

@@ -17,7 +17,7 @@ export type SessionModeSetting = 'ask' | SessionMode
 
 export const showRationale = atom(true, 'config.showRationale')
 export const heuristicOptions = atom<HeuristicOptions>(DEFAULT_HEURISTIC_OPTIONS, 'config.heuristicOptions')
-export const guideFile = atom('.guide.json', 'config.guideFile')
+export const guideFile = atom('.tabthrough-guide.json', 'config.guideFile')
 export const revealMode = atom<RevealMode>('progressive', 'config.revealMode')
 export const sessionModeSetting = atom<SessionModeSetting>('ask', 'config.sessionMode')
 export const stashIncludeUntracked = atom(true, 'config.stashIncludeUntracked')

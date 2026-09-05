@@ -238,9 +238,9 @@ describe('sidecar loading', () => {
     expect(load.diagnostics.filter(diagnostic => diagnostic.severity === 'warning')).toHaveLength(0)
   })
 
-  it('resolves the guide file from the setting, falling back to .guide.json', () => {
-    expect(resolveGuideFile(undefined)).toBe('.guide.json')
-    expect(resolveGuideFile('  ')).toBe('.guide.json')
+  it('resolves the guide file from the setting, falling back to .tabthrough-guide.json', () => {
+    expect(resolveGuideFile(undefined)).toBe('.tabthrough-guide.json')
+    expect(resolveGuideFile('  ')).toBe('.tabthrough-guide.json')
     expect(resolveGuideFile('./docs/review.json')).toBe('docs/review.json')
   })
 

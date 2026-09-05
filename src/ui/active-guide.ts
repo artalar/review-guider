@@ -1,16 +1,18 @@
 import type { Uri } from 'vscode'
-import { basename, relative } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import { atom, peek, wrap } from '@reatom/core'
-import { useActiveTextEditor, useDisposable, useVscodeContext } from 'reactive-vscode'
+import { useActiveTextEditor, useDisposable, useVscodeContext, watchEffect } from 'reactive-vscode'
 import { window, workspace } from 'vscode'
 import { entryFromGuideScope, isGuideFileName } from '../guide/from-file'
-import { isSafeRepoPath, loadSidecar, normalizeRepoPath } from '../guide/sidecar'
+import { isSafeRepoPath, loadSidecar, normalizeRepoPath, resolveSafeSidecarPath } from '../guide/sidecar'
+import { guideFile } from '../model/config'
 import {
   canStart,
   gitCapability,
   startBlockedReason,
   startSession,
 } from '../model/session'
+import { focusedGuidePath, setupPhase } from '../model/setup'
 import { useAtomRef } from './binding'
 import { pickCommitEntry, promptRangeEntry } from './entry'
 
@@ -30,7 +32,7 @@ export function useActiveGuideContext(): void {
       activeGuideBump.set(value => value + 1)
   }))
 
-  useVscodeContext('tabthrough.activeGuideValid', () => {
+  const validGuide = (): boolean => {
     void bump.value
     const document = editor.value?.document
     if (document === undefined || document.uri.scheme !== 'file')
@@ -38,7 +40,24 @@ export function useActiveGuideContext(): void {
     if (!isGuideFileName(basename(document.fileName)))
       return false
     return loadSidecar({ path: basename(document.fileName), text: document.getText() }).doc !== null
-  })
+  }
+
+  useVscodeContext('tabthrough.activeGuideValid', validGuide)
+
+  watchEffect(wrap(() => {
+    const document = editor.value?.document
+    if (!validGuide() || document === undefined || document.uri.scheme !== 'file') {
+      focusedGuidePath.set(null)
+      return
+    }
+    const capability = gitCapability.data()
+    if (capability === null || !capability.ok) {
+      focusedGuidePath.set(null)
+      return
+    }
+    const repoRelative = normalizeRepoPath(relative(capability.repoRoot, document.uri.fsPath))
+    focusedGuidePath.set(isSafeRepoPath(repoRelative) && !repoRelative.startsWith('..') ? repoRelative : null)
+  }))
 }
 
 /**
@@ -53,18 +72,6 @@ export async function beginFromActiveGuide(uri?: Uri): Promise<void> {
     return
   }
 
-  const document = uri !== undefined
-    ? await wrap(workspace.openTextDocument(uri))
-    : window.activeTextEditor?.document
-  if (document === undefined || document.uri.scheme !== 'file') {
-    await window.showWarningMessage('Open a *.guide.json file to start a review from it.')
-    return
-  }
-  if (!isGuideFileName(basename(document.fileName))) {
-    await window.showWarningMessage('The active file is not a *.guide.json guide.')
-    return
-  }
-
   const capability = await wrap(gitCapability())
   if (capability === null || !capability.ok) {
     await window.showWarningMessage(
@@ -74,6 +81,38 @@ export async function beginFromActiveGuide(uri?: Uri): Promise<void> {
           ? capability.message
           : `${capability.message} ${capability.hint}`,
     )
+    return
+  }
+
+  const phase = peek(setupPhase)
+  if (phase.kind === 'generate') {
+    const sidecarPath = resolveSafeSidecarPath(peek(guideFile))
+    if (sidecarPath === null) {
+      await window.showWarningMessage('tabthrough.guideFile is not a safe repository path.')
+      return
+    }
+    const documentForTarget = await wrap(workspace.openTextDocument(join(capability.repoRoot, sidecarPath)))
+    const targetSidecar = { path: sidecarPath, text: documentForTarget.getText() }
+    const targetLoaded = loadSidecar(targetSidecar)
+    if (targetLoaded.doc === null) {
+      await window.showWarningMessage(
+        targetLoaded.diagnostics[0]?.message ?? `${sidecarPath} is not a valid Tabthrough guide.`,
+      )
+      return
+    }
+    await wrap(startSession({ entry: phase.target, guideFile: sidecarPath, sidecar: targetSidecar }))
+    return
+  }
+
+  const document = uri !== undefined
+    ? await wrap(workspace.openTextDocument(uri))
+    : window.activeTextEditor?.document
+  if (document === undefined || document.uri.scheme !== 'file') {
+    await window.showWarningMessage('Open a .tabthrough-guide.json file to start a review from it.')
+    return
+  }
+  if (!isGuideFileName(basename(document.fileName))) {
+    await window.showWarningMessage('The active file is not a Tabthrough guide.')
     return
   }
 

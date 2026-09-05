@@ -65,15 +65,25 @@ describe('contributed commands', () => {
       'tabthrough.commitHandoff',
       'tabthrough.discardRecovery',
       'tabthrough.finish',
+      'tabthrough.generateAgent',
+      'tabthrough.generateSimple',
+      'tabthrough.installSkill',
       'tabthrough.next',
+      'tabthrough.pickCommit',
+      'tabthrough.pickRange',
+      'tabthrough.pickWorkingTree',
       'tabthrough.previous',
       'tabthrough.restoreBackup',
+      'tabthrough.review',
+      'tabthrough.selectCommit',
+      'tabthrough.setupBack',
       'tabthrough.showStepDetail',
       'tabthrough.showWalkthrough',
       'tabthrough.start',
       'tabthrough.startFromCommit',
       'tabthrough.startFromGuide',
       'tabthrough.startFromRange',
+      'tabthrough.submitRange',
     ])
   })
 
@@ -107,23 +117,25 @@ describe('contributed commands', () => {
     }
   })
 
-  it('only offers the three entry points when the model says a start can succeed', async () => {
+  it('only offers the entry points when the model says a start can succeed', async () => {
     const { contributes } = await manifest()
     const starts = contributes.commands.filter(entry =>
-      entry.command === 'tabthrough.start'
+      entry.command === 'tabthrough.review'
+      || entry.command === 'tabthrough.start'
       || entry.command === 'tabthrough.startFromCommit'
       || entry.command === 'tabthrough.startFromRange')
 
-    expect(starts).toHaveLength(3)
+    expect(starts).toHaveLength(4)
     for (const entry of starts)
       expect(entry.enablement).toBe('tabthrough.canStart')
   })
 
-  it('offers Review Using This Guide only for a valid open *.guide.json', async () => {
+  it('offers Start Review from This Guide only for a valid open guide', async () => {
     const { contributes } = await manifest()
     const fromGuide = contributes.commands.find(entry => entry.command === 'tabthrough.startFromGuide')
 
     expect(fromGuide?.enablement).toBe('tabthrough.canStart && tabthrough.activeGuideValid')
+    expect(fromGuide?.title).toBe('Start Review from This Guide')
     expect(contributes.menus?.['editor/title']?.some(entry => entry.command === 'tabthrough.startFromGuide')).toBe(true)
     expect(contributes.menus?.['editor/context']?.some(entry => entry.command === 'tabthrough.startFromGuide')).toBe(true)
   })
@@ -200,6 +212,12 @@ describe('keybindings', () => {
     expect(contributes.configuration.properties['tabthrough.keybinding.useTab']).toBeDefined()
   })
 
+  it('defaults the sidecar path to .tabthrough-guide.json', async () => {
+    const { contributes } = await manifest()
+    const setting = contributes.configuration.properties['tabthrough.guideFile'] as { default?: string }
+    expect(setting.default).toBe('.tabthrough-guide.json')
+  })
+
   it('declares the session mode setting with ask default', async () => {
     const { contributes } = await manifest()
     const setting = contributes.configuration.properties['tabthrough.session.mode'] as {
@@ -215,6 +233,29 @@ describe('keybindings', () => {
     const finish = contributes.commands.find(entry => entry.command === 'tabthrough.finish')
     expect(finish?.enablement).toBe('tabthrough.sessionActive')
     expect(finish?.title).toBe('Finish Review')
+  })
+
+  it('hides internal setup commands from the command palette', async () => {
+    const raw = await readFile(new URL('../../package.json', import.meta.url), 'utf8')
+    const parsed = JSON.parse(raw) as {
+      contributes: { menus?: { commandPalette?: readonly { command: string, when?: string }[] } }
+    }
+    const hidden = new Set(
+      (parsed.contributes.menus?.commandPalette ?? [])
+        .filter(entry => entry.when === 'false')
+        .map(entry => entry.command),
+    )
+    for (const command of [
+      'tabthrough.pickWorkingTree',
+      'tabthrough.pickCommit',
+      'tabthrough.pickRange',
+      'tabthrough.selectCommit',
+      'tabthrough.submitRange',
+      'tabthrough.generateSimple',
+      'tabthrough.generateAgent',
+      'tabthrough.setupBack',
+    ])
+      expect(hidden.has(command), command).toBe(true)
   })
 
   it('offers commit handoff without requiring a live session', async () => {

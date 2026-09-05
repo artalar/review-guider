@@ -36,6 +36,10 @@ export interface UiPort {
    * An empty path list means all open dirty file editors in that repository.
    */
   saveDocuments: (repoRoot: string, paths: readonly string[]) => Promise<SaveDocumentsResult>
+  writeTextFile: (repoRoot: string, path: string, text: string) => Promise<void>
+  fileExists: (repoRoot: string, path: string) => Promise<boolean>
+  readBundledSkill: () => Promise<string | null>
+  openAgentChat: (prompt: string) => Promise<void>
 }
 
 export interface ClockPort {
@@ -68,6 +72,10 @@ export const inertPorts: Ports = {
     openWorkspaceFile: async () => {},
     openSourceControl: async () => {},
     saveDocuments: async () => ({ ok: true }),
+    writeTextFile: async () => {},
+    fileExists: async () => false,
+    readBundledSkill: async () => null,
+    openAgentChat: async () => {},
   },
   clock: {
     now: () => Date.now(),

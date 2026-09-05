@@ -9,15 +9,26 @@ export type ReviewTarget
 /** Session contract: read-only virtual reveal vs write-to-disk apply. */
 export type SessionMode = 'readonly' | 'apply'
 
-export function describeTarget(target: ReviewTarget): string {
+export function describeTarget(target: ReviewTarget, options?: { readonly short?: boolean }): string {
+  const short = options?.short === true
   switch (target.kind) {
     case 'workingTree':
-      return 'working tree'
+      return short ? 'Working changes' : 'working tree'
     case 'commit':
-      return `commit ${target.rev}`
+      return short ? `Commit ${target.rev.slice(0, 12)}` : `commit ${target.rev}`
     case 'range':
       return `${target.from}..${target.to}`
   }
+}
+
+/** `null` when `rev` is safe to hand to `git rev-parse`; otherwise why not. */
+export function commitRevError(rev: string): string | null {
+  const trimmed = rev.trim()
+  if (trimmed === '')
+    return 'Enter a commit, tag, or ref.'
+  if (trimmed.startsWith('-') || /\s/.test(trimmed))
+    return 'That does not look like a commit, tag, or ref.'
+  return null
 }
 
 export interface RangeInput {

@@ -1,6 +1,7 @@
-import type { ReviewTarget } from '../git/types'
 import type { SidebarViewModel } from './view'
 import { commands as Commands } from '../generated/meta'
+import { describeTarget } from '../git/types'
+import { describeSetupTarget } from './setup'
 
 /** Keep hostile or accidentally huge guide text from taking over the view. */
 export function safeSidebarText(value: string, max = 500): string {
@@ -18,6 +19,8 @@ export interface SidebarItemData {
   readonly description?: string
   readonly tooltip?: string
   readonly command?: string
+  readonly payload?: string
+  readonly input?: { readonly placeholder: string }
   readonly icon?: string
   readonly contextValue?: string
   readonly enabled?: boolean
@@ -46,16 +49,7 @@ export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[]
       return items
     }
 
-    add({
-      id: 'welcome',
-      label: 'Understand every change, one Tab at a time',
-      description: view.idleReason ?? 'Walk a change in an order that builds context',
-      tooltip: 'Start with local changes, a commit, or a commit range. Notes stay visible here as you walk.',
-      icon: 'book',
-    })
-    add({ id: 'working-tree', label: 'Review Working Changes', command: Commands.start, icon: 'diff', contextValue: 'action', enabled: view.canStart })
-    add({ id: 'commit', label: 'Review a Commit…', command: Commands.startFromCommit, icon: 'git-commit', contextValue: 'action', enabled: view.canStart })
-    add({ id: 'range', label: 'Review a Commit Range…', command: Commands.startFromRange, icon: 'git-compare', contextValue: 'action', enabled: view.canStart })
+    addIdleItems(view, add)
     return items
   }
 
@@ -68,7 +62,7 @@ export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[]
     const plan = view.preflight
     const changed = plan.changedFileCount === 1 ? '1 changed file' : `${plan.changedFileCount} changed files`
     add({ id: 'preflight', label: `Ready to review ${changed}`, description: `${plan.changedLineCount} changed lines · ${plan.sessionMode === 'apply' ? 'apply with user' : 'read-only'}`, icon: 'question' })
-    add({ id: 'target', label: safeSidebarText(describeEntry(plan.entry)), description: plan.willStash ? 'Your work will be stashed safely first' : 'Working tree is clean', icon: 'info' })
+    add({ id: 'target', label: safeSidebarText(describeTarget(plan.entry, { short: true })), description: plan.willStash ? 'Your work will be stashed safely first' : 'Working tree is clean', icon: 'info' })
     add({ id: 'cancel-preflight', label: 'Cancel', command: Commands.cancel, icon: 'close', contextValue: 'action' })
     return items
   }
@@ -137,10 +131,138 @@ export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[]
   return items
 }
 
-function describeEntry(entry: ReviewTarget): string {
-  if (entry.kind === 'workingTree')
-    return 'Working changes'
-  if (entry.kind === 'commit')
-    return `Commit ${entry.rev}`
-  return `${entry.from}..${entry.to}`
+function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => void): void {
+  const phase = view.setup
+
+  if (phase.kind === 'targets') {
+    add({ id: 'pick-target', label: 'What should we walk through?', description: 'Pick a target, then Simple or Agent writes the guide.' })
+    add({ id: 'working-tree', label: 'Working changes', command: Commands.pickWorkingTree, icon: 'diff', contextValue: 'action', enabled: view.canStart })
+    add({ id: 'commit', label: 'A commit', command: Commands.pickCommit, icon: 'git-commit', contextValue: 'action', enabled: view.canStart })
+    add({ id: 'range', label: 'A commit range', command: Commands.pickRange, icon: 'git-compare', contextValue: 'action', enabled: view.canStart })
+    add({ id: 'back', label: 'Back', command: Commands.setupBack, icon: 'arrow-left', contextValue: 'action' })
+    return
+  }
+
+  if (phase.kind === 'commits') {
+    add({
+      id: 'pick-commit',
+      label: 'Pick a commit',
+      description: phase.loading
+        ? 'Loading recent history…'
+        : (phase.error ?? 'Reviewed against its first parent'),
+    })
+    if (!phase.loading) {
+      for (const commit of phase.commits) {
+        const merge = commit.parentCount > 1 ? ' · merge' : ''
+        add({
+          id: `commit-${commit.sha}`,
+          label: commit.subject === '' ? commit.shortSha : commit.subject,
+          description: `${commit.shortSha} · ${commit.author} · ${commit.relativeDate}${merge}`,
+          command: Commands.selectCommit,
+          payload: commit.sha,
+          icon: 'git-commit',
+          contextValue: 'action',
+          enabled: view.canStart,
+        })
+      }
+      add({
+        id: 'commit-ref',
+        label: 'Enter a commit, tag, or ref',
+        command: Commands.selectCommit,
+        input: { placeholder: 'HEAD~1' },
+        contextValue: 'input',
+        enabled: view.canStart,
+      })
+    }
+    add({ id: 'back', label: 'Back', command: Commands.setupBack, icon: 'arrow-left', contextValue: 'action' })
+    return
+  }
+
+  if (phase.kind === 'range') {
+    add({ id: 'pick-range', label: 'Commit range', description: phase.error ?? 'A..B reviews B against merge-base(A, B)' })
+    add({
+      id: 'range-input',
+      label: 'Use range',
+      command: Commands.submitRange,
+      input: { placeholder: 'main..HEAD' },
+      contextValue: 'input',
+      enabled: view.canStart,
+    })
+    add({ id: 'back', label: 'Back', command: Commands.setupBack, icon: 'arrow-left', contextValue: 'action' })
+    return
+  }
+
+  if (phase.kind === 'generate') {
+    add({
+      id: 'generate',
+      label: describeSetupTarget(phase.target),
+      description: `Write ${view.guideFileName}, then Start the walkthrough.`,
+    })
+    add({
+      id: 'simple',
+      label: 'Simple',
+      description: 'Offline heuristic order',
+      command: Commands.generateSimple,
+      icon: 'sparkle',
+      contextValue: 'action',
+      enabled: view.canStart,
+    })
+    add({
+      id: 'agent',
+      label: 'Agent',
+      description: 'Ask the editor agent for valuable comments and order',
+      command: Commands.generateAgent,
+      icon: 'comment-discussion',
+      contextValue: 'action',
+      enabled: view.canStart && view.skillInstalled !== null,
+    })
+    if (view.sidecarReady || (view.guideFocused && !view.focusedGuideMismatch)) {
+      add({
+        id: 'start-guide',
+        label: 'Start',
+        command: Commands.startFromGuide,
+        icon: 'play',
+        contextValue: 'action',
+        enabled: view.canStart,
+      })
+    }
+    else if (view.focusedGuideMismatch) {
+      add({
+        id: 'guide-mismatch',
+        label: 'Focused guide is for a different target',
+        description: `Start uses ${view.guideFileName} for this pick.`,
+      })
+    }
+    add({ id: 'back', label: 'Back', command: Commands.setupBack, icon: 'arrow-left', contextValue: 'action' })
+    return
+  }
+
+  add({
+    id: 'welcome',
+    label: 'Understand every change, one Tab at a time',
+    description: view.idleReason ?? 'Walk a change in an order that builds context',
+    tooltip: 'Review a target, generate a guide, then Start.',
+    icon: 'book',
+  })
+  if (view.guideFocused) {
+    add({
+      id: 'start-guide',
+      label: 'Start',
+      command: Commands.startFromGuide,
+      icon: 'play',
+      contextValue: 'action',
+      enabled: view.canStart,
+    })
+  }
+  add({ id: 'review', label: 'Review…', command: Commands.review, icon: 'diff', contextValue: 'action', enabled: view.canStart })
+  if (view.skillInstalled === false) {
+    add({
+      id: 'install-skill',
+      label: 'Install /tabthrough',
+      description: 'Adds the Tabthrough skill to this workspace so Agent can write the guide',
+      command: Commands.installSkill,
+      icon: 'desktop-download',
+      contextValue: 'action',
+    })
+  }
 }

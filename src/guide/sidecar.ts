@@ -2,7 +2,8 @@ import type { GuideDoc } from './schema'
 import type { GuideDiagnostic } from './types'
 import { validateGuideDoc } from './schema'
 
-export const DEFAULT_GUIDE_FILE = '.guide.json'
+export const DEFAULT_GUIDE_FILE = '.tabthrough-guide.json'
+export const LEGACY_GUIDE_FILE = '.guide.json'
 
 /** The sidecar as read by the caller. The pure layer never touches a filesystem. */
 export interface SidecarSource {
@@ -16,10 +17,15 @@ export interface SidecarLoad {
   readonly diagnostics: readonly GuideDiagnostic[]
 }
 
-/** guide-schema.md §2: setting first, then `.guide.json`. */
+/** guide-schema.md §2: setting first, then `.tabthrough-guide.json`, then `.guide.json`. */
 export function resolveGuideFile(setting?: string | null): string {
   const trimmed = (setting ?? '').trim()
   return trimmed === '' ? DEFAULT_GUIDE_FILE : normalizeRepoPath(trimmed)
+}
+
+export function resolveSafeSidecarPath(setting?: string | null): string | null {
+  const path = resolveGuideFile(setting)
+  return isSafeRepoPath(path) ? path : null
 }
 
 export function normalizeRepoPath(path: string): string {

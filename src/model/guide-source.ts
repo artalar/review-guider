@@ -7,7 +7,7 @@ import { readDiff, showBlob } from '../git/diff'
 import { buildHeuristicGuide } from '../guide/heuristic'
 import { mergeGuide } from '../guide/merge'
 import { parseUnifiedDiff } from '../guide/parse-diff'
-import { isSafeRepoPath, loadSidecar, resolveGuideFile } from '../guide/sidecar'
+import { DEFAULT_GUIDE_FILE, isSafeRepoPath, LEGACY_GUIDE_FILE, loadSidecar, resolveGuideFile } from '../guide/sidecar'
 
 /**
  * The seam between the session and the guide engine.
@@ -49,14 +49,20 @@ export type GuideSource = (request: GuideRequest) => Promise<GuideResult>
  * base content, which is exactly what the second lookup returns anyway.
  */
 async function readSidecar(request: GuideRequest, options: GitOptions): Promise<SidecarSource | null> {
-  const path = resolveGuideFile(request.guideFile)
-  if (!isSafeRepoPath(path))
-    return null
+  const candidates = [...new Set([
+    resolveGuideFile(request.guideFile),
+    DEFAULT_GUIDE_FILE,
+    LEGACY_GUIDE_FILE,
+  ])]
 
-  for (const rev of [request.afterRev, request.baseRev]) {
-    const text = await showBlob(request.repoRoot, rev, path, options)
-    if (text !== null && text.trim() !== '')
-      return { path, text }
+  for (const path of candidates) {
+    if (!isSafeRepoPath(path))
+      continue
+    for (const rev of [request.afterRev, request.baseRev]) {
+      const text = await showBlob(request.repoRoot, rev, path, options)
+      if (text !== null && text.trim() !== '')
+        return { path, text }
+    }
   }
   return null
 }

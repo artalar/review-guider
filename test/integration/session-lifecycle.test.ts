@@ -104,6 +104,10 @@ function install(store: StorePort = memoryStore()): Harness {
         harness.saveDocumentsCalls.push({ repoRoot, paths })
         return harness.saveDocumentsResult
       },
+      writeTextFile: async () => {},
+      fileExists: async () => false,
+      readBundledSkill: async () => null,
+      openAgentChat: async () => {},
     },
     clock: {
       now: () => harness.now,

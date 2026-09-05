@@ -6,6 +6,8 @@ describe('isGuideFileName', () => {
     expect(isGuideFileName('.guide.json')).toBe(true)
     expect(isGuideFileName('pr-42.guide.json')).toBe(true)
     expect(isGuideFileName('nested/name.guide.json')).toBe(true)
+    expect(isGuideFileName('.tabthrough-guide.json')).toBe(true)
+    expect(isGuideFileName('review.tabthrough-guide.json')).toBe(true)
   })
 
   it('rejects plain guide.json and other JSON', () => {

@@ -3,9 +3,9 @@ import type { PreflightRequest } from '../git/types'
 import type { ClockPort, Ports, StorePort, UiPort } from '../model/ports'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { extensionContext } from 'reactive-vscode'
-import { commands, Uri, window, workspace } from 'vscode'
+import { commands, env, Uri, window, workspace } from 'vscode'
 import { describeTarget } from '../git/types'
 import { ports } from '../model/session'
 import { logger } from '../utils'
@@ -168,6 +168,59 @@ export const windowUi: UiPort = {
         return { ok: false, path: relativePath(root, canonicalPath(doc.uri.fsPath)) }
     }
     return { ok: true }
+  },
+  async writeTextFile(repoRoot, path, text) {
+    const root = canonicalPath(repoRoot)
+    const absolute = canonicalPath(join(repoRoot, path))
+    if (!isWithin(root, absolute))
+      throw new Error(`Refusing to write a path outside the repository: ${path}`)
+    await workspace.fs.createDirectory(Uri.file(dirname(absolute)))
+    await workspace.fs.writeFile(Uri.file(absolute), new TextEncoder().encode(text))
+  },
+  async fileExists(repoRoot, path) {
+    const root = canonicalPath(repoRoot)
+    const absolute = canonicalPath(join(repoRoot, path))
+    if (!isWithin(root, absolute))
+      return false
+    try {
+      await workspace.fs.stat(Uri.file(absolute))
+      return true
+    }
+    catch {
+      return false
+    }
+  },
+  async readBundledSkill() {
+    const context = extensionContext.value
+    if (context === null)
+      return null
+    try {
+      const source = Uri.joinPath(context.extensionUri, 'res', 'skill', 'tabthrough', 'SKILL.md')
+      const bytes = await workspace.fs.readFile(source)
+      return new TextDecoder().decode(bytes)
+    }
+    catch {
+      return null
+    }
+  },
+  async openAgentChat(prompt) {
+    const available = await commands.getCommands(true)
+    if (available.includes('workbench.action.chat.open')) {
+      try {
+        await commands.executeCommand('workbench.action.chat.open', {
+          query: prompt,
+          isPartialQuery: true,
+          mode: 'agent',
+        })
+        return
+      }
+      catch {
+        // Cursor may reject unknown option keys; never use the string form
+        // (upstream VS Code auto-submits that shape).
+      }
+    }
+    await env.clipboard.writeText(prompt)
+    await window.showInformationMessage('Guide prompt copied. Paste it into Chat and send.')
   },
 }
 

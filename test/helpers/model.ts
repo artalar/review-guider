@@ -2,6 +2,8 @@ import type { ReviewTarget } from '../../src/git/types'
 import type { NotifyLevel, Ports, StorePort } from '../../src/model/ports'
 import type { StartRequest } from '../../src/model/session'
 import type { Session } from '../../src/model/steps'
+import { access, mkdir, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { peek } from '@reatom/core'
 import { vi } from 'vitest'
 import { memoryStore } from '../../src/model/ports'
@@ -16,6 +18,7 @@ import {
   startSession,
   workspaceRoot,
 } from '../../src/model/session'
+import { sidecarExists, skillInstalled } from '../../src/model/setup'
 import { reviewViewModel } from '../../src/model/view'
 
 /**
@@ -35,6 +38,9 @@ export interface Notification {
 export interface ModelHarness {
   readonly store: StorePort
   readonly notifications: Notification[]
+  readonly writes: Array<{ readonly path: string, readonly text: string }>
+  readonly agentPrompts: string[]
+  readonly openedFiles: string[]
   /** How the scripted `UiPort` answers the pre-flight. */
   approve: boolean
   /** Which action button a notification comes back with, if any. */
@@ -58,6 +64,9 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
   const harness: ModelHarness = {
     store,
     notifications,
+    writes: [],
+    agentPrompts: [],
+    openedFiles: [],
     approve: true,
     answer: undefined,
     scmOpened: 0,
@@ -77,11 +86,32 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
         return harness.answer
       },
       openReview: async () => {},
-      openWorkspaceFile: async () => {},
+      openWorkspaceFile: async (_repoRoot, path) => {
+        harness.openedFiles.push(path)
+      },
       openSourceControl: async () => {
         harness.scmOpened += 1
       },
       saveDocuments: async () => ({ ok: true }),
+      writeTextFile: async (repoRoot, path, text) => {
+        const absolute = join(repoRoot, path)
+        await mkdir(dirname(absolute), { recursive: true })
+        await writeFile(absolute, text, 'utf8')
+        harness.writes.push({ path, text })
+      },
+      fileExists: async (repoRoot, path) => {
+        try {
+          await access(join(repoRoot, path))
+          return true
+        }
+        catch {
+          return false
+        }
+      },
+      readBundledSkill: async () => '# Tabthrough\n',
+      openAgentChat: async (prompt) => {
+        harness.agentPrompts.push(prompt)
+      },
     },
     clock: {
       now: () => 1_000,
@@ -92,12 +122,19 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
   ports.set(installed)
   workspaceRoot.set(root)
 
-  unsubscribes.push(canStart.subscribe(() => {}), recoveryPending.subscribe(() => {}))
+  unsubscribes.push(
+    canStart.subscribe(() => {}),
+    recoveryPending.subscribe(() => {}),
+    skillInstalled.subscribe(() => {}),
+    sidecarExists.subscribe(() => {}),
+  )
   if (options.withReview === true)
     unsubscribes.push(reviewViewModel.subscribe(() => {}))
 
   await gitCapability()
   await recoveryToken()
+  await skillInstalled()
+  await sidecarExists()
   return harness
 }
 

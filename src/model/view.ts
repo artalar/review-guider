@@ -1,10 +1,12 @@
 import type { PreflightRequest, SessionMode } from '../git/types'
 import type { GuideStep, LineRange } from '../guide/types'
 import type { SessionStatus } from './session'
+import type { SetupPhase } from './setup'
 import type { SessionProgress } from './steps'
 import { computed } from '@reatom/core'
 import { describeTarget } from '../git/types'
-import { showRationale } from './config'
+import { resolveGuideFile } from '../guide/sidecar'
+import { guideFile, showRationale } from './config'
 import {
   preflightRequest,
   recoveryPending,
@@ -15,6 +17,12 @@ import {
   sessionStatus,
   startBlockedReason,
 } from './session'
+import {
+  focusedGuidePath,
+  setupPhase,
+  sidecarExists,
+  skillInstalled,
+} from './setup'
 
 /**
  * The bridge's projections. Everything VS Code renders is derived here, so the
@@ -223,6 +231,12 @@ export interface SidebarViewModel {
   readonly liveElsewhere?: boolean
   readonly blockedMessage: string | null
   readonly idleReason: string | null
+  readonly setup: SetupPhase
+  readonly skillInstalled: boolean | null
+  readonly guideFocused: boolean
+  readonly sidecarReady: boolean
+  readonly focusedGuideMismatch: boolean
+  readonly guideFileName: string
 }
 
 export const sidebarViewModel = computed((): SidebarViewModel => {
@@ -231,6 +245,7 @@ export const sidebarViewModel = computed((): SidebarViewModel => {
   const current = model?.currentStep() ?? null
   const next = model?.nextStep() ?? null
   const block = restoreBlock()
+  const configuredGuide = guideFile().trim()
 
   return {
     status,
@@ -250,5 +265,11 @@ export const sidebarViewModel = computed((): SidebarViewModel => {
     liveElsewhere: sessionLiveElsewhere(),
     blockedMessage: block?.kind === 'blocked' ? `${block.message}\n${block.commands.join('\n')}` : null,
     idleReason: status === 'idle' ? startBlockedReason() : null,
+    setup: setupPhase(),
+    skillInstalled: skillInstalled.data(),
+    guideFocused: focusedGuidePath() !== null,
+    sidecarReady: sidecarExists.data(),
+    focusedGuideMismatch: focusedGuidePath() !== null && focusedGuidePath() !== resolveGuideFile(guideFile()),
+    guideFileName: resolveGuideFile(configuredGuide),
   }
 }, 'ui.sidebarViewModel')

@@ -11,8 +11,7 @@ Write one whenever you hand a non-trivial change to a human. Skip it for a one-f
 
 ## Contract
 
-- **Schema (normative):** `schema/guide-v1.json` — validate against it. Prose + merge: `work-docs/architecture/guide-schema.md`. `$schema`: `https://tabthrough.dev/schema/guide-v1.json` (raw GitHub URL resolves today).
-- **Pedagogy and long examples:** `work-docs/guides/agent-guide-authoring.md`.
+- **Schema:** `$schema` is `https://tabthrough.dev/schema/guide-v1.json`. Validate the document against that schema before handing it over.
 - **Location:** `.tabthrough-guide.json` at repo root (or `tabthrough.guideFile`). Legacy `.guide.json` is still read.
 - **Guarantee:** a broken guide never breaks a session — heuristic fallback + one warning. Validate yourself; nobody else will catch your merges.
 
@@ -22,14 +21,15 @@ Write one whenever you hand a non-trivial change to a human. Skip it for a one-f
 2. **Study the real patch** before writing any step. Never emit from your plan or memory of the edit:
 
    ```bash
+   git status --porcelain=v1 --untracked-files=all
    git -c core.quotepath=false diff --no-color --no-ext-diff -M -U3 --patch <base> <after>
    ```
 
+   For a working-tree review, include untracked files. Start captures with `git add -A`. **Omit `scope.diffDigest`** on working-tree guides — the sidecar is written into the tree it describes.
 3. List the **whiteboard thoughts** in the patch (helper vs consumer, type vs caller, failure vs fix, contract vs wiring). Distinct thoughts → distinct steps.
 4. Decide order: *what would I draw first at a whiteboard?* Prefer more, smaller steps when a hunk mixes thoughts.
 5. Write `.tabthrough-guide.json`. Use **`ranges` whenever one file has more than one thought** — a whole-file claim is only correct when the whole file is one thought.
-6. Optionally set `scope.diffDigest` (recipe in guide-schema.md §7).
-7. Validate against `schema/guide-v1.json` and run **Before you emit**.
+6. Run **Before you emit**.
 
 ## One thought per Tab
 
@@ -41,14 +41,13 @@ A step is one unit of understanding the reader can absorb, then press Tab. **If 
 | Type / invariant, then first caller | Long uniform table or similar edits (`grouping: "split"`) |
 | Failing test / bug statement, then the fix | Import reordering + lockfile (`skip` via `files`) |
 
-**Canonical anti-pattern:** bundling introduction of `eventActionName` **and** a `jsxEvent` refactor into one flashy panel. Those are two thoughts → **two steps** (helper first, then consumer), even in one file or one hunk. Use separate `ranges` + `order` / `dependsOn`. Full worked JSON: `work-docs/guides/agent-guide-authoring.md` §5.1. Golden dogfood fixture: `test/fixtures/diffs/helper-consumer-refactor.diff` + `test/fixtures/guides/helper-consumer.guide.json` (see `test/fixtures/README.md`).
-
 Never optimize for an impressive single panel. Optimize for Tab navigation that builds a mental model. Coarse multi-thought steps are a **defect**, not author preference.
 
 ## Minimal valid document
 
 ```json
 {
+  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
   "version": 1,
   "steps": [
     { "id": "a", "path": "src/types.ts", "rationale": "Types before callers" },
@@ -58,48 +57,6 @@ Never optimize for an impressive single panel. Optimize for Tab navigation that 
 ```
 
 No `ranges` → claims every unclaimed change in that file. Reach for this only when the file is one thought.
-
-## Typical document (multi-thought file uses ranges)
-
-```json
-{
-  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
-  "version": 1,
-  "scope": { "kind": "commit", "base": "9f2c1ab", "head": "4d81e30" },
-  "summary": "One paragraph on the shape of the change, read once before step one.",
-  "files": {
-    "pnpm-lock.yaml": { "significance": "skip", "rationale": "Lockfile churn from the same install" }
-  },
-  "steps": [
-    {
-      "id": "the-contract",
-      "order": 10,
-      "path": "src/guide/types.ts",
-      "ranges": [{ "side": "new", "start": 18, "end": 27 }],
-      "significance": "critical",
-      "title": "New weight field",
-      "rationale": "The field every later step is about",
-      "notes": "Longer explanation, markdown, shown on demand."
-    },
-    {
-      "id": "producer",
-      "order": 20,
-      "path": "src/guide/heuristic.ts",
-      "ranges": [{ "side": "new", "start": 64, "end": 118 }],
-      "significance": "high",
-      "rationale": "Where that field gets its value",
-      "dependsOn": ["the-contract"]
-    },
-    {
-      "id": "consumer",
-      "order": 30,
-      "path": "src/ui/status-bar.ts",
-      "rationale": "First consumer — what the reader will actually see",
-      "dependsOn": ["producer"]
-    }
-  ]
-}
-```
 
 ## Field cheatsheet
 
@@ -116,7 +73,7 @@ No `ranges` → claims every unclaimed change in that file. Reach for this only 
 | `steps[].notes` | Markdown ≤ 2000 chars, on demand |
 | `steps[].dependsOn` | Earlier step ids; refines `order`; cycle drops all edges |
 | `files` | Lockfiles, generated, snapshots → `significance: "skip"` |
-| `scope` | `workingTree` / `commit` / `range`; add `diffDigest` for staleness |
+| `scope` | `workingTree` / `commit` / `range`. Omit `diffDigest` for working-tree guides |
 
 ## Rules
 
@@ -155,11 +112,12 @@ No `ranges` → claims every unclaimed change in that file. Reach for this only 
 
 ## Before you emit
 
-- Studied the real patch; steps match it, not the plan.
+- Studied the real patch; steps match it, not the plan. Working-tree walks include untracked files.
 - **Did I merge two whiteboard thoughts into one step?** If yes, split (ranges + order).
 - Rationales read as a story; none references a later step; each would be false if moved.
 - Multi-thought files use `ranges`; `mergeWithNext` is not used to glue distinct thoughts.
 - 8–25 steps; ≤3 `critical`; generated demoted.
 - Paths in the patch; ids unique; order sparse; `dependsOn` acyclic.
-- Validates against `schema/guide-v1.json`.
+- Validates against `https://tabthrough.dev/schema/guide-v1.json`.
+- Working-tree scope has no `diffDigest`.
 - **Real test:** could someone who read only this guide explain the change correctly without scrolling the diff — **one thought per Tab**?

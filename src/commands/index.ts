@@ -1,4 +1,3 @@
-import type { ReviewTarget } from '../git/types'
 import { isAbort, peek, wrap } from '@reatom/core'
 import { useCommands } from 'reactive-vscode'
 import { Uri, commands as VscodeCommands, window } from 'vscode'
@@ -10,14 +9,27 @@ import {
   commitHandoff,
   discardRecovery,
   finishSession,
+  ports,
   recoverBackup,
   session,
   startBlockedReason,
-  startSession,
 } from '../model/session'
+import {
+  generateAgentGuide,
+  generateSimpleGuide,
+  installWorkspaceSkill,
+  loadCommits,
+  openTargetPicker,
+  pickRange,
+  pickWorkingTree,
+  resetSetup,
+  selectCommit,
+  setupBack,
+  skillInstalled,
+  submitRange,
+} from '../model/setup'
 import { beginFromActiveGuide } from '../ui/active-guide'
 import { revealCurrentStep } from '../ui/documents'
-import { pickCommitEntry, promptRangeEntry } from '../ui/entry'
 import { logger } from '../utils'
 
 /**
@@ -27,13 +39,44 @@ import { logger } from '../utils'
  */
 export function useGuideCommands(): void {
   useCommands({
-    [Commands.start]: wrap(() => guard('start', () => begin(async () => ({ kind: 'workingTree' })))),
-    [Commands.startFromCommit]: wrap(() => guard('startFromCommit', () => begin(pickCommitEntry))),
-    [Commands.startFromRange]: wrap(() => guard('startFromRange', () => begin(promptRangeEntry))),
+    [Commands.review]: wrap(() => guard('review', async () => {
+      await wrap(VscodeCommands.executeCommand('tabthrough.sidebar.focus'))
+      openTargetPicker()
+    })),
+    [Commands.start]: wrap(() => guard('start', () => beginWorkingTree())),
+    [Commands.startFromCommit]: wrap(() => guard('startFromCommit', () => beginCommitPicker())),
+    [Commands.startFromRange]: wrap(() => guard('startFromRange', () => beginRangePicker())),
     [Commands.startFromGuide]: wrap((resource?: unknown) => guard(
       'startFromGuide',
       () => beginFromActiveGuide(resource instanceof Uri ? resource : undefined),
     )),
+    [Commands.installSkill]: wrap(() => guard('installSkill', () => installWorkspaceSkill())),
+    [Commands.pickWorkingTree]: wrap(() => guard('pickWorkingTree', async () => pickWorkingTree())),
+    [Commands.pickCommit]: wrap(() => guard('pickCommit', () => loadCommits())),
+    [Commands.pickRange]: wrap(() => guard('pickRange', async () => pickRange())),
+    [Commands.selectCommit]: wrap((rev?: unknown) => guard('selectCommit', async () => {
+      if (typeof rev === 'string')
+        selectCommit(rev)
+    })),
+    [Commands.submitRange]: wrap((raw?: unknown) => guard('submitRange', async () => {
+      if (typeof raw === 'string')
+        submitRange(raw)
+    })),
+    [Commands.generateSimple]: wrap(() => guard('generateSimple', () => generateSimpleGuide())),
+    [Commands.generateAgent]: wrap(() => guard('generateAgent', async () => {
+      if (peek(skillInstalled.data) === false) {
+        const answer = await wrap(peek(ports).ui.notify(
+          'info',
+          'Agent needs the /tabthrough skill in this workspace. Install it and continue?',
+          ['Install and continue', 'Cancel'],
+        ))
+        if (answer !== 'Install and continue')
+          return
+        await wrap(installWorkspaceSkill())
+      }
+      await wrap(generateAgentGuide())
+    })),
+    [Commands.setupBack]: wrap(() => guard('setupBack', async () => setupBack())),
     [Commands.next]: wrap(() => guard('next', advance)),
     [Commands.previous]: wrap(() => guard('previous', retreat)),
     [Commands.showStepDetail]: wrap(() => guard('showStepDetail', revealCurrentStep)),
@@ -41,11 +84,12 @@ export function useGuideCommands(): void {
       await wrap(VscodeCommands.executeCommand('workbench.view.extension.tabthrough', { preserveFocus: true }))
     })),
     [Commands.finish]: wrap(() => guard('finish', () => finishSession())),
-    [Commands.cancel]: wrap(() => guard('cancel', () => cancelSession('cancel'))),
+    [Commands.cancel]: wrap(() => guard('cancel', async () => {
+      resetSetup()
+      await wrap(cancelSession('cancel'))
+    })),
     [Commands.commitHandoff]: wrap(() => guard('commitHandoff', () => commitHandoff())),
     [Commands.restoreBackup]: wrap(() => guard('restoreBackup', () => recoverBackup())),
-    // The only way out of a restore that can never be made to verify. It
-    // forgets the reminder; the stash entry and the refs stay in git.
     [Commands.discardRecovery]: wrap(() => guard('discardRecovery', () => discardRecovery())),
     [Commands.cleanupBackups]: wrap(() => guard('cleanupBackups', async () => {
       const removed = await wrap(cleanupBackups())
@@ -58,20 +102,32 @@ export function useGuideCommands(): void {
   })
 }
 
-/**
- * Every entry point shares one shape: refuse with the model's own reason, ask
- * the user what to review, then hand the target over. The three differ only in
- * the question.
- */
-async function begin(pick: () => Promise<ReviewTarget | null>): Promise<void> {
-  if (!peek(canStart)) {
-    await window.showWarningMessage(peek(startBlockedReason) ?? 'Tabthrough cannot start right now.')
+async function refuseIfBlocked(): Promise<boolean> {
+  if (peek(canStart))
+    return true
+  await window.showWarningMessage(peek(startBlockedReason) ?? 'Tabthrough cannot start right now.')
+  return false
+}
+
+async function beginWorkingTree(): Promise<void> {
+  if (!await refuseIfBlocked())
     return
-  }
-  const entry = await wrap(pick())
-  if (entry === null)
+  await wrap(VscodeCommands.executeCommand('tabthrough.sidebar.focus'))
+  pickWorkingTree()
+}
+
+async function beginCommitPicker(): Promise<void> {
+  if (!await refuseIfBlocked())
     return
-  await wrap(startSession({ entry }))
+  await wrap(VscodeCommands.executeCommand('tabthrough.sidebar.focus'))
+  await wrap(loadCommits())
+}
+
+async function beginRangePicker(): Promise<void> {
+  if (!await refuseIfBlocked())
+    return
+  await wrap(VscodeCommands.executeCommand('tabthrough.sidebar.focus'))
+  pickRange()
 }
 
 /**

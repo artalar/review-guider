@@ -1,9 +1,11 @@
+import type { RawDiff } from './diff'
 import type { GitOptions } from './exec'
 import type { RepoStatus } from './probe'
 import { createHash } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { readDiff } from './diff'
 import { runGit } from './exec'
 import { readStatus } from './probe'
 
@@ -46,6 +48,19 @@ export async function writeWorkingTree(repoRoot: string, options: GitOptions = {
   finally {
     await rm(dir, { recursive: true, force: true })
   }
+}
+
+/**
+ * The working-tree patch Start will see: tracked edits plus untracked files
+ * (`add -A` on a throwaway index), without writing a commit or a ref.
+ */
+export async function readWorkingTreeCaptureDiff(
+  repoRoot: string,
+  base: string,
+  options: GitOptions = {},
+): Promise<RawDiff> {
+  const tree = await writeWorkingTree(repoRoot, options)
+  return readDiff(repoRoot, base, tree, options)
 }
 
 /** The after-commit: the working state anchored to a real commit parented at HEAD. */

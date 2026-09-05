@@ -34,6 +34,7 @@ describe('the pure layer stays pure', () => {
       'parse-diff.ts',
       'render.ts',
       'schema.ts',
+      'serialize.ts',
       'sha256.ts',
       'sidecar.ts',
       'steps.ts',

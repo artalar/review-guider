@@ -35,6 +35,14 @@ export async function readDiff(repoRoot: string, base: string, after: string, op
   }
 }
 
+/** Working tree (including index) against a revision — no after commit yet. */
+export async function readWorkingTreeDiff(repoRoot: string, base: string, options: GitOptions = {}): Promise<RawDiff> {
+  return {
+    patch: await runGit(repoRoot, [...PATCH_ARGS, base], options),
+    nameStatus: parseNameStatusZ(await runGit(repoRoot, [...NAME_STATUS_ARGS, base], options)),
+  }
+}
+
 /** Reads a file's content at a revision. Returns `null` when the path is absent there. */
 export async function showBlob(
   repoRoot: string,

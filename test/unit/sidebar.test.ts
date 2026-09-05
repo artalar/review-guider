@@ -34,18 +34,119 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     recoveryPending: false,
     blockedMessage: null,
     idleReason: null,
+    setup: { kind: 'home' },
+    skillInstalled: true,
+    guideFocused: false,
+    sidecarReady: false,
+    focusedGuideMismatch: false,
+    guideFileName: '.tabthrough-guide.json',
   }
   return { ...base, ...overrides }
 }
 
 describe('sidebar projection', () => {
-  it('offers the three first-run entry points while idle', () => {
+  it('offers Review and optional Start while idle', () => {
     const rows = sidebarItems(view())
     expect(rows.map(row => row.command).filter(Boolean)).toEqual([
-      'tabthrough.start',
-      'tabthrough.startFromCommit',
-      'tabthrough.startFromRange',
+      'tabthrough.review',
     ])
+  })
+
+  it('lists review targets in the sidebar', () => {
+    const rows = sidebarItems(view({ setup: { kind: 'targets' } }))
+    expect(rows.map(row => row.command).filter(Boolean)).toEqual([
+      'tabthrough.pickWorkingTree',
+      'tabthrough.pickCommit',
+      'tabthrough.pickRange',
+      'tabthrough.setupBack',
+    ])
+  })
+
+  it('lists commits with a ref input once history is loaded', () => {
+    const rows = sidebarItems(view({
+      setup: {
+        kind: 'commits',
+        loading: false,
+        error: null,
+        commits: [{
+          sha: 'abc123def456',
+          shortSha: 'abc123d',
+          subject: 'Add types',
+          author: 'Ada',
+          relativeDate: '2 hours ago',
+          parentCount: 1,
+        }],
+      },
+    }))
+    expect(rows.find(row => row.id === 'commit-abc123def456')?.payload).toBe('abc123def456')
+    expect(rows.find(row => row.id === 'commit-ref')?.input?.placeholder).toBe('HEAD~1')
+    expect(rows.find(row => row.id === 'commit-ref')?.enabled).toBe(true)
+  })
+
+  it('surfaces a commit picker error and keeps Back', () => {
+    const rows = sidebarItems(view({
+      setup: { kind: 'commits', commits: [], loading: false, error: 'That does not look like a commit, tag, or ref.' },
+    }))
+    expect(rows.find(row => row.id === 'pick-commit')?.description).toContain('does not look like')
+    expect(rows.some(row => row.command === 'tabthrough.setupBack')).toBe(true)
+  })
+
+  it('shows range error text on the form', () => {
+    const rows = sidebarItems(view({
+      setup: { kind: 'range', error: 'Enter a commit range, for example main..HEAD.' },
+    }))
+    expect(rows.find(row => row.id === 'pick-range')?.description).toContain('main..HEAD')
+    expect(rows.find(row => row.id === 'range-input')?.input?.placeholder).toBe('main..HEAD')
+  })
+
+  it('shows Start when a guide is focused at home', () => {
+    const rows = sidebarItems(view({ guideFocused: true }))
+    expect(rows.map(row => row.command).filter(Boolean)).toEqual([
+      'tabthrough.startFromGuide',
+      'tabthrough.review',
+    ])
+  })
+
+  it('offers Simple and Agent after a target is picked', () => {
+    const rows = sidebarItems(view({
+      setup: { kind: 'generate', target: { kind: 'workingTree' } },
+    }))
+    expect(rows.map(row => row.command).filter(Boolean)).toEqual([
+      'tabthrough.generateSimple',
+      'tabthrough.generateAgent',
+      'tabthrough.setupBack',
+    ])
+  })
+
+  it('shows Start in generate when the sidecar is already on disk', () => {
+    const rows = sidebarItems(view({
+      setup: { kind: 'generate', target: { kind: 'workingTree' } },
+      sidecarReady: true,
+    }))
+    expect(rows.some(row => row.command === 'tabthrough.startFromGuide')).toBe(true)
+  })
+
+  it('explains a focused guide that is not the sidecar', () => {
+    const rows = sidebarItems(view({
+      setup: { kind: 'generate', target: { kind: 'workingTree' } },
+      guideFocused: true,
+      focusedGuideMismatch: true,
+    }))
+    expect(rows.some(row => row.id === 'guide-mismatch')).toBe(true)
+    expect(rows.some(row => row.command === 'tabthrough.startFromGuide')).toBe(false)
+  })
+
+  it('hides Agent until skill presence is known', () => {
+    const rows = sidebarItems(view({
+      setup: { kind: 'generate', target: { kind: 'workingTree' } },
+      skillInstalled: null,
+    }))
+    expect(rows.find(row => row.command === 'tabthrough.generateAgent')?.enabled).toBe(false)
+  })
+
+  it('shows the install skill action when the workspace has no skill', () => {
+    const rows = sidebarItems(view({ skillInstalled: false }))
+    expect(rows.some(row => row.command === 'tabthrough.installSkill')).toBe(true)
   })
 
   it('keeps summary, rationale, notes, and controls visible during a walk', () => {

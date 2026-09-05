@@ -89,16 +89,16 @@ Malformed guides never block a review: every failure falls back to the heuristic
 
 <!-- configs -->
 
-| Key                                 | Description                                                                                                                  | Type      | Default         |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------- | --------------- |
-| `tabthrough.showRationale`          | Show the one-line reason each step was ordered where it is (for example "types before callers") in the status bar.           | `boolean` | `true`          |
-| `tabthrough.reveal.mode`            | How the reviewed change is revealed as you advance through steps. Ignored in apply mode.                                     | `string`  | `"progressive"` |
-| `tabthrough.session.mode`           | Session contract: read-only review, apply-with-user, or ask each time.                                                       | `string`  | `"ask"`         |
-| `tabthrough.guideFile`              | Repository-relative path of the optional guide sidecar that overrides the heuristic step order.                              | `string`  | `".guide.json"` |
-| `tabthrough.keybinding.useTab`      | Bind Tab to the next review step while a review document is focused. Alt+] and Alt+[ always work regardless of this setting. | `boolean` | `true`          |
-| `tabthrough.maxLinesPerStep`        | Upper bound on how many low-significance changed lines are coalesced into a single step.                                     | `number`  | `24`            |
-| `tabthrough.hideFormattingSteps`    | Drop steps whose changes are whitespace or comments only.                                                                    | `boolean` | `false`         |
-| `tabthrough.stash.includeUntracked` | Include untracked files when isolating the workspace. Ignored files are never included.                                      | `boolean` | `true`          |
+| Key                                 | Description                                                                                                                  | Type      | Default                    |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------- | -------------------------- |
+| `tabthrough.showRationale`          | Show the one-line reason each step was ordered where it is (for example "types before callers") in the status bar.           | `boolean` | `true`                     |
+| `tabthrough.reveal.mode`            | How the reviewed change is revealed as you advance through steps. Ignored in apply mode.                                     | `string`  | `"progressive"`            |
+| `tabthrough.session.mode`           | Session contract: read-only review, apply-with-user, or ask each time.                                                       | `string`  | `"ask"`                    |
+| `tabthrough.guideFile`              | Repository-relative path of the optional guide sidecar that overrides the heuristic step order.                              | `string`  | `".tabthrough-guide.json"` |
+| `tabthrough.keybinding.useTab`      | Bind Tab to the next review step while a review document is focused. Alt+] and Alt+[ always work regardless of this setting. | `boolean` | `true`                     |
+| `tabthrough.maxLinesPerStep`        | Upper bound on how many low-significance changed lines are coalesced into a single step.                                     | `number`  | `24`                       |
+| `tabthrough.hideFormattingSteps`    | Drop steps whose changes are whitespace or comments only.                                                                    | `boolean` | `false`                    |
+| `tabthrough.stash.includeUntracked` | Include untracked files when isolating the workspace. Ignored files are never included.                                      | `boolean` | `true`                     |
 
 <!-- configs -->
 
@@ -108,10 +108,20 @@ Malformed guides never block a review: every failure falls back to the heuristic
 
 | Command                      | Title                                     |
 | ---------------------------- | ----------------------------------------- |
+| `tabthrough.review`          | Tabthrough: Review…                       |
 | `tabthrough.start`           | Tabthrough: Review Working Changes        |
 | `tabthrough.startFromCommit` | Tabthrough: Review a Commit...            |
 | `tabthrough.startFromRange`  | Tabthrough: Review a Commit Range...      |
-| `tabthrough.startFromGuide`  | Tabthrough: Review Using This Guide       |
+| `tabthrough.startFromGuide`  | Tabthrough: Start Review from This Guide  |
+| `tabthrough.installSkill`    | Tabthrough: Install /tabthrough Skill     |
+| `tabthrough.pickWorkingTree` | Tabthrough: Pick Working Changes          |
+| `tabthrough.pickCommit`      | Tabthrough: Pick a Commit                 |
+| `tabthrough.pickRange`       | Tabthrough: Pick a Commit Range           |
+| `tabthrough.selectCommit`    | Tabthrough: Select Commit                 |
+| `tabthrough.submitRange`     | Tabthrough: Use Commit Range              |
+| `tabthrough.generateSimple`  | Tabthrough: Generate Simple Guide         |
+| `tabthrough.generateAgent`   | Tabthrough: Generate Agent Guide          |
+| `tabthrough.setupBack`       | Tabthrough: Back                          |
 | `tabthrough.next`            | Tabthrough: Reveal Next Change            |
 | `tabthrough.previous`        | Tabthrough: Go Back One Change            |
 | `tabthrough.showStepDetail`  | Tabthrough: Go to Current Step            |

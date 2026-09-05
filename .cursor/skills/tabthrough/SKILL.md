@@ -1,11 +1,11 @@
 ---
 name: tabthrough
-description: Emits a Tabthrough `.guide.json` v1 sidecar alongside a PR, commit, or working-tree change, so a human can unfold the diff step by step in order that builds understanding. Use whenever you finish producing a code change that another person will review, or when asked to write, fix, or validate a `.guide.json`.
+description: Emits a Tabthrough `.tabthrough-guide.json` v1 sidecar alongside a PR, commit, or working-tree change, so a human can unfold the diff step by step in order that builds understanding. Use whenever you finish producing a code change that another person will review, or when asked to write, fix, or validate a `.tabthrough-guide.json`.
 ---
 
 # Tabthrough sidecar
 
-A `.guide.json` tells Tabthrough **the order in which your change should be read, and one line per step explaining why it comes there**. The reader presses Tab to unfold **one thought at a time**. It is not a review, a summary, or a quiz.
+A `.tabthrough-guide.json` tells Tabthrough **the order in which your change should be read, and one line per step explaining why it comes there**. The reader presses Tab to unfold **one thought at a time**. It is not a review, a summary, or a quiz.
 
 Write one whenever you hand a non-trivial change to a human. Skip it for a one-file, one-hunk, one-thought change — there is no order to convey.
 
@@ -13,7 +13,7 @@ Write one whenever you hand a non-trivial change to a human. Skip it for a one-f
 
 - **Schema (normative):** `schema/guide-v1.json` — validate against it. Prose + merge: `work-docs/architecture/guide-schema.md`. `$schema`: `https://tabthrough.dev/schema/guide-v1.json` (raw GitHub URL resolves today).
 - **Pedagogy and long examples:** `work-docs/guides/agent-guide-authoring.md`.
-- **Location:** `.guide.json` at repo root (or `tabthrough.guideFile`).
+- **Location:** `.tabthrough-guide.json` at repo root (or `tabthrough.guideFile`). Legacy `.guide.json` is still read.
 - **Guarantee:** a broken guide never breaks a session — heuristic fallback + one warning. Validate yourself; nobody else will catch your merges.
 
 ## Procedure (gates — do not skip)
@@ -27,7 +27,7 @@ Write one whenever you hand a non-trivial change to a human. Skip it for a one-f
 
 3. List the **whiteboard thoughts** in the patch (helper vs consumer, type vs caller, failure vs fix, contract vs wiring). Distinct thoughts → distinct steps.
 4. Decide order: *what would I draw first at a whiteboard?* Prefer more, smaller steps when a hunk mixes thoughts.
-5. Write `.guide.json`. Use **`ranges` whenever one file has more than one thought** — a whole-file claim is only correct when the whole file is one thought.
+5. Write `.tabthrough-guide.json`. Use **`ranges` whenever one file has more than one thought** — a whole-file claim is only correct when the whole file is one thought.
 6. Optionally set `scope.diffDigest` (recipe in guide-schema.md §7).
 7. Validate against `schema/guide-v1.json` and run **Before you emit**.
 
