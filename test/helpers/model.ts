@@ -15,6 +15,8 @@ import {
   preflightRequest,
   recoveryPending,
   recoveryToken,
+  repoLockOwner,
+  staleLock,
   startSession,
   workspaceRoot,
 } from '../../src/model/session'
@@ -125,6 +127,7 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
   unsubscribes.push(
     canStart.subscribe(() => {}),
     recoveryPending.subscribe(() => {}),
+    staleLock.subscribe(() => {}),
     skillInstalled.subscribe(() => {}),
     sidecarExists.subscribe(() => {}),
   )
@@ -133,6 +136,7 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
 
   await gitCapability()
   await recoveryToken()
+  await repoLockOwner()
   await skillInstalled()
   await sidecarExists()
   return harness

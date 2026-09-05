@@ -131,6 +131,7 @@ Malformed guides never block a review: every failure falls back to the heuristic
 | `tabthrough.commitHandoff`   | Tabthrough: Open Source Control to Commit |
 | `tabthrough.restoreBackup`   | Tabthrough: Restore from Backup           |
 | `tabthrough.discardRecovery` | Tabthrough: Dismiss Pending Restore...    |
+| `tabthrough.clearStaleLock`  | Tabthrough: Clear Leftover Lock           |
 | `tabthrough.cleanupBackups`  | Tabthrough: Clean Up Backups              |
 
 <!-- commands -->

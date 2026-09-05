@@ -846,6 +846,20 @@ export async function cleanupGuideRefs(repoRoot: string, options: GitOptions = {
   return removed
 }
 
+/**
+ * CAS-only lock release for a captured owner. A failed compare-and-swap means
+ * the lock changed; this never deletes another session's lock or leftover refs.
+ */
+export async function clearAbandonedLock(
+  repoRoot: string,
+  owner: string,
+  options: GitOptions = {},
+): Promise<readonly string[]> {
+  if (await releaseLock(repoRoot, owner, options))
+    return [LOCK_REF]
+  return []
+}
+
 /** Untracked files git reports, used by the pre-flight summary. */
 export async function listUntracked(repoRoot: string, options: GitOptions = {}): Promise<string[]> {
   const result = await tryGit(repoRoot, ['ls-files', '--others', '--exclude-standard', '-z'], options)

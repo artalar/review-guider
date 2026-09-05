@@ -32,6 +32,8 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     canRetreat: false,
     preflight: null,
     recoveryPending: false,
+    staleLock: false,
+    lockOwner: null,
     blockedMessage: null,
     idleReason: null,
     setup: { kind: 'home' },
@@ -208,5 +210,28 @@ describe('sidebar projection', () => {
 
   it('does not offer recovery for a live session in another window', () => {
     expect(sidebarItems(view({ recoveryPending: true, liveElsewhere: true })).some(row => row.command)).toBe(false)
+  })
+
+  it('guides a leftover lock and offers to clear it', () => {
+    const rows = sidebarItems(view({ staleLock: true, lockOwner: 'abandoned', canStart: false }))
+    expect(rows.find(row => row.id === 'stale-lock')?.label).toContain('abandoned')
+    expect(rows.find(row => row.id === 'stale-lock')?.description).toContain('cannot see a live session')
+    expect(rows.map(row => row.command).filter(Boolean)).toEqual([
+      'tabthrough.clearStaleLock',
+      'tabthrough.cleanupBackups',
+    ])
+    expect(rows.some(row => row.command === 'tabthrough.startFromGuide')).toBe(false)
+    expect(rows.some(row => row.command === 'tabthrough.review')).toBe(false)
+  })
+
+  it('does not offer to break a lock that is live in another window', () => {
+    const rows = sidebarItems(view({ liveElsewhere: true, recoveryPending: true, staleLock: true }))
+    expect(rows.some(row => row.command === 'tabthrough.clearStaleLock')).toBe(false)
+  })
+
+  it('does not offer to break a lock while a restore is pending', () => {
+    const rows = sidebarItems(view({ recoveryPending: true, staleLock: true }))
+    expect(rows.some(row => row.command === 'tabthrough.clearStaleLock')).toBe(false)
+    expect(rows.some(row => row.command === 'tabthrough.restoreBackup')).toBe(true)
   })
 })

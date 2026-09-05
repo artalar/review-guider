@@ -10,11 +10,13 @@ import { guideFile, showRationale } from './config'
 import {
   preflightRequest,
   recoveryPending,
+  repoLockOwner,
   restoreBlock,
   session,
   canStart as sessionCanStart,
   sessionLiveElsewhere,
   sessionStatus,
+  staleLock,
   startBlockedReason,
 } from './session'
 import {
@@ -229,6 +231,8 @@ export interface SidebarViewModel {
   readonly preflight: PreflightRequest | null
   readonly recoveryPending: boolean
   readonly liveElsewhere?: boolean
+  readonly staleLock: boolean
+  readonly lockOwner: string | null
   readonly blockedMessage: string | null
   readonly idleReason: string | null
   readonly setup: SetupPhase
@@ -263,6 +267,8 @@ export const sidebarViewModel = computed((): SidebarViewModel => {
     preflight: preflightRequest(),
     recoveryPending: recoveryPending(),
     liveElsewhere: sessionLiveElsewhere(),
+    staleLock: staleLock(),
+    lockOwner: repoLockOwner.data(),
     blockedMessage: block?.kind === 'blocked' ? `${block.message}\n${block.commands.join('\n')}` : null,
     idleReason: status === 'idle' ? startBlockedReason() : null,
     setup: setupPhase(),

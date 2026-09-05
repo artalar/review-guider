@@ -197,6 +197,12 @@
         "enablement": "tabthrough.recoveryPending && !tabthrough.sessionActive"
       },
       {
+        "command": "tabthrough.clearStaleLock",
+        "title": "Clear Leftover Lock",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.staleLock"
+      },
+      {
         "command": "tabthrough.cleanupBackups",
         "title": "Clean Up Backups",
         "category": "Tabthrough",

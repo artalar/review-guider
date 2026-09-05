@@ -6,6 +6,7 @@ import {
   cancelSession,
   canStart,
   cleanupBackups,
+  clearStaleLock,
   commitHandoff,
   discardRecovery,
   finishSession,
@@ -91,6 +92,7 @@ export function useGuideCommands(): void {
     [Commands.commitHandoff]: wrap(() => guard('commitHandoff', () => commitHandoff())),
     [Commands.restoreBackup]: wrap(() => guard('restoreBackup', () => recoverBackup())),
     [Commands.discardRecovery]: wrap(() => guard('discardRecovery', () => discardRecovery())),
+    [Commands.clearStaleLock]: wrap(() => guard('clearStaleLock', () => clearStaleLock())),
     [Commands.cleanupBackups]: wrap(() => guard('cleanupBackups', async () => {
       const removed = await wrap(cleanupBackups())
       await window.showInformationMessage(

@@ -62,6 +62,7 @@ describe('contributed commands', () => {
     expect(declared).toEqual([
       'tabthrough.cancel',
       'tabthrough.cleanupBackups',
+      'tabthrough.clearStaleLock',
       'tabthrough.commitHandoff',
       'tabthrough.discardRecovery',
       'tabthrough.finish',
@@ -107,6 +108,13 @@ describe('contributed commands', () => {
     expect(recovery).toHaveLength(2)
     for (const entry of recovery)
       expect(entry.enablement).toBe('tabthrough.recoveryPending && !tabthrough.sessionActive')
+  })
+
+  it('offers Clear Leftover Lock only while a stale lock is present', async () => {
+    const { contributes } = await manifest()
+    const clear = contributes.commands.find(entry => entry.command === 'tabthrough.clearStaleLock')
+    expect(clear?.enablement).toBe('tabthrough.staleLock')
+    expect(clear?.title).toBe('Clear Leftover Lock')
   })
 
   it('gates every command on a context key, so the palette never offers a failure', async () => {

@@ -2,112 +2,104 @@
   "$schema": "https://tabthrough.dev/schema/guide-v1.json",
   "version": 1,
   "scope": {
-    "kind": "workingTree",
-    "base": "42abe19978600e2943a72c9914a9c8fca542f6af"
+    "kind": "workingTree"
   },
-  "summary": "The sidebar learns a nav slot so Back and Prev/Next can live in a sticky header, then the HTML renderer actually lifts those rows and shows the descriptions that were already on the data.",
+  "summary": "A leftover lock with no recovery token used to toast 'another window'. The sidebar now diagnoses it, blocks Start, and offers a CAS-only clear that re-checks after confirm and never deletes leftover refs.",
   "steps": [
     {
-      "id": "slot-contract",
+      "id": "primitive",
       "order": 10,
-      "path": "src/model/sidebar.ts",
-      "ranges": [{ "side": "new", "start": 23, "end": 27 }],
+      "path": "src/git/isolate.ts",
+      "ranges": [{ "side": "new", "start": 849, "end": 861 }],
       "significance": "critical",
-      "title": "Nav slot on the row type",
-      "rationale": "Every later producer and the HTML partition key off this field"
+      "rationale": "Clear is a compare-and-swap on the captured owner, not a wipe of the namespace"
     },
     {
-      "id": "nav-back",
+      "id": "diagnose",
       "order": 20,
-      "path": "src/model/sidebar.ts",
-      "ranges": [{ "side": "new", "start": 329, "end": 338 }],
+      "path": "src/model/session.ts",
+      "ranges": [{ "side": "new", "start": 336, "end": 348 }],
       "significance": "high",
-      "title": "Back is a nav row",
-      "rationale": "The helper that stamps slot: nav so picker screens share one Back",
-      "dependsOn": ["slot-contract"]
+      "rationale": "Leftover lock vs a token this editor can still see",
+      "dependsOn": ["primitive"]
     },
     {
-      "id": "picker-rows",
+      "id": "clear-action",
       "order": 30,
-      "path": "src/model/sidebar.ts",
-      "ranges": [{ "side": "new", "start": 172, "end": 251 }],
-      "significance": "high",
-      "title": "Picker rows consume the slot",
-      "rationale": "First place the contract is filled: hints, submit labels, navBack()",
-      "dependsOn": ["nav-back"]
+      "path": "src/model/session.ts",
+      "ranges": [{ "side": "new", "start": 497, "end": 564 }],
+      "significance": "critical",
+      "rationale": "Liveness is checked again after the confirm, so a race cannot steal a live lock",
+      "dependsOn": ["diagnose"]
     },
     {
-      "id": "walk-rows",
+      "id": "gate-start",
       "order": 40,
-      "path": "src/model/sidebar.ts",
-      "ranges": [{ "side": "new", "start": 123, "end": 162 }],
-      "significance": "critical",
-      "title": "Walk chrome rows",
-      "rationale": "The other consumer: Prev/Next always reserved, Finish only when complete",
-      "dependsOn": ["slot-contract"]
-    },
-    {
-      "id": "button-helpers",
-      "order": 50,
-      "path": "src/ui/sidebar-html.ts",
-      "ranges": [{ "side": "new", "start": 23, "end": 51 }],
-      "significance": "high",
-      "title": "Shared button renderer",
-      "rationale": "HTML learns slot and description before anything is laid out",
-      "dependsOn": ["slot-contract"]
-    },
-    {
-      "id": "chrome",
-      "order": 60,
-      "path": "src/ui/sidebar-html.ts",
-      "ranges": [{ "side": "new", "start": 61, "end": 73 }],
-      "significance": "critical",
-      "title": "Two chrome shapes",
-      "rationale": "Where nav rows become a header — Back vs Prev | progress | Next",
-      "dependsOn": ["button-helpers"]
-    },
-    {
-      "id": "form-and-css",
-      "order": 70,
-      "path": "src/ui/sidebar-html.ts",
+      "path": "src/model/session.ts",
       "ranges": [
-        { "side": "new", "start": 53, "end": 58 },
-        { "side": "new", "start": 83, "end": 83 }
+        { "side": "new", "start": 1162, "end": 1165 },
+        { "side": "new", "start": 1180, "end": 1194 }
       ],
-      "significance": "normal",
-      "title": "Form row and sticky styles",
-      "rationale": "How the new header and choice hints actually look",
-      "dependsOn": ["chrome"]
-    },
-    {
-      "id": "partition",
-      "order": 80,
-      "path": "src/ui/sidebar-html.ts",
-      "ranges": [{ "side": "new", "start": 93, "end": 98 }],
       "significance": "high",
-      "title": "Nav vs body split",
-      "rationale": "The wiring that lifts slot: nav into chrome() so order in the model no longer matters",
-      "dependsOn": ["chrome"]
+      "rationale": "Start is blocked here, so the toast is no longer the first clue",
+      "dependsOn": ["diagnose"]
     },
     {
-      "id": "model-tests",
-      "order": 90,
-      "path": "test/unit/sidebar.test.ts",
-      "ranges": [{ "side": "new", "start": 63, "end": 65 }],
-      "significance": "low",
-      "title": "Slot on the projection",
-      "rationale": "Proves the picker stamped slot: nav before we trust the HTML",
-      "dependsOn": ["picker-rows"]
+      "id": "sidebar",
+      "order": 50,
+      "path": "src/model/sidebar.ts",
+      "ranges": [{ "side": "new", "start": 52, "end": 76 }],
+      "significance": "high",
+      "rationale": "What the reader sees, including the hedge that this editor cannot see other profiles",
+      "dependsOn": ["clear-action", "gate-start"]
     },
     {
-      "id": "html-tests",
-      "order": 100,
-      "path": "test/unit/sidebar-html.test.ts",
-      "ranges": [{ "side": "new", "start": 57, "end": 125 }],
+      "id": "wiring",
+      "order": 60,
+      "path": "package.json",
+      "ranges": [{ "side": "new", "start": 199, "end": 206 }],
       "significance": "normal",
-      "title": "Chrome is first in the markup",
-      "rationale": "The visible contract: hints appear, Back/Prev/Next sit above the content",
-      "dependsOn": ["partition"]
+      "rationale": "The command enablement that keeps Clear out of a live session",
+      "dependsOn": ["sidebar"]
+    },
+    {
+      "id": "tests",
+      "order": 70,
+      "path": "test/integration/session-lifecycle.test.ts",
+      "ranges": [{ "side": "new", "start": 453, "end": 473 }],
+      "significance": "low",
+      "rationale": "The confirm-window race that made the first clear unsafe",
+      "dependsOn": ["clear-action"]
     }
-  ]
+  ],
+  "files": {
+    ".tabthrough-guide.json": {
+      "significance": "skip",
+      "rationale": "The sidecar this walk is written into"
+    },
+    "src/generated/meta.ts": {
+      "significance": "skip",
+      "rationale": "Regenerated command types"
+    },
+    "README.md": {
+      "significance": "skip",
+      "rationale": "Command table follow-on"
+    },
+    "work-docs/progress/reviews/007.md": {
+      "significance": "skip",
+      "rationale": "The Fable review this change answers"
+    },
+    "work-docs/progress/test-matrix.md": {
+      "significance": "skip",
+      "rationale": "Drill text matching the new flow"
+    },
+    "work-docs/architecture/overview.md": {
+      "significance": "skip",
+      "rationale": "One-sentence lock-escape update"
+    },
+    "work-docs/architecture/reatom-model.md": {
+      "significance": "skip",
+      "rationale": "Atom table for the new recovery units"
+    }
+  }
 }

@@ -770,7 +770,7 @@ Why this over the alternatives:
 | Backup-ref existence | Ambiguous — a surviving backup ref is the *normal* state after a conflicted restore, so it cannot also mean "in use" |
 | `sessionStatus !== 'idle'` alone | Covers one window only; the plan already identified this gap |
 
-The in-window atom guard stays as the fast path with a good error message; the ref is the real protection. A stale lock (owner crashed) is broken only through the recovery UI, never silently, and the recovery flow already has the user's attention because the token is present in `globalState`.
+The in-window atom guard stays as the fast path with a good error message; the ref is the real protection. A stale lock (owner crashed, token gone) is broken only through the leftover-lock sidebar action, never silently. A crashed session that still has its token is the recovery UI.
 
 `globalState` rather than `workspaceState` for the token, for the same reason: a second window on the same repo must be able to see it, and it must survive the folder being reopened by another path.
 

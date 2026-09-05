@@ -26,6 +26,7 @@ import {
   ApplyModeUnsupportedError,
   ApplyTargetUnsupportedError,
   cleanupGuideRefs,
+  clearAbandonedLock,
   finishKeepFromToken,
   isolate,
   IsolationBlockedError,
@@ -295,6 +296,10 @@ export const sessionLiveElsewhere = computed(() => {
 
 export const LIVE_ELSEWHERE_MESSAGE = 'A Tabthrough session is active in another window.'
 
+export const STALE_LOCK_MESSAGE = 'A leftover Tabthrough lock is blocking this repository. If no other editor is reviewing it, clear it from the Walkthrough sidebar.'
+
+export const LOCK_CHANGED_MESSAGE = 'The lock changed while the confirmation was open; nothing was removed.'
+
 export const orphanRefs = computed(async (): Promise<readonly OrphanRef[]> => {
   const capabilityPromise = gitCapability()
   recoveryEpoch()
@@ -305,6 +310,47 @@ export const orphanRefs = computed(async (): Promise<readonly OrphanRef[]> => {
 
   return await wrap(listGuideRefs(capability.repoRoot, { signal: abortVar.require().signal }))
 }, 'recovery.orphanRefs').extend(withAsyncData({ initState: [] as readonly OrphanRef[] }))
+
+/**
+ * Whoever currently holds `refs/tabthrough/lock`. `null` means free, including
+ * the first tick before the probe returns — Start still re-reads the lock.
+ */
+export const repoLockOwner = computed(async (): Promise<string | null> => {
+  const capabilityPromise = gitCapability()
+  recoveryEpoch()
+  if (sessionStatus() === 'idle')
+    gitWatchToken()
+
+  const root = capabilityRepoRoot(await wrap(capabilityPromise))
+  if (root === null)
+    return null
+
+  return await wrap(readLock(root, { signal: abortVar.require().signal }))
+}, 'recovery.lockOwner').extend(withAsyncData({ initState: null as string | null }))
+
+/**
+ * A lock with no recoverable token and no matching journal — the crash-and-
+ * lost-journal case. A restore reminder or a token that still names this
+ * lock's owner take precedence, including a `planned` capture in flight.
+ */
+export const staleLock = computed(() => {
+  if (sessionStatus() !== 'idle')
+    return false
+  if (recoveryPending())
+    return false
+  const owner = repoLockOwner.data()
+  if (owner === null)
+    return false
+  const token = recoveryToken.data()
+  if (token !== null && token.sessionId === owner)
+    return false
+  return true
+}, 'recovery.staleLock')
+
+function noteRecoveryChange(): void {
+  repoLockOwner.reset()
+  recoveryEpoch.set(value => value + 1)
+}
 
 /**
  * Recovery for a session this window is not already driving: a live session
@@ -377,7 +423,10 @@ export const recoverBackup = action(async (): Promise<RestoreOutcome | null> => 
   // No signal: an interrupted `git stash apply` is the one outcome we cannot survive.
   restoreStarted = true
   const outcome = await wrap(restoreFromToken({ token, store: peek(ports).store }))
-  recoveryEpoch.set(value => value + 1)
+  if (outcome.kind === 'restored')
+    noteRecoveryChange()
+  else
+    recoveryEpoch.set(value => value + 1)
 
   if (outcome.kind === 'restored') {
     // The machine has to come home too. Leaving it `blocked` after a restore
@@ -444,6 +493,75 @@ export const discardRecovery = action(async (): Promise<boolean> => {
 
   return await wrap(forgetPendingRestore())
 }, 'recovery.discard').extend(withAsync())
+
+export const clearStaleLock = action(async (): Promise<readonly string[]> => {
+  if (peek(sessionStatus) !== 'idle')
+    return []
+  if (peek(sessionLiveElsewhere)) {
+    await wrap(peek(ports).ui.notify('warn', LIVE_ELSEWHERE_MESSAGE))
+    return []
+  }
+  if (peek(recoveryPending)) {
+    await wrap(peek(ports).ui.notify(
+      'warn',
+      'Tabthrough has work to restore from a previous session. Restore it before clearing the lock.',
+    ))
+    return []
+  }
+
+  const capability = await wrap(gitCapability())
+  const root = capabilityRepoRoot(capability)
+  if (root === null)
+    throw new GitUnavailableError(capability)
+
+  const signal = abortVar.require().signal
+  const owner = await wrap(readLock(root, { signal }))
+  if (owner === null)
+    return []
+
+  const tokenBefore = await wrap(peek(ports).store.readToken(root))
+  if (tokenBefore !== null && (tokenBefore.sessionId === owner || isRecoverable(tokenBefore))) {
+    await wrap(peek(ports).ui.notify(
+      'warn',
+      'This lock belongs to a Tabthrough session this editor can still see. Restore or finish that session instead.',
+    ))
+    return []
+  }
+
+  const answer = await wrap(peek(ports).ui.notify(
+    'warn',
+    `Clear leftover lock ${owner}? Your files stay as they are. Only the lock is removed. Leftover Tabthrough refs stay until you run Clean Up Backups. If another editor or profile is reviewing this repository, keep the lock.`,
+    ['Clear lock', 'Keep lock'],
+  ))
+  if (answer !== 'Clear lock')
+    return []
+
+  if (peek(sessionStatus) !== 'idle')
+    return []
+
+  const tokenAfter = await wrap(peek(ports).store.readToken(root))
+  if (tokenAfter !== null && (tokenAfter.sessionId === owner || isRecoverable(tokenAfter))) {
+    noteRecoveryChange()
+    await wrap(peek(ports).ui.notify('warn', LOCK_CHANGED_MESSAGE))
+    return []
+  }
+
+  const currentOwner = await wrap(readLock(root))
+  if (currentOwner !== owner) {
+    noteRecoveryChange()
+    await wrap(peek(ports).ui.notify('warn', LOCK_CHANGED_MESSAGE))
+    return []
+  }
+
+  const removed = await wrap(clearAbandonedLock(root, owner))
+  noteRecoveryChange()
+  if (removed.length === 0) {
+    await wrap(peek(ports).ui.notify('warn', LOCK_CHANGED_MESSAGE))
+    return []
+  }
+  await wrap(peek(ports).ui.notify('info', 'Leftover lock cleared. You can start a walkthrough.'))
+  return removed
+}, 'recovery.clearStaleLock').extend(withAsync(), withAbort('first-in-win'))
 
 export const cleanupBackups = action(async (): Promise<readonly string[]> => {
   const capability = await wrap(gitCapability())
@@ -1042,7 +1160,7 @@ export const refreshHeartbeat = action(async (): Promise<boolean> => {
 export const gitUsable = computed(() => gitCapability.data()?.ok === true, 'ui.gitUsable')
 
 export const canStart = computed(
-  () => gitUsable() && !recoveryPending() && sessionStatus() === 'idle',
+  () => gitUsable() && !recoveryPending() && !staleLock() && sessionStatus() === 'idle',
   'ui.canStart',
 )
 
@@ -1059,6 +1177,8 @@ export const startBlockedReason = computed((): string | null => {
     return LIVE_ELSEWHERE_MESSAGE
   if (recoveryPending())
     return 'Tabthrough has work to restore from a previous session.'
+  if (staleLock())
+    return STALE_LOCK_MESSAGE
   const status = sessionStatus()
   if (status !== 'idle')
     return `A Tabthrough session is already ${status}.`
@@ -1071,7 +1191,7 @@ export const startBlockedReason = computed((): string | null => {
 
 export function describeStartFailure(error: unknown): string {
   if (error instanceof RepoLockedError)
-    return 'Another window is already reviewing this repository.'
+    return `This repository is locked by Tabthrough session ${error.owner}. If no other window or editor is reviewing it, clear the leftover lock from the Walkthrough sidebar.`
   if (error instanceof ApplyModeUnsupportedError)
     return error.message
   if (error instanceof ApplyTargetUnsupportedError)

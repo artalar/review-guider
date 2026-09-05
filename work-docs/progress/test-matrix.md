@@ -222,7 +222,7 @@ Covers the product edge row *"multiple concurrent sessions"* (§2 row 8) and pla
 
 1. Open `/tmp/drill` in two VS Code windows (*File → New Window*, open the same folder).
 2. Start a review in window A. Approve.
-3. In window B, run **Start Review**. It must refuse with *"Another window is already reviewing this repository."* and must not create a second stash entry, a second after-ref, or move HEAD.
+3. In window B, Start and Review… are disabled; the sidebar shows **Review active in another window**. Nothing is written.
 4. `git for-each-ref refs/tabthrough` must show exactly one `after/` and one `backup/` ref, and `git cat-file blob refs/tabthrough/lock` must print `tabthrough-lock:<A's session id>` — the lock names its owner (review 001 M3).
 5. **Recovery must not fire in window B.** Reload window B (*Developer: Reload Window*) while A is still reviewing. B sees A's token in `globalState`, so this is the path that used to offer *"Tabthrough did not finish restoring your work last time."* and, if accepted, applied A's stash out from under it. B must instead show *"A Tabthrough session is active in another window."*, offer no restore, and leave A's stash entry, refs and token untouched — check A can still Tab and still finishes cleanly.
 6. **Then let the heartbeat go stale.** Kill window A's extension host (§6.1 step 4) and wait 30 s. Reload window B: now it must raise the crash-recovery modal, and **Restore now** must complete the job.
@@ -238,10 +238,11 @@ Covers the product edge row *"multiple concurrent sessions"* (§2 row 8) and pla
 Not a product edge row, but a direct consequence of the compare-and-swap lock (ADR 0002 D5). Breaking a lock is always an explicit user action, so the escape hatch has to work.
 
 1. Simulate an abandoned lock with no token: `git update-ref refs/tabthrough/lock HEAD`.
-2. Run **Start Review**. It must refuse with the "another window" message *without showing the pre-flight* — the user is never asked to approve a stash that cannot happen.
-3. `git update-ref -d refs/tabthrough/lock`, then Start again — it must succeed.
+2. The Walkthrough sidebar must show **Leftover review lock** with **Clear leftover lock**. Start stays disabled and must not show the pre-flight.
+3. Run **Clear leftover lock** and confirm. The lock ref is gone; leftover after/backup refs stay until **Clean Up Backups**. This drill creates only the lock, so `git for-each-ref refs/tabthrough` is empty.
+4. Start again — it must succeed.
 
-**Known gap:** there is no in-product command to break a stale lock. **Tabthrough: Clean Up Backups** deliberately skips the lock ref so it cannot yank the rug out from under a live session. Tracked in §7.
+**Clean Up Backups** still skips the lock so it cannot yank the rug out from under a live session. Clear leftover lock refuses while this editor can see a live or recoverable token for the repository, re-checked after the confirmation.
 
 **Status:** ☐ not yet run.
 
@@ -311,7 +312,7 @@ Three of the four costs are git subprocesses — capture, checkout, `readDiff` �
 | Keybinding conflict matrix | The clause is asserted as text, never as behaviour. Runbook is §6.4 | Phase 6 (human) |
 | Time-to-first-reveal benchmark | Unmeasured. Runbook is §6.5 | Phase 6 (human) |
 | The three safety drills | §6.1, §6.2 and §6.3 have never been run against a packaged build. They are the only evidence for the parts of rows 3, 7 and 8 that live outside one process | Phase 6 (human), before dogfood |
-| No command breaks a stale lock | A lock left by a hard crash *and* a lost `globalState` needs `git update-ref -d` by hand | Phase 6 / P1 |
+| Stale-lock drill is automated, not packaged | §6.3 is covered in `session-lifecycle.test.ts`; the packaged-build walk is still unrun | Phase 6 (human) |
 | A foreign edit during a session blocks the restore | Conservative and safe — nothing is dropped — but the user must undo the edit or recover by hand. The alternative is dropping a stash we cannot verify, which is not on the table | P1-8 drift detection |
 | Nothing exercises the VS Code bridge | `src/ui/documents.ts` and the status bar have no host-level test — the model projection they render is covered, the rendering is not | An `@vscode/test-electron` suite, if one is ever worth its weight |
 | Gitignored `.guide.json` on the working-tree entry | `add -A` honours `.gitignore`, so an ignored sidecar is not in the capture commit and is never read. Committing it, or not ignoring it, is the workaround | Documented in the README's limitations |

@@ -18,6 +18,8 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     canRetreat: false,
     preflight: null,
     recoveryPending: false,
+    staleLock: false,
+    lockOwner: null,
     blockedMessage: null,
     idleReason: null,
     setup: { kind: 'home' },
@@ -98,6 +100,15 @@ describe('sidebar text boundary', () => {
     expect(html).toContain('data-command="tabthrough.previous"')
     expect(html).toContain('data-command="tabthrough.next"')
     expect(html.indexOf('data-command="tabthrough.next"')).toBeLessThan(html.indexOf('State contract'))
+  })
+
+  it('makes Clear leftover lock the primary sidebar action', () => {
+    const html = renderSidebarBody(view({ staleLock: true, canStart: false }))
+    expect(html).toContain('Leftover review lock')
+    expect(html).toContain('cannot see a live session')
+    expect(html).toContain('data-command="tabthrough.clearStaleLock"')
+    expect(html).toContain('class="primary choice"')
+    expect(html).not.toContain('data-command="tabthrough.review"')
   })
 
   it('promotes Finish into chrome when the walk is complete', () => {

@@ -49,6 +49,33 @@ export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[]
       add({ id: 'dismiss', label: 'Dismiss reminder', command: Commands.discardRecovery, icon: 'close', contextValue: 'action' })
       return items
     }
+    if (view.staleLock) {
+      const owner = view.lockOwner
+      add({
+        id: 'stale-lock',
+        label: owner === null ? 'Leftover review lock' : `Leftover review lock (${owner})`,
+        description: 'Tabthrough cannot see a live session for this lock in this editor. If another editor or profile is reviewing this repository, keep the lock. Clearing removes only the lock. Your files stay as they are.',
+        icon: 'warning',
+        contextValue: 'recovery',
+      })
+      add({
+        id: 'clear-lock',
+        label: 'Clear leftover lock',
+        description: 'Removes only the lock. Leftover refs stay until you run Clean Up Backups.',
+        command: Commands.clearStaleLock,
+        icon: 'unlock',
+        contextValue: 'action',
+      })
+      add({
+        id: 'cleanup-refs',
+        label: 'Clean up leftover refs…',
+        description: 'Permanently removes leftover Tabthrough refs. Stash entries stay.',
+        command: Commands.cleanupBackups,
+        icon: 'trash',
+        contextValue: 'action',
+      })
+      return items
+    }
 
     addIdleItems(view, add)
     return items

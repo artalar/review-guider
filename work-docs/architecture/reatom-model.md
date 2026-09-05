@@ -50,7 +50,10 @@ recovery.epoch               atom<number>
 recovery.token               computed + withAsyncData            persisted SessionToken via StorePort
 recovery.pending             computed<boolean>
 recovery.liveElsewhere       computed<boolean>                   fresh heartbeat = another window is reviewing
+recovery.lockOwner           computed + withAsyncData            refs/tabthrough/lock owner, or null
+recovery.staleLock           computed<boolean>                   lock with no recoverable/matching token
 recovery.orphanRefs          computed + withAsyncData            refs/tabthrough/** with no token
+recovery.clearStaleLock      action + withAsync + withAbort('first-in-win')
 recovery.restore             action + withAsync({status}) + withAbort('first-in-win')
 recovery.resumeApply         action + withAsync({status}) + withAbort('first-in-win')  // ADR 0004
 recovery.discard             action + withAsync
@@ -698,7 +701,8 @@ W5 deserves emphasis. Dependency tracking happens during the *synchronous* porti
 
 | Target | Extension | Signal passed to git | Why |
 |--------|-----------|---------------------|-----|
-| `git.capability`, `git.repoStatus`, `…baseText`, `recovery.token`, `recovery.orphanRefs` | `withAsyncData` (includes `withAbort`) | yes | Stale probes should die; they only read |
+| `git.capability`, `git.repoStatus`, `…baseText`, `recovery.token`, `recovery.lockOwner`, `recovery.orphanRefs` | `withAsyncData` (includes `withAbort`) | yes | Stale probes should die; they only read |
+| `recovery.clearStaleLock` | `withAsync()`, `withAbort('first-in-win')` | yes on the pre-confirm reads; **no** on the CAS delete | A second click must not interrupt the release |
 | `session.start` | `withAsync({status:true})`, `withAbort('first-in-win')` | yes, through `isolate` | An abort during isolation triggers `startFailed`, which restores |
 | `session#….next / .prev` (readonly) | none (synchronous) | n/a | Pure state movement |
 | `session#….next / .prev` (apply) | `withAsync({status:true})`, `withAbort('first-in-win')` | **no** | Disk writes must not be half-cancelled |

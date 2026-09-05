@@ -1,7 +1,7 @@
 import { useActiveTextEditor, useStatusBarItem, useVscodeContext } from 'reactive-vscode'
 import { StatusBarAlignment } from 'vscode'
 import { commands as Commands } from '../generated/meta'
-import { canStart, gitUsable, isSessionActive, isSessionOpen, recoveryPending, session } from '../model/session'
+import { canStart, gitUsable, isSessionActive, isSessionOpen, recoveryPending, session, staleLock } from '../model/session'
 import { applyPending, REVIEW_SCHEME, statusText, statusTooltip } from '../model/view'
 import { useAtomRef } from './binding'
 
@@ -32,6 +32,7 @@ export function useGuideContextKeys(): void {
   const active = useAtomRef(isSessionActive)
   const open = useAtomRef(isSessionOpen)
   const recovery = useAtomRef(recoveryPending)
+  const leftoverLock = useAtomRef(staleLock)
   const model = useAtomRef(session)
   const pending = useAtomRef(applyPending)
   const editor = useActiveTextEditor()
@@ -43,6 +44,7 @@ export function useGuideContextKeys(): void {
   // pre-flight that stalled, which are precisely the states `active` excludes.
   useVscodeContext('tabthrough.sessionOpen', () => open.value)
   useVscodeContext('tabthrough.recoveryPending', () => recovery.value)
+  useVscodeContext('tabthrough.staleLock', () => leftoverLock.value)
   useVscodeContext('tabthrough.sessionMode', () => model.value?.mode ?? '')
   useVscodeContext('tabthrough.applyPending', () => pending.value)
   useVscodeContext(

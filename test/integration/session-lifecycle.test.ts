@@ -6,13 +6,14 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { listGuideRefs, RepoLockedError } from '../../src/git/isolate'
 import { advanceStage } from '../../src/git/journal'
 import { readStatus } from '../../src/git/probe'
-import { backupRefName, LOCK_REF, readLock, resolveRef, writeRef } from '../../src/git/refs'
+import { acquireLock, afterRefName, backupRefName, LOCK_REF, readLock, releaseLock, resolveRef, writeRef } from '../../src/git/refs'
 import { listStash } from '../../src/git/stash'
 import { memoryStore } from '../../src/model/ports'
 import {
   cancelSession,
   canStart,
   cleanupBackups,
+  clearStaleLock,
   discardRecovery,
   EmptyDiffError,
   forgetPendingRestore,
@@ -21,6 +22,7 @@ import {
   gitWatchToken,
   isolation,
   LIVE_ELSEWHERE_MESSAGE,
+  LOCK_CHANGED_MESSAGE,
   ports,
   preflightAnswer,
   preflightRequest,
@@ -28,11 +30,14 @@ import {
   recoveryPending,
   recoveryToken,
   refreshHeartbeat,
+  repoLockOwner,
   restoreBlock,
   session,
   SessionAlreadyActiveError,
   sessionLiveElsewhere,
   sessionStatus,
+  STALE_LOCK_MESSAGE,
+  staleLock,
   startBlockedReason,
   startSession,
   workspaceRoot,
@@ -71,6 +76,8 @@ interface Harness {
   approve: boolean
   /** Which action button a notification comes back with, if any. */
   answer: string | undefined
+  /** Runs once, before the next notify returns — used to race the confirm. */
+  beforeAnswer?: () => Promise<void>
   /** What `ClockPort.now` returns; movable, so heartbeats can be aged. */
   now: number
   /** Scriptable editor-save result and calls, for the pre-stash buffer guard. */
@@ -95,6 +102,10 @@ function install(store: StorePort = memoryStore()): Harness {
       chooseSessionMode: async () => 'readonly',
       notify: async (level, message) => {
         harness.notifications.push({ level, message })
+        const hook = harness.beforeAnswer
+        harness.beforeAnswer = undefined
+        if (hook !== undefined)
+          await hook()
         return harness.answer
       },
       openReview: async () => {},
@@ -129,10 +140,15 @@ async function bootstrapAt(root: string, store?: StorePort): Promise<Harness> {
   // The gating computeds are async and only refresh while something is
   // listening, so the harness connects them exactly as `useGuideContextKeys`
   // does. Without this the test would assert against a never-updated cache.
-  subscriptions.push(canStart.subscribe(() => {}), recoveryPending.subscribe(() => {}))
+  subscriptions.push(
+    canStart.subscribe(() => {}),
+    recoveryPending.subscribe(() => {}),
+    staleLock.subscribe(() => {}),
+  )
 
   await gitCapability()
   await recoveryToken()
+  await repoLockOwner()
   return harness
 }
 
@@ -314,6 +330,12 @@ describe('session lifecycle over the real protocol', () => {
     const harness = await bootstrap(repo)
 
     await writeRef(repo.root, LOCK_REF, await repo.head())
+    gitWatchToken.set(value => value + 1)
+    await repoLockOwner()
+
+    expect(peek(staleLock)).toBe(true)
+    expect(peek(canStart)).toBe(false)
+    expect(peek(startBlockedReason)).toBe(STALE_LOCK_MESSAGE)
 
     // Refused up front rather than after the user approves a stash that could
     // never have happened.
@@ -322,7 +344,133 @@ describe('session lifecycle over the real protocol', () => {
     expect(peek(preflightRequest)).toBeNull()
     expect(peek(sessionStatus)).toBe('idle')
     expect(await repo.fingerprint()).toEqual(before)
-    expect(harness.notifications.at(-1)?.message).toContain('Another window')
+    expect(harness.notifications.at(-1)?.message).toContain('locked by Tabthrough session')
+  })
+
+  it('clears a leftover lock from the sidebar action and then allows start', async () => {
+    const repo = await dirtyRepo()
+    const before = await repo.fingerprint()
+    const harness = await bootstrap(repo)
+
+    expect(await acquireLock(repo.root, 'abandoned')).toBe(true)
+    await writeRef(repo.root, afterRefName('abandoned'), await repo.head())
+    gitWatchToken.set(value => value + 1)
+    await repoLockOwner()
+
+    expect(peek(staleLock)).toBe(true)
+    expect(peek(canStart)).toBe(false)
+
+    harness.answer = 'Keep lock'
+    expect(await clearStaleLock()).toEqual([])
+    expect(await readLock(repo.root)).toBe('abandoned')
+    expect(peek(staleLock)).toBe(true)
+
+    harness.answer = 'Clear lock'
+    const removed = await clearStaleLock()
+    expect(removed).toEqual([LOCK_REF])
+    expect(await readLock(repo.root)).toBeNull()
+    expect(await resolveRef(repo.root, afterRefName('abandoned'))).not.toBeNull()
+    expect(peek(staleLock)).toBe(false)
+    expect(peek(canStart)).toBe(true)
+    expect(await repo.fingerprint()).toEqual(before)
+    expect(harness.notifications.at(-1)?.message).toContain('Leftover lock cleared')
+
+    await start(harness)
+    expect(peek(sessionStatus)).toBe('active')
+    await cancelSession('cancel')
+    expect(await repo.fingerprint()).toEqual(before)
+  })
+
+  it('clears a hand-written lock that has no tabthrough-lock payload', async () => {
+    const repo = await dirtyRepo()
+    const harness = await bootstrap(repo)
+    await writeRef(repo.root, LOCK_REF, await repo.head())
+    gitWatchToken.set(value => value + 1)
+    await repoLockOwner()
+
+    harness.answer = 'Clear lock'
+    expect(await clearStaleLock()).toEqual([LOCK_REF])
+    expect(await readLock(repo.root)).toBeNull()
+    expect(peek(staleLock)).toBe(false)
+  })
+
+  it('keeps Start blocked while the lock probe is refreshing', async () => {
+    const repo = await dirtyRepo()
+    await bootstrap(repo)
+    expect(await acquireLock(repo.root, 'abandoned')).toBe(true)
+    gitWatchToken.set(value => value + 1)
+    await repoLockOwner()
+    expect(peek(staleLock)).toBe(true)
+    expect(peek(canStart)).toBe(false)
+
+    gitWatchToken.set(value => value + 1)
+    expect(peek(staleLock)).toBe(true)
+    expect(peek(canStart)).toBe(false)
+  })
+
+  it('refuses to clear while a recoverable token is still in this editor', async () => {
+    const repo = await dirtyRepo()
+    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'ghost', heartbeatAt: 0 })
+    await bootstrap(repo, store)
+
+    expect(peek(recoveryPending)).toBe(true)
+    expect(peek(staleLock)).toBe(false)
+    expect(await clearStaleLock()).toEqual([])
+    expect(await readLock(repo.root)).toBe('ghost')
+  })
+
+  it('leaves leftover refs after a dismissed restore reminder is unlocked', async () => {
+    const repo = await dirtyRepo()
+    const { store, token } = await isolateUpTo(repo, 'reviewing', { sessionId: 'dismissed' })
+    const harness = await bootstrap(repo, store)
+    harness.answer = 'Forget'
+    expect(await discardRecovery()).toBe(true)
+    gitWatchToken.set(value => value + 1)
+    await repoLockOwner()
+
+    expect(peek(staleLock)).toBe(true)
+    harness.answer = 'Clear lock'
+    expect(await clearStaleLock()).toEqual([LOCK_REF])
+    expect(await resolveRef(repo.root, token.afterRef)).not.toBeNull()
+    const backup = token.backupRef
+    expect(backup).not.toBeNull()
+    if (backup !== null)
+      expect(await resolveRef(repo.root, backup)).not.toBeNull()
+  })
+
+  it('will not let a leftover-lock clear steal another window\'s lock', async () => {
+    const repo = await dirtyRepo()
+    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'window-a', heartbeatAt: 995_000 })
+    const isolated = await repo.fingerprint()
+    const harness = await bootstrap(repo, store)
+    harness.now = 1_000_000
+
+    expect(peek(sessionLiveElsewhere)).toBe(true)
+    expect(peek(staleLock)).toBe(false)
+    expect(await clearStaleLock()).toEqual([])
+    expect(await readLock(repo.root)).toBe('window-a')
+    expect(await repo.fingerprint()).toEqual(isolated)
+    expect(harness.notifications.at(-1)?.message).toBe(LIVE_ELSEWHERE_MESSAGE)
+  })
+
+  it('will not release a lock that changed while the confirmation was open', async () => {
+    const repo = await dirtyRepo()
+    const harness = await bootstrap(repo)
+    expect(await acquireLock(repo.root, 'abandoned')).toBe(true)
+    gitWatchToken.set(value => value + 1)
+    await repoLockOwner()
+
+    harness.answer = 'Clear lock'
+    harness.beforeAnswer = async () => {
+      expect(await releaseLock(repo.root, 'abandoned')).toBe(true)
+      await isolateUpTo(repo, 'reviewing', { sessionId: 'window-a' })
+    }
+
+    expect(await clearStaleLock()).toEqual([])
+    expect(await readLock(repo.root)).toBe('window-a')
+    expect(await resolveRef(repo.root, afterRefName('window-a'))).not.toBeNull()
+    expect(await resolveRef(repo.root, backupRefName('window-a'))).not.toBeNull()
+    expect(harness.notifications.at(-1)?.message).toBe(LOCK_CHANGED_MESSAGE)
   })
 
   /**
@@ -516,8 +664,10 @@ describe('recovery', () => {
     expect(peek(sessionStatus)).toBe('idle')
     expect(peek(isolation)).toBeNull()
     await recoveryToken()
+    await repoLockOwner()
     expect(peek(recoveryPending)).toBe(false)
-    expect(peek(canStart)).toBe(true)
+    expect(peek(staleLock)).toBe(true)
+    expect(peek(canStart)).toBe(false)
 
     // Nothing was destroyed — the backup is still there to recover by hand.
     expect(await listStash(repo.root)).toHaveLength(1)
@@ -542,9 +692,12 @@ describe('recovery', () => {
     expect(await forgetPendingRestore()).toBe(true)
 
     await recoveryToken()
+    await repoLockOwner()
     expect(peek(recoveryPending)).toBe(false)
-    expect(peek(canStart)).toBe(true)
+    expect(peek(staleLock)).toBe(true)
+    expect(peek(canStart)).toBe(false)
     expect(await store.readToken(repo.root)).toBeNull()
+    expect(await readLock(repo.root)).toBe('left-restoring')
   })
 
   /**
