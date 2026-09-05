@@ -227,11 +227,6 @@
       ],
       "view/title": [
         {
-          "command": "tabthrough.review",
-          "when": "view == tabthrough.sidebar && tabthrough.canStart && !tabthrough.sessionOpen",
-          "group": "navigation@1"
-        },
-        {
           "command": "tabthrough.cancel",
           "when": "view == tabthrough.sidebar && tabthrough.sessionOpen",
           "group": "navigation@2"

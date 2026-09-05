@@ -139,6 +139,11 @@ describe('contributed commands', () => {
     expect(contributes.menus?.['editor/title']?.some(entry => entry.command === 'tabthrough.startFromGuide')).toBe(true)
     expect(contributes.menus?.['editor/context']?.some(entry => entry.command === 'tabthrough.startFromGuide')).toBe(true)
   })
+
+  it('does not duplicate Review in the Walkthrough view title', async () => {
+    const { contributes } = await manifest()
+    expect(contributes.menus?.['view/title']?.some(entry => entry.command === 'tabthrough.review')).toBe(false)
+  })
 })
 
 /**
