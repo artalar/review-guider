@@ -1,0 +1,360 @@
+{
+  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
+  "version": 1,
+  "scope": {
+    "kind": "workingTree"
+  },
+  "summary": "A guided review now has a persistent notes sidebar, clear entry and completion states, and an active-guide entry point. Follow the explanation data into the editor, then inspect save boundaries, lifecycle reservations, recovery, and byte-preserving rendering. Unclaimed changes remain available in heuristic order.",
+  "steps": [
+    {
+      "id": "summary-contract",
+      "order": 10,
+      "path": "src/guide/types.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 138,
+          "end": 150
+        }
+      ],
+      "rationale": "Start with the explanation data the sidebar must preserve",
+      "title": "A guide carries its summary"
+    },
+    {
+      "id": "summary-producer",
+      "order": 20,
+      "path": "src/guide/merge.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 320,
+          "end": 365
+        }
+      ],
+      "rationale": "Follow the summary from the sidecar into the runtime guide",
+      "title": "Retain authored context"
+    },
+    {
+      "id": "sidebar-projection",
+      "order": 30,
+      "path": "src/model/view.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 208,
+          "end": 254
+        }
+      ],
+      "rationale": "Define what the UI reads before introducing its renderer",
+      "title": "One reactive sidebar projection"
+    },
+    {
+      "id": "sidebar-notes",
+      "order": 40,
+      "path": "src/model/sidebar.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 90,
+          "end": 125
+        }
+      ],
+      "rationale": "Now show the explanation that follows the current cursor",
+      "title": "Keep current and final notes visible"
+    },
+    {
+      "id": "sidebar-html",
+      "order": 50,
+      "path": "src/ui/sidebar-html.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 1,
+          "end": 32
+        }
+      ],
+      "rationale": "Render the projection only after its content contract is clear",
+      "title": "Escape guide text in the webview"
+    },
+    {
+      "id": "sidebar-host",
+      "order": 60,
+      "path": "src/ui/sidebar.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 25,
+          "end": 98
+        }
+      ],
+      "rationale": "Connect the renderer to the editor after defining its safe output",
+      "title": "Publish updates and gate commands"
+    },
+    {
+      "id": "scope-map",
+      "order": 70,
+      "path": "src/guide/from-file.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 1,
+          "end": 44
+        }
+      ],
+      "rationale": "An authored guide is another entry into the same walkthrough",
+      "title": "Map guide scope to a review target"
+    },
+    {
+      "id": "sidecar-override",
+      "order": 80,
+      "path": "src/model/guide-source.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 21,
+          "end": 96
+        }
+      ],
+      "rationale": "Carry editor text before wiring the guide command",
+      "title": "Review an unsaved guide buffer"
+    },
+    {
+      "id": "active-guide-ui",
+      "order": 90,
+      "path": "src/ui/active-guide.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 50,
+          "end": 105
+        }
+      ],
+      "rationale": "Use the scope and buffer contracts at the editor boundary",
+      "title": "Start from the active guide"
+    },
+    {
+      "id": "editor-focus",
+      "order": 100,
+      "path": "src/ui/documents.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 97,
+          "end": 126
+        }
+      ],
+      "rationale": "Once a walkthrough is open, its current change must accept keyboard navigation",
+      "title": "Return focus to the diff"
+    },
+    {
+      "id": "editor-races",
+      "order": 110,
+      "path": "src/ui/documents.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 192,
+          "end": 235
+        }
+      ],
+      "rationale": "Handle asynchronous opens after establishing the intended focus behavior",
+      "title": "Discard obsolete document opens"
+    },
+    {
+      "id": "save-boundary",
+      "order": 120,
+      "path": "src/ui/ports.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 134,
+          "end": 190
+        }
+      ],
+      "rationale": "Before Git mutation, define exactly which editor buffers are saved",
+      "title": "Save only repository-owned files"
+    },
+    {
+      "id": "start-reservation",
+      "order": 130,
+      "path": "src/model/session.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 596,
+          "end": 674
+        }
+      ],
+      "rationale": "Start consumes the save boundary while reserving the session immediately",
+      "title": "Prevent overlapping preparation"
+    },
+    {
+      "id": "fresh-preflight",
+      "order": 140,
+      "path": "src/model/session.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 676,
+          "end": 706
+        }
+      ],
+      "rationale": "An approved plan must still describe the repository about to be changed",
+      "title": "Recheck before isolation"
+    },
+    {
+      "id": "journal-lock",
+      "order": 150,
+      "path": "src/git/isolate.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 343,
+          "end": 365
+        }
+      ],
+      "rationale": "Once isolation begins, journal failure must release its reservation",
+      "title": "Release the lock on first-write failure"
+    },
+    {
+      "id": "apply-refusal",
+      "order": 160,
+      "path": "src/model/session.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 741,
+          "end": 755
+        }
+      ],
+      "rationale": "Reject unsupported targets before exposing apply navigation",
+      "title": "Refuse lossy application"
+    },
+    {
+      "id": "finish-reservation",
+      "order": 170,
+      "path": "src/model/session.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 821,
+          "end": 909
+        }
+      ],
+      "rationale": "Completion must reserve the same state as navigation",
+      "title": "Serialize Finish with edits"
+    },
+    {
+      "id": "cancel-unwind",
+      "order": 180,
+      "path": "src/model/session.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 935,
+          "end": 996
+        }
+      ],
+      "rationale": "Cancellation closes the lifecycle introduced by Start and Finish",
+      "title": "Drain preparation before restoration"
+    },
+    {
+      "id": "recovery-reservation",
+      "order": 190,
+      "path": "src/model/session.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 315,
+          "end": 399
+        }
+      ],
+      "rationale": "A later window must honor the same lifecycle ownership",
+      "title": "Reserve recovery before awaiting storage"
+    },
+    {
+      "id": "newline-source",
+      "order": 200,
+      "path": "src/guide/parse-diff.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 243,
+          "end": 290
+        }
+      ],
+      "rationale": "Exact rendering starts with distinguishing each side of the patch",
+      "title": "Track final-newline markers by side"
+    },
+    {
+      "id": "newline-render",
+      "order": 210,
+      "path": "src/guide/render.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 85,
+          "end": 96
+        }
+      ],
+      "rationale": "Use those markers when the final group is revealed",
+      "title": "Preserve the post-image newline"
+    },
+    {
+      "id": "regressions",
+      "order": 220,
+      "path": "test/integration/launch-safety.test.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 1,
+          "end": 108
+        }
+      ],
+      "rationale": "Finish with executable failures that protect these lifecycle decisions",
+      "title": "Exercise saves, cancellation and journal failure"
+    },
+    {
+      "id": "toast-lifecycle",
+      "path": "src/ui/ports.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 108,
+          "end": 129
+        }
+      ],
+      "rationale": "Before trusting apply completion, remove the host-specific wait",
+      "title": "Informational toasts never hold a step pending",
+      "order": 230
+    },
+    {
+      "id": "drift-tree",
+      "path": "src/git/apply.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 240,
+          "end": 260
+        }
+      ],
+      "rationale": "Compare complete trees before warning about unrelated edits",
+      "title": "Untracked additions belong in the checkpoint",
+      "order": 240
+    },
+    {
+      "id": "restore-untracked",
+      "path": "src/git/isolate.ts",
+      "ranges": [
+        {
+          "side": "new",
+          "start": 503,
+          "end": 531
+        }
+      ],
+      "rationale": "The same added paths must not collide with their own stash on Cancel",
+      "title": "Restore originally untracked files",
+      "order": 250
+    }
+  ]
+}

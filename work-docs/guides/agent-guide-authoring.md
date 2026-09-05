@@ -2,7 +2,7 @@
 
 **Audience:** LLMs and coding agents that emit `.guide.json` alongside a change
 **Owner:** Product
-**Status:** Published (track E)
+**Status:** Published (track E) — P0-G1 granularity bar
 **Last updated:** 2026-08-07
 **Normative companion:** [architecture/guide-schema.md](../architecture/guide-schema.md) — field types, validation, and merge semantics live there and win any conflict with this document
 **Installable form:** [`.agents/skills/tabthrough/SKILL.md`](../../.agents/skills/tabthrough/SKILL.md)
@@ -11,7 +11,7 @@
 
 ## 1. What you are actually writing
 
-You produced a change. Someone now has to *own* it: extend it next month, debug it at 2am, or decide whether it belongs in their product. They will read it through Tabthrough, which hides the whole diff and reveals it one step at a time as they press Tab.
+You produced a change. Someone now has to *own* it: extend it next month, debug it at 2am, or decide whether it belongs in their product. They will read it through Tabthrough, which hides the whole diff and reveals it **one thought at a time** as they press Tab.
 
 Your `.guide.json` decides two things, and only two:
 
@@ -22,16 +22,29 @@ That is the entire job. You are not writing a review, a changelog, a summary, or
 
 A useful test before you write anything: *if I had to explain this change to a competent colleague at a whiteboard, what would I draw first?* Draw that first. The rest of this document is that instinct, made explicit and made checkable.
 
+### Study the patch before you emit
+
+The single most common authoring failure is emitting steps from the **plan** or from memory of the edit, then mapping files onto that story. The guide must come from the **real patch**:
+
+```bash
+git -c core.quotepath=false diff --no-color --no-ext-diff -M -U3 --patch <base> <after>
+```
+
+Read it. List the whiteboard thoughts that are actually in the text. Only then decide order and write JSON. Phantom steps (files you planned but did not change) are dropped with `path-unknown`; multi-thought merges survive validation and fail the reader — worse.
+
 ### The floor you are building on
 
 Tabthrough already has an offline heuristic that orders files by tier (types → domain → services → UI → tests → config) and weights hunks by significance. It is decent. Your guide replaces it only where you know something it cannot infer.
 
-So the bar is not "produce an ordering." It is **"produce an ordering that beats a competent file-tier heuristic."** If your guide reproduces tier order with rationales that restate the tier, you have spent tokens to add nothing. The places you beat it are always the same places:
+So the bar is not "produce an ordering." It is **"produce an ordering that beats a competent file-tier heuristic"** — and that **splits thoughts the heuristic would leave glued**. If your guide reproduces tier order with rationales that restate the tier, or collapses a helper and its consumer into one panel, you have spent tokens to add nothing or to hurt understanding.
+
+The places you beat the heuristic:
 
 - Two files in the same tier where one must be read first for a reason that lives in your head, not in the path.
+- **Two thoughts in one file or one hunk** (helper then consumer; type then caller; failure then fix).
 - A change whose *center* is not its largest hunk.
-- Churn that looks significant and is not (a rename that touched forty call sites), or looks trivial and is not (a one-character change to a default).
-- A file that is only in the diff because of something else, and should be read as a consequence rather than as a topic.
+- Churn that looks significant and is not, or looks trivial and is not.
+- A file that is only in the diff as a consequence of something else.
 
 ---
 
@@ -47,9 +60,20 @@ The heuristic already knows "types before callers" as a path rule. You know it a
 
 A step should be a single unit of understanding: something the reader can absorb, nod at, and press Tab. The reliable signal is the rationale itself. If you need "and" to write it, you have two steps. If you need a semicolon, you probably have two steps and are hiding one.
 
+**Product rule (v0.2):** coarse multi-thought steps are a **defect in the guide**, not a viewer limitation or author preference. Never optimize for an impressive single panel.
+
 Two thoughts in one step is the common failure, because it is how diffs are shaped — a hunk is a unit of *text proximity*, not a unit of meaning. A single function may contain two ideas; two functions in different files may be one.
 
-Going the other way is also possible: twelve steps that are each one line of a mechanical rename is not twelve thoughts, it is one thought and eleven confirmations. Collapse those.
+| Always split (distinct thoughts) | May stay together (one thought) |
+|---|---|
+| New helper / named contract, then call-site refactor | Mechanical rename across many sites (one pattern step + `low` rest) |
+| Type or invariant, then first consumer | Long uniform table (`grouping: "split"`) |
+| Failing test / bug statement, then the fix | Pure formatting / lockfile (`significance: "skip"`) |
+| Behaviour change, then wiring that only makes sense after it | Adjacent hunks that are genuinely one idea (`mergeWithNext` sparingly) |
+
+Going the other way is also possible: twelve steps that are each one line of a mechanical rename is not twelve thoughts, it is one thought and eleven confirmations. Collapse those. Prefer **more, smaller steps** when in doubt on *mixed* hunks; collapse only mechanical uniformity.
+
+**Use `ranges` whenever one file has more than one thought.** A whole-file claim (`path` + `rationale` only) is correct only when the whole file is one thought. Omitting ranges on a mixed file silently bundles every unclaimed group into one Tab — the flashy-panel failure mode.
 
 ### 2.3 The rationale is about position, not content
 
@@ -64,6 +88,7 @@ The reader is looking at the code while they read your line. A rationale that de
 | "Adds tests for the retry path" | "Confirms the boundary conditions from the previous step" |
 | "Refactors `useUser` into a hook" | "Same behaviour, new shape — skim unless the hook signature surprises you" |
 | "Bumps `zod` to 4.0" | "The dependency that forced every change below" |
+| "Adds `eventActionName` and updates `jsxEvent`" | Split into two steps — see §5.1 |
 
 Notice what the right-hand column does: each line positions the step relative to *other steps*. "Every later change", "you just saw", "the previous step", "every change below". Position is inherently relational, and relational language is the tell that you got it right.
 
@@ -75,9 +100,9 @@ A reader has roughly twenty units of real attention in a session. Every step spe
 
 - **8–25 steps** on a typical PR.
 - **Above 40**, the reader is skimming again and you have rebuilt the problem you were solving.
-- **Below 5** on a large diff, you are probably file-claiming everything and adding no order.
+- **Below 5** on a large diff, you are probably file-claiming everything and adding no order — or merging thoughts.
 
-You get under budget by *demoting*, never by hiding. `significance: "skip"` still reveals the lines; it just declines to spend a step on them and keeps them out of the `k/n` count. Lockfiles, generated clients, snapshot updates, and import reordering are what it is for, and the `files` map is the cheap way to say it:
+You get under budget by *demoting*, never by hiding, and never by gluing two thoughts into one step to shorten `k/n`. `significance: "skip"` still reveals the lines; it just declines to spend a step on them and keeps them out of the `k/n` count. Lockfiles, generated clients, snapshot updates, and import reordering are what it is for, and the `files` map is the cheap way to say it:
 
 ```json
 "files": {
@@ -128,9 +153,15 @@ Most changes fall into a handful of shapes. Each has an order that works and a t
 
 **Trap:** walking all forty call sites. Say once that the remaining sites are mechanical, mark them `low`, and let the reader spend their attention on the shape. Also: if the refactor really has no behaviour change, say so in `summary` — it changes how the reader reads everything below.
 
+### Helper then consumer (often same file)
+
+**Order:** introduce the helper / named contract first; then the consumer that adopts it. Separate steps with `ranges`, even when both edits sit in one hunk.
+
+**Trap:** one panel that flashes both. Named in dogfood as `eventActionName` + `jsxEvent` — see §5.1. The reader never forms the contract before seeing the refactor that depends on it.
+
 ### Mixed change (refactor plus feature, the common real PR)
 
-**Order:** separate the strands explicitly. Refactor first as a block, then the feature on top of the new shape. Use the `summary` to name the two strands so the reader knows a boundary is coming.
+**Order:** separate the strands explicitly. Refactor first as a block, then the feature on top of the new shape. Use the `summary` to name the two strands so the reader knows a boundary is coming. Inside each strand, still split helper vs consumer when both appear.
 
 **Trap:** interleaving them by file. The reader cannot tell which lines are "the same thing, moved" and which are new behaviour, so they read everything at feature intensity and run out of attention halfway.
 
@@ -166,22 +197,73 @@ The normative rules are in [guide-schema.md](../architecture/guide-schema.md). T
 
 **Anchor coarsely.** Ranges *intersect* line groups rather than containing them, so pointing at the enclosing function is enough. Being two lines off costs nothing; being ten lines off may claim a neighbouring change. Precision here buys you nothing and costs you robustness across a rebase.
 
-**Omit `ranges` when a whole file is one thought.** A step with just `id`, `path`, and `rationale` claims every unclaimed group in that file. It is the shape to reach for by default, it cannot go stale, and most good guides are mostly these.
+**Omit `ranges` only when a whole file is one thought.** A step with just `id`, `path`, and `rationale` claims every unclaimed group in that file. It cannot go stale, and it is the right default for single-thought files. **If the file has two thoughts, omit ranges and you have authored the anti-pattern.**
 
 **Leave gaps in `order`.** 10, 20, 30. A human will want to insert a step, and renumbering a document is how mistakes get in.
 
 Two grouping tools, used sparingly:
 
-- `grouping: "split"` hands sizing back to the engine for a large *uniform* region — a big table, a long list of similar edits. All sub-steps share your rationale. Use it when the region is one thought that happens to be long.
-- `grouping: "mergeWithNext"` folds this step into the following one in the same file. Use it when two adjacent hunks are genuinely inseparable, not to work around having written the order badly.
+- `grouping: "split"` hands sizing back to the engine for a large *uniform* region — a big table, a long list of similar edits. All sub-steps share your rationale. Use it when the region is one thought that happens to be long. **Do not use `split` to paper over two different thoughts** — write two steps with two rationales instead.
+- `grouping: "mergeWithNext"` folds this step into the following one in the same file. Use it when two adjacent hunks are genuinely inseparable, not to work around having written the order badly or to reunite a helper with its consumer after you correctly split them.
 
 And one honesty mechanism: set `scope`, including `diffDigest`. Without it, the reader cannot be told their guide is stale, and a stale guide that looks fresh is worse than no guide. The digest recipe is exact and reproducible — [guide-schema.md §7](../architecture/guide-schema.md).
+
+**Schema note:** v1 already expresses forced splits via `steps` + `ranges` + `order` / `dependsOn`. Do not invent fields. Soft heuristic split assist for offline guides is a separate backlog item (P1-11 / P0-G*), not a schema change.
 
 ---
 
 ## 5. Anti-patterns
 
 Each of these is something agents actually produce. The fix matters more than the label.
+
+### 5.1 The flashy one-panel reveal (canonical)
+
+**Wrong:** one step that introduces a helper and immediately shows the consumer refactor — e.g. `eventActionName` **and** a `jsxEvent` rewrite in a single Tab. The panel looks dramatic; the reader never owns either thought.
+
+```json
+{
+  "id": "events",
+  "path": "src/jsx/events.ts",
+  "rationale": "Adds eventActionName and refactors jsxEvent to use it"
+}
+```
+
+Two telltales: the rationale needs "and", and a whole-file (or whole-hunk) claim covers two whiteboard drawings.
+
+**Right:** two steps, same file, separate `ranges`, helper/contract before consumer.
+
+```json
+{
+  "version": 1,
+  "summary": "Extract a shared action-name helper, then adopt it in jsxEvent. Two thoughts — do not read them as one flash.",
+  "steps": [
+    {
+      "id": "event-action-name",
+      "order": 10,
+      "path": "src/jsx/events.ts",
+      "ranges": [{ "side": "new", "start": 1, "end": 4 }],
+      "significance": "high",
+      "title": "Named action helper",
+      "rationale": "The contract every later event call site will share",
+      "notes": "`eventActionName` is the naming rule. Read it alone before any call site changes, or the refactor looks like noise."
+    },
+    {
+      "id": "jsx-event-adopts",
+      "order": 20,
+      "path": "src/jsx/events.ts",
+      "ranges": [{ "side": "new", "start": 8, "end": 14 }],
+      "significance": "high",
+      "title": "jsxEvent adopts the helper",
+      "rationale": "First consumer — only makes sense after the helper above",
+      "dependsOn": ["event-action-name"]
+    }
+  ]
+}
+```
+
+Same file, same PR, two Tabs. Line numbers match the golden fixture below — always re-anchor to the enclosing functions in a real patch. If other call sites remain, add a third `low` step for the mechanical rest rather than folding them into either thought.
+
+**Golden fixture (P0-G2 / P0-G3 dogfood):** `test/fixtures/diffs/helper-consumer-refactor.diff` plus the correct guide `test/fixtures/guides/helper-consumer.guide.json`. The anti-pattern whole-file claim is `helper-consumer-merged.guide.json`. Dogfood protocol and expected step ids: `test/fixtures/README.md`.
 
 ### The diff, renumbered
 
@@ -244,13 +326,13 @@ Step 3 says "as we saw in the validator", but the validator is step 7. `dependsO
 
 ### One step, one file, forever
 
-Thirty files, thirty steps, no `ranges`, no grouping, no significance. Technically valid, pedagogically the same as `git diff --stat`.
+Thirty files, thirty steps, no `ranges`, no grouping, no significance. Technically valid, pedagogically the same as `git diff --stat` — and it also **forces multi-thought files into one Tab each**.
 
-**Fix:** at least mark the two or three steps that carry the change, and demote the supporting cast.
+**Fix:** mark the two or three steps that carry the change, demote the supporting cast, and **split multi-thought files with `ranges`**.
 
 ---
 
-## 6. A worked example
+## 6. A worked example (bug fix, cross-file)
 
 A PR that fixes a bug: the session lock was keyed on the workspace folder while it was written keyed on the repo root, so recovery silently never fired inside a monorepo subdirectory. The diff touches `src/model/recovery.ts`, `src/git/probe.ts`, `test/unit/recovery.test.ts`, and `README.md`.
 
@@ -326,11 +408,25 @@ Four steps for four files again, but the guide now carries information the diff 
 
 What it deliberately does *not* do: quiz the reader, estimate reading time, restate any line of code, or claim more confidence than it has.
 
+For the same-file helper+consumer split, see §5.1.
+
 ---
 
 ## 7. Before you emit
 
 Run these against your own document. They are the checks a reviewer would run, and they are cheap.
+
+**Patch gate**
+
+- Did I read the real patch before writing steps?
+- Does every step correspond to something in that patch (not the plan)?
+
+**Granularity (fail the guide if any is "no")**
+
+- Did I merge two whiteboard thoughts into one step?
+- Would any rationale need "and" or a semicolon to stay honest?
+- Does every multi-thought file use `ranges` (not a whole-file claim)?
+- Is `mergeWithNext` unused as a way to glue a helper to its consumer?
 
 **Order**
 
@@ -341,12 +437,11 @@ Run these against your own document. They are the checks a reviewer would run, a
 **Rationales**
 
 - Does every one explain *position*? Delete any that would still be true if the step were moved.
-- Any "and"s that mean two steps?
 - Any questions, gates, or grading language?
 
 **Budget**
 
-- Between 8 and 25 steps for a typical PR?
+- Between 8 and 25 steps for a typical PR? Prefer more small steps over one multi-thought panel when those are the alternatives.
 - At most three `critical`?
 - Lockfiles, generated files, and snapshots demoted via `files`?
 
@@ -360,6 +455,6 @@ Run these against your own document. They are the checks a reviewer would run, a
 
 **The last one, which subsumes the rest**
 
-> If a colleague read only your guide and never scrolled the diff, would they be able to explain this change — and would they be right?
+> If a colleague read only your guide and never scrolled the diff, would they be able to explain this change — **one thought per Tab** — and would they be right?
 
-If yes, ship it. If no, the fix is almost always fewer steps in a better order, not more words.
+If yes, ship it. If no, the fix is almost always fewer *merged* thoughts and a better order, not more words in one panel.

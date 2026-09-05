@@ -43,8 +43,8 @@ async function beginTrip(repo: TmpRepo, options: TripOptions = {}): Promise<Trip
 
   const before = await repo.fingerprint()
   const store = memoryStore()
-  const plan = await planIsolation(repo.root, { entry, includeUntracked })
-  const handle = await isolate({ repoRoot: repo.root, sessionId, plan, store, includeUntracked, now: () => 0 })
+  const plan = await planIsolation(repo.root, { entry, includeUntracked, sessionMode: 'readonly' })
+  const handle = await isolate({ repoRoot: repo.root, sessionId, plan, store, includeUntracked, sessionMode: 'readonly', now: () => 0 })
 
   return { before, handle, store, needsStash: plan.needsStash }
 }
@@ -78,6 +78,24 @@ describe('stash round trip — the fixture matrix', () => {
     expect(trip.handle.token.backupCommit).toBeNull()
 
     await endTrip(repo, trip)
+    expect((await repo.git('rev-parse', '--abbrev-ref', 'HEAD')).trim()).toBe('main')
+    expect((await repo.tryGit('symbolic-ref', '--quiet', 'HEAD')).code).toBe(0)
+  })
+
+  it('reattaches HEAD after a clean read-only review of HEAD (review 004 B1)', async () => {
+    const repo = await makeTempRepo({ files: { 'a.txt': 'one\n' } })
+    const head = (await repo.git('rev-parse', 'HEAD')).trim()
+    const trip = await beginTrip(repo, {
+      sessionId: 'clean-commit-head',
+      entry: { kind: 'commit', rev: head },
+    })
+
+    expect(trip.needsStash).toBe(false)
+    expect((await repo.tryGit('symbolic-ref', '--quiet', 'HEAD')).code).not.toBe(0)
+
+    await endTrip(repo, trip)
+    expect((await repo.git('rev-parse', '--abbrev-ref', 'HEAD')).trim()).toBe('main')
+    expect((await repo.tryGit('symbolic-ref', '--quiet', 'HEAD')).code).toBe(0)
   })
 
   it('restores unstaged edits byte-identically', async () => {
@@ -319,7 +337,7 @@ describe('stash round trip — failure is not loss', () => {
 
     // The journal write after the capture fails; everything before it must unwind.
     const store = failOnWrite(2)
-    const plan = await planIsolation(repo.root, { entry: { kind: 'workingTree' }, includeUntracked: true })
+    const plan = await planIsolation(repo.root, { entry: { kind: 'workingTree' }, includeUntracked: true, sessionMode: 'readonly' })
 
     await expect(isolate({
       repoRoot: repo.root,
@@ -327,6 +345,7 @@ describe('stash round trip — failure is not loss', () => {
       plan,
       store,
       includeUntracked: true,
+      sessionMode: 'readonly',
       now: () => 0,
     })).rejects.toThrow('journal is full')
 
@@ -345,13 +364,14 @@ describe('repository lock', () => {
     const first = await beginTrip(repo, { sessionId: 'window-a' })
     expect(await readLock(repo.root)).not.toBeNull()
 
-    const plan = await planIsolation(repo.root, { entry: { kind: 'workingTree' }, includeUntracked: true })
+    const plan = await planIsolation(repo.root, { entry: { kind: 'workingTree' }, includeUntracked: true, sessionMode: 'readonly' })
     await expect(isolate({
       repoRoot: repo.root,
       sessionId: 'window-b',
       plan,
       store: memoryStore(),
       includeUntracked: true,
+      sessionMode: 'readonly',
       now: () => 0,
     })).rejects.toBeInstanceOf(RepoLockedError)
 
@@ -393,13 +413,14 @@ describe('repository lock', () => {
     expect(trip.handle.token.lockValue).toBe('window-a')
     expect(await readLock(repo.root)).toBe('window-a')
 
-    const plan = await planIsolation(repo.root, { entry: { kind: 'workingTree' }, includeUntracked: true })
+    const plan = await planIsolation(repo.root, { entry: { kind: 'workingTree' }, includeUntracked: true, sessionMode: 'readonly' })
     const refused = isolate({
       repoRoot: repo.root,
       sessionId: 'window-b',
       plan,
       store: memoryStore(),
       includeUntracked: true,
+      sessionMode: 'readonly',
       now: () => 0,
     })
     await expect(refused).rejects.toMatchObject({ owner: 'window-a' })
@@ -419,6 +440,118 @@ describe('repository lock', () => {
 
     expect(await readLock(repo.root)).toBe(head)
     expect(await acquireLock(repo.root, 'window-a')).toBe(false)
+  })
+})
+
+describe('stash round trip — apply Cancel (review 002 B1 / T2)', () => {
+  async function beginApplyTrip(
+    repo: TmpRepo,
+    options: { readonly includeUntracked: boolean, readonly sessionId: string },
+  ): Promise<Trip> {
+    const before = await repo.fingerprint()
+    const store = memoryStore()
+    const head = (await repo.git('rev-parse', 'HEAD')).trim()
+    const entry: ReviewTarget = { kind: 'commit', rev: head }
+    const plan = await planIsolation(repo.root, {
+      entry,
+      includeUntracked: options.includeUntracked,
+      sessionMode: 'apply',
+    })
+    const handle = await isolate({
+      repoRoot: repo.root,
+      sessionId: options.sessionId,
+      plan,
+      store,
+      includeUntracked: options.includeUntracked,
+      sessionMode: 'apply',
+      now: () => 0,
+    })
+    return { before, handle, store, needsStash: plan.needsStash }
+  }
+
+  it('restores byte-identical with untracked present when includeUntracked is true', async () => {
+    const repo = await makeTempRepo({ files: { 'src/hello.ts': 'export const hello = 1\n' } })
+    await repo.write('src/hello.ts', 'export const hello = 1\nexport const world = 2\n')
+    await repo.git('add', '-A')
+    await repo.commit('add world')
+    await repo.write('scratch.txt', 'keep me\n')
+
+    const trip = await beginApplyTrip(repo, { includeUntracked: true, sessionId: 'apply-u-true' })
+    // Reapplying an originally untracked file must not collide with stash
+    // restoration of that same path on Cancel.
+    await repo.write('scratch.txt', 'walkthrough copy\n')
+    // Simulate an applied step: dirty the tree relative to base.
+    await repo.write('src/hello.ts', 'export const hello = 1\nexport const world = 2\n')
+    trip.handle.token = {
+      ...trip.handle.token,
+      appliedIndex: 0,
+      appliedRef: 'refs/tabthrough/applied/apply-u-true',
+    }
+
+    await endTrip(repo, trip)
+    expect(await repo.read('scratch.txt')).toBe('keep me\n')
+  })
+
+  it('preserves pre-session untracked when includeUntracked is false (no bare clean)', async () => {
+    const repo = await makeTempRepo({ files: { 'src/hello.ts': 'export const hello = 1\n' } })
+    await repo.write('src/hello.ts', 'export const hello = 1\nexport const world = 2\n')
+    await repo.git('add', '-A')
+    await repo.commit('add world')
+    await repo.write('scratch.txt', 'not mine to delete\n')
+
+    const trip = await beginApplyTrip(repo, { includeUntracked: false, sessionId: 'apply-u-false' })
+    expect(await repo.exists('scratch.txt')).toBe(true)
+
+    await repo.write('src/hello.ts', 'export const hello = 1\nexport const world = 2\n')
+    trip.handle.token = {
+      ...trip.handle.token,
+      appliedIndex: 0,
+      appliedRef: 'refs/tabthrough/applied/apply-u-false',
+    }
+
+    const outcome = await restoreFromToken({ token: trip.handle.token, store: trip.store })
+    expect(outcome.kind).toBe('restored')
+    expect(await repo.read('scratch.txt')).toBe('not mine to delete\n')
+    expect(await repo.fingerprint()).toEqual(trip.before)
+    expect(await listGuideRefs(repo.root)).toEqual([])
+  })
+
+  it('is safe to run restore twice after a successful apply Cancel', async () => {
+    const repo = await makeTempRepo({ files: { 'src/hello.ts': 'export const hello = 1\n' } })
+    await repo.write('src/hello.ts', 'export const hello = 1\nexport const world = 2\n')
+    await repo.git('add', '-A')
+    await repo.commit('add world')
+    await repo.write('scratch.txt', 'keep\n')
+
+    const trip = await beginApplyTrip(repo, { includeUntracked: false, sessionId: 'apply-retry' })
+    await repo.write('src/hello.ts', 'export const hello = 1\nexport const world = 2\n')
+    trip.handle.token = {
+      ...trip.handle.token,
+      appliedIndex: 0,
+      appliedRef: 'refs/tabthrough/applied/apply-retry',
+    }
+
+    const first = await restoreFromToken({ token: trip.handle.token, store: trip.store })
+    expect(first.kind).toBe('restored')
+    expect(await repo.fingerprint()).toEqual(trip.before)
+
+    // Token was cleared; re-seed a restoring token as a crash-retry would see.
+    const retryToken = {
+      ...trip.handle.token,
+      stage: 'restoring' as const,
+      appliedIndex: 0,
+      appliedRef: 'refs/tabthrough/applied/apply-retry' as string | null,
+    }
+    await trip.store.writeToken(retryToken)
+    // Recreate after-ref content is gone after finalize — retry with empty
+    // afterCommit takes the nothing-to-restore branch.
+    const again = await restoreFromToken({
+      token: { ...retryToken, afterCommit: null, afterTree: null },
+      store: trip.store,
+    })
+    expect(again.kind).toBe('restored')
+    expect(await repo.read('scratch.txt')).toBe('keep\n')
+    expect(await repo.fingerprint()).toEqual(trip.before)
   })
 })
 

@@ -101,6 +101,8 @@ export interface CountOptions extends GitOptions {
    * with nothing in it.
    */
   readonly ignoreWhitespace?: boolean
+  /** Count structural zero-line changes (mode changes and pure renames). */
+  readonly includeStructural?: boolean
 }
 
 function numstatArgs(options: CountOptions): string[] {
@@ -125,7 +127,10 @@ export async function countChangedLines(
   after: string,
   options: CountOptions = {},
 ): Promise<number> {
-  return sumNumstat(await runGit(repoRoot, [...numstatArgs(options), base, after], options))
+  return sumNumstat(
+    await runGit(repoRoot, [...numstatArgs(options), base, after], options),
+    options.includeStructural ?? options.ignoreWhitespace !== true,
+  )
 }
 
 /** Same count, but for the tracked part of the working tree against a revision. */
@@ -134,10 +139,13 @@ export async function countWorkingTreeChangedLines(
   base: string,
   options: CountOptions = {},
 ): Promise<number> {
-  return sumNumstat(await runGit(repoRoot, [...numstatArgs(options), base], options))
+  return sumNumstat(
+    await runGit(repoRoot, [...numstatArgs(options), base], options),
+    options.includeStructural ?? options.ignoreWhitespace !== true,
+  )
 }
 
-export function sumNumstat(raw: string): number {
+export function sumNumstat(raw: string, includeStructural = true): number {
   let total = 0
   for (const line of splitLines(raw)) {
     const [added, deleted] = line.split('\t')
@@ -145,7 +153,13 @@ export function sumNumstat(raw: string): number {
       total += 1
       continue
     }
-    total += Number(added ?? 0) + Number(deleted ?? 0)
+    const addedCount = Number(added)
+    const deletedCount = Number(deleted)
+    if (Number.isFinite(addedCount) && Number.isFinite(deletedCount)) {
+      total += addedCount + deletedCount
+      if (includeStructural && addedCount === 0 && deletedCount === 0 && (line.split('\t')[2] ?? '') !== '')
+        total += 1
+    }
   }
   return total
 }

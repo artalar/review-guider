@@ -6,6 +6,9 @@ export type ReviewTarget
     | { readonly kind: 'commit', readonly rev: string }
     | { readonly kind: 'range', readonly from: string, readonly to: string }
 
+/** Session contract: read-only virtual reveal vs write-to-disk apply. */
+export type SessionMode = 'readonly' | 'apply'
+
 export function describeTarget(target: ReviewTarget): string {
   switch (target.kind) {
     case 'workingTree':
@@ -82,4 +85,6 @@ export interface PreflightRequest {
   readonly willStash: boolean
   readonly willCheckout: string | null
   readonly files: PreflightFiles
+  /** Frozen for the session; disclosed so apply never looks like read-only. */
+  readonly sessionMode: SessionMode
 }

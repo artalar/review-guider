@@ -21,7 +21,7 @@ jobs:
       - name: Set node
         uses: actions/setup-node@v3
         with:
-          node-version: lts/*
+          node-version: '24'
           cache: pnpm
 
       - name: Setup
@@ -44,7 +44,7 @@ jobs:
       - name: Set node
         uses: actions/setup-node@v3
         with:
-          node-version: lts/*
+          node-version: '24'
           cache: pnpm
 
       - name: Setup
@@ -61,7 +61,7 @@ jobs:
 
     strategy:
       matrix:
-        node: [lts/*]
+        node: ['24']
         os: [ubuntu-latest, windows-latest, macos-latest]
       fail-fast: false
 

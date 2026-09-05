@@ -322,7 +322,12 @@ export function mergeGuide(args: MergeArgs): MergeResult {
 
   if (surviving.length === 0) {
     return {
-      guide: { steps: heuristic.steps, stale, diagnostics },
+      guide: {
+        steps: heuristic.steps,
+        stale,
+        diagnostics,
+        ...(sidecar.summary === undefined ? {} : { summary: sidecar.summary }),
+      },
       diagnostics,
     }
   }
@@ -344,7 +349,15 @@ export function mergeGuide(args: MergeArgs): MergeResult {
   const combined = applyMergeWithNext([...sidecarWork, ...applied.map(step => ({ step, grouping: 'atomic' as const }))], diagnostics)
   const steps = ensureCoverage(diff, absorbSkipSteps(combined))
 
-  return { guide: { steps, stale, diagnostics }, diagnostics }
+  return {
+    guide: {
+      steps,
+      stale,
+      diagnostics,
+      ...(sidecar.summary === undefined ? {} : { summary: sidecar.summary }),
+    },
+    diagnostics,
+  }
 }
 
 /** §5.2 `merge`: heuristic order fills the gaps, appended after the sidecar. */

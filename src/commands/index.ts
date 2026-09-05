@@ -1,12 +1,13 @@
 import type { ReviewTarget } from '../git/types'
-import { peek, wrap } from '@reatom/core'
+import { isAbort, peek, wrap } from '@reatom/core'
 import { useCommands } from 'reactive-vscode'
-import { window } from 'vscode'
+import { Uri, commands as VscodeCommands, window } from 'vscode'
 import { commands as Commands } from '../generated/meta'
 import {
   cancelSession,
   canStart,
   cleanupBackups,
+  commitHandoff,
   discardRecovery,
   finishSession,
   recoverBackup,
@@ -14,6 +15,7 @@ import {
   startBlockedReason,
   startSession,
 } from '../model/session'
+import { beginFromActiveGuide } from '../ui/active-guide'
 import { revealCurrentStep } from '../ui/documents'
 import { pickCommitEntry, promptRangeEntry } from '../ui/entry'
 import { logger } from '../utils'
@@ -28,11 +30,19 @@ export function useGuideCommands(): void {
     [Commands.start]: wrap(() => guard('start', () => begin(async () => ({ kind: 'workingTree' })))),
     [Commands.startFromCommit]: wrap(() => guard('startFromCommit', () => begin(pickCommitEntry))),
     [Commands.startFromRange]: wrap(() => guard('startFromRange', () => begin(promptRangeEntry))),
+    [Commands.startFromGuide]: wrap((resource?: unknown) => guard(
+      'startFromGuide',
+      () => beginFromActiveGuide(resource instanceof Uri ? resource : undefined),
+    )),
     [Commands.next]: wrap(() => guard('next', advance)),
     [Commands.previous]: wrap(() => guard('previous', retreat)),
     [Commands.showStepDetail]: wrap(() => guard('showStepDetail', revealCurrentStep)),
+    [Commands.showWalkthrough]: wrap(() => guard('showWalkthrough', async () => {
+      await wrap(VscodeCommands.executeCommand('workbench.view.extension.tabthrough', { preserveFocus: true }))
+    })),
     [Commands.finish]: wrap(() => guard('finish', () => finishSession())),
     [Commands.cancel]: wrap(() => guard('cancel', () => cancelSession('cancel'))),
+    [Commands.commitHandoff]: wrap(() => guard('commitHandoff', () => commitHandoff())),
     [Commands.restoreBackup]: wrap(() => guard('restoreBackup', () => recoverBackup())),
     // The only way out of a restore that can never be made to verify. It
     // forgets the reminder; the stash entry and the refs stay in git.
@@ -67,11 +77,32 @@ async function begin(pick: () => Promise<ReviewTarget | null>): Promise<void> {
 /**
  * Tab past the last step is a no-op plus a subtle offer to finish — no score,
  * no timer, no gate (the PO's UX guardrail for this phase).
+ *
+ * `next()` returns false for conflict / refuse / save failure as well as
+ * completion. Only offer Finish when the cursor cannot advance (review 003 B1).
  */
 async function advance(): Promise<void> {
   const model = peek(session)
-  if (model === null || model.next())
+  if (model === null)
     return
+  if (model.applyPending())
+    return
+
+  const moved = await wrap(Promise.resolve(model.next()))
+  if (moved)
+    return
+  if (model.canAdvance())
+    return
+
+  if (model.mode === 'apply') {
+    const answer = await wrap(window.showInformationMessage(
+      'Apply complete. Finish keeps your changes so you can commit.',
+      'Finish and Keep',
+    ))
+    if (answer === 'Finish and Keep')
+      await wrap(finishSession())
+    return
+  }
 
   const answer = await wrap(window.showInformationMessage('Review complete.', 'Finish Review'))
   if (answer === 'Finish Review')
@@ -79,7 +110,10 @@ async function advance(): Promise<void> {
 }
 
 async function retreat(): Promise<void> {
-  peek(session)?.prev()
+  const model = peek(session)
+  if (model === null || model.applyPending())
+    return
+  await wrap(Promise.resolve(model.prev()))
 }
 
 /**
@@ -91,6 +125,10 @@ async function guard(name: string, run: () => Promise<unknown>): Promise<void> {
     await run()
   }
   catch (error) {
+    if (isAbort(error))
+      return
     logger.error(`tabthrough.${name} failed`, error)
+    if (!name.startsWith('start'))
+      await window.showErrorMessage(`Tabthrough could not ${name}: ${error instanceof Error ? error.message : String(error)}`)
   }
 }

@@ -39,4 +39,6 @@ flowchart TD
 
 ## Current milestone
 
-**v0.1 MVP** — stash-safe Tab reveal + heuristic/sidecar guides (see `specs/product.md`, ADR 0001).
+**v0.1 MVP (closing)** — stash-safe Tab reveal + heuristic/sidecar; manual drills remain (see `specs/product.md`, ADR 0001).
+
+**Next (v0.2)** — apply-with-user / commit-oriented walkthrough + finer guide steps; ADR 0004 accepted; Planner P0-A2 **Done**; Implementer P0-A3 (Phase 7) **reopened** and P0-A5 (Phase 9) **landed but unreviewed** — see [review 002](../progress/reviews/002.md): 3 blockers on the apply Cancel/conflict paths and a red `test:ci`. **Next: P0-A3-F1…F4**, which gate P0-A4 (see `progress/backlog.md`).

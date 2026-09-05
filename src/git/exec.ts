@@ -90,6 +90,10 @@ function isEnoent(error: unknown): boolean {
 
 /** The production {@link GitExec}. Resolves for any exit code; only spawn failures reject. */
 export const execGit: GitExec = request => new Promise<GitExecResult>((resolve, reject) => {
+  if (request.signal?.aborted) {
+    reject(request.signal.reason ?? new Error('aborted'))
+    return
+  }
   const timeoutMs = request.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const child = spawn('git', [...request.args], {
     cwd: request.cwd,
@@ -101,31 +105,24 @@ export const execGit: GitExec = request => new Promise<GitExecResult>((resolve, 
   const stdout: Buffer[] = []
   const stderr: Buffer[] = []
   let settled = false
+  let failure: unknown
 
   const timer = setTimeout(() => {
     if (settled)
       return
-    settled = true
+    failure = new GitTimeoutError(request.args, timeoutMs)
     child.kill('SIGKILL')
-    reject(new GitTimeoutError(request.args, timeoutMs))
   }, timeoutMs)
 
   const onAbort = () => {
     if (settled)
       return
-    settled = true
+    failure ??= request.signal?.reason ?? new Error('aborted')
     clearTimeout(timer)
     child.kill('SIGKILL')
-    reject(request.signal?.reason ?? new Error('aborted'))
   }
 
   if (request.signal) {
-    if (request.signal.aborted) {
-      clearTimeout(timer)
-      child.kill('SIGKILL')
-      reject(request.signal.reason ?? new Error('aborted'))
-      return
-    }
     request.signal.addEventListener('abort', onAbort, { once: true })
   }
 
@@ -133,6 +130,20 @@ export const execGit: GitExec = request => new Promise<GitExecResult>((resolve, 
     clearTimeout(timer)
     request.signal?.removeEventListener('abort', onAbort)
   }
+
+  // Killing a child while it is consuming stdin can report EPIPE on the
+  // writable stream after the promise has already been rejected by abort.
+  // Handle it explicitly so an interrupted git probe cannot become an
+  // uncaught exception in the extension host.
+  child.stdin?.on('error', (error) => {
+    const code = typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : ''
+    if (code === 'EPIPE' || settled)
+      return
+    failure ??= error
+    child.kill('SIGKILL')
+  })
 
   child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk))
   child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk))
@@ -150,6 +161,10 @@ export const execGit: GitExec = request => new Promise<GitExecResult>((resolve, 
       return
     settled = true
     cleanup()
+    if (failure !== undefined) {
+      reject(failure)
+      return
+    }
     resolve({
       code: code ?? -1,
       stdout: Buffer.concat(stdout).toString('utf8'),

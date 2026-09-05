@@ -1,31 +1,51 @@
 # Tabthrough
 
-<a href="https://marketplace.visualstudio.com/items?itemName=artalar.tabthrough" target="__blank"><img src="https://badgen.net/vs-marketplace/v/artalar.tabthrough?color=333&label=VS%20Code%20Marketplace" alt="Visual Studio Marketplace Version" /></a>
-<a href="https://kermanx.github.io/reactive-vscode/" target="__blank"><img src="https://img.shields.io/badge/made_with-reactive--vscode-%23007ACC?style=flat&labelColor=%23229863"  alt="Made with reactive-vscode" /></a>
-
 **Understand every change, one Tab at a time.**
 
-Large diffs arrive as a list of files. Tabthrough turns your working changes, a commit, or a commit range into an ordered walkthrough: foundations before callers, schemas before migrations, implementation before proof. Press **Tab** to reveal one thought at a time in VS Code, at your pace. It works offline and restores your workspace when you are done.
+Tabthrough turns local changes, a commit, or a commit range into an ordered walkthrough in VS Code and Cursor. Reveal the code one step at a time while the sidebar keeps the author's explanation in view. It works offline, without an account or API key.
 
-**Install from the VS Code Marketplace → run “Tabthrough: Review Working Changes” → press Tab.**
+The **Walkthrough sidebar** shows progress, the guide summary, each step's reason and full notes, and navigation and completion controls. Open it from the activity bar or **Tabthrough: Show Walkthrough**. The final step stays visible until you finish.
+
+### Install and try
+
+Build and sideload this release candidate:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+# Node 24 is required for the packaging toolchain.
+# If you use mise: mise exec node@24 -- pnpm ext:package
+pnpm ext:package
+code --install-extension tabthrough-0.0.0.vsix
+# Cursor users: pnpm ext:install
+```
+
+For a small, disposable example with authored notes:
+
+```bash
+node scripts/create-demo.mjs
+```
+
+Open the printed folder in your editor, run **Tabthrough: Review Working Changes**, choose **Read-only review**, approve isolation, and press **Tab**. The demo walks from an order type to its calculation and caller. The script creates a new temporary repository each time; it does not change your project.
 
 ## Why ordinary diffs are hard
 
 Git sorts by path. Explanation order is different: types before callers, schema before migration, the fix before the test that proves it. Skimming the file list is fast; finishing with a mental model is not. Tabthrough is a **guided diff reader** — it sequences the source so you form the explanation yourself. It does not find bugs, post review comments, or replace PR tools.
 
-## Try it in three steps
+## Review or apply
 
-1. **Command Palette** → **Tabthrough: Review Working Changes** (or Review a Commit… / Review a Commit Range…).
-2. **Approve the pre-flight.** Your current work is captured and isolated for the session; nothing is mutated until you confirm.
-3. **Press Tab.** Each press reveals the next piece of the change. Shift+Tab goes back. Finish or Cancel restores the workspace.
+1. Open the sidebar and choose working changes, a commit, or a commit range.
+2. Choose **Read-only review** or **Apply with me**. Dirty file buffers in the repository are saved before planning; a failed save stops the review. Review the isolation confirmation before Git changes the workspace.
+3. Read each explanation in the sidebar and move through the change.
 
-| Key | Action |
-|-----|--------|
-| <kbd>Tab</kbd> | Reveal next change |
-| <kbd>Shift</kbd>+<kbd>Tab</kbd> | Go back one change |
-| <kbd>Alt</kbd>+<kbd>]</kbd> / <kbd>Alt</kbd>+<kbd>[</kbd> | Next / previous from anywhere |
+| Mode | Navigation | Finish | Cancel |
+|------|------------|--------|--------|
+| Read-only | Tab / Shift+Tab in the review editor; sidebar buttons | Restores the pre-session workspace | Restores the pre-session workspace |
+| Apply with me | Alt+] / Alt+[; sidebar buttons | Keeps the walked changes and offers Source Control | Asks before discarding walkthrough edits and restoring the pre-session workspace |
 
-Tab is only bound inside the read-only review document (`tabthrough:` scheme), so it never competes with indent, snippets, or IntelliSense in your real files. Turn it off with `tabthrough.keybinding.useTab` if you prefer the alternate chord alone.
+Alt+] and Alt+[ work in either mode. Ordinary Tab still indents in real file editors. Turn off `tabthrough.keybinding.useTab` to use only the alternate shortcuts in read-only reviews.
+
+Apply mode lets you edit real files as you walk. Conflicting edits stop the next step and show a message; resolve them and use **Next step** again. Tabthrough never creates a commit for you. Finishing early keeps a partial walk, so check Source Control before committing.
 
 ## What you can review
 
@@ -39,14 +59,14 @@ Native one-click GitHub/GitLab PR entry is planned; today you review the local c
 
 ## Designed to restore your workspace exactly
 
-Reviewing uncommitted work means hiding it for a while. Tabthrough is built around that being safe and reversible:
+Review isolation temporarily stashes saved working changes. Tabthrough is built around that being safe and reversible:
 
 - Capture tracked and untracked state into an immutable ref **before** the first mutation
 - Journal every stage before it runs, so a crash is a lookup rather than a guess
 - Restore with apply → verify → drop; backup refs survive until verification succeeds
 - One session per repository; a live session in another window will not be “restored” over
 
-Finish and Cancel both restore. If VS Code exits mid-session, the next window offers recovery before other git work. Details: [`work-docs/architecture/overview.md`](work-docs/architecture/overview.md).
+In read-only mode, Finish and Cancel restore. In apply mode, Finish keeps the walked tree and retains backups; Cancel restores after confirmation. If the editor exits mid-session, the next window offers recovery before another review. Details: [`work-docs/architecture/overview.md`](work-docs/architecture/overview.md).
 
 ## Bring the author’s intent with `.guide.json`
 
@@ -69,15 +89,16 @@ Malformed guides never block a review: every failure falls back to the heuristic
 
 <!-- configs -->
 
-| Key | Description | Type | Default |
-| --- | --- | --- | --- |
-| `tabthrough.showRationale` | Show the one-line reason each step was ordered where it is | `boolean` | `true` |
-| `tabthrough.reveal.mode` | How the change is revealed (`progressive` hides unread lines; `dim` greys them) | `string` | `"progressive"` |
-| `tabthrough.guideFile` | Path of the optional `.guide.json` sidecar | `string` | `".guide.json"` |
-| `tabthrough.keybinding.useTab` | Bind Tab inside the review document | `boolean` | `true` |
-| `tabthrough.maxLinesPerStep` | Cap on low-significance lines per step | `number` | `24` |
-| `tabthrough.hideFormattingSteps` | Drop whitespace/comment-only steps | `boolean` | `false` |
-| `tabthrough.stash.includeUntracked` | Include untracked files when isolating (ignored files never) | `boolean` | `true` |
+| Key                                 | Description                                                                                                                  | Type      | Default         |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------- | --------------- |
+| `tabthrough.showRationale`          | Show the one-line reason each step was ordered where it is (for example "types before callers") in the status bar.           | `boolean` | `true`          |
+| `tabthrough.reveal.mode`            | How the reviewed change is revealed as you advance through steps. Ignored in apply mode.                                     | `string`  | `"progressive"` |
+| `tabthrough.session.mode`           | Session contract: read-only review, apply-with-user, or ask each time.                                                       | `string`  | `"ask"`         |
+| `tabthrough.guideFile`              | Repository-relative path of the optional guide sidecar that overrides the heuristic step order.                              | `string`  | `".guide.json"` |
+| `tabthrough.keybinding.useTab`      | Bind Tab to the next review step while a review document is focused. Alt+] and Alt+[ always work regardless of this setting. | `boolean` | `true`          |
+| `tabthrough.maxLinesPerStep`        | Upper bound on how many low-significance changed lines are coalesced into a single step.                                     | `number`  | `24`            |
+| `tabthrough.hideFormattingSteps`    | Drop steps whose changes are whitespace or comments only.                                                                    | `boolean` | `false`         |
+| `tabthrough.stash.includeUntracked` | Include untracked files when isolating the workspace. Ignored files are never included.                                      | `boolean` | `true`          |
 
 <!-- configs -->
 
@@ -85,19 +106,22 @@ Malformed guides never block a review: every failure falls back to the heuristic
 
 <!-- commands -->
 
-| Command | Title |
-| --- | --- |
-| `tabthrough.start` | Tabthrough: Review Working Changes |
-| `tabthrough.startFromCommit` | Tabthrough: Review a Commit... |
-| `tabthrough.startFromRange` | Tabthrough: Review a Commit Range... |
-| `tabthrough.next` | Tabthrough: Reveal Next Change |
-| `tabthrough.previous` | Tabthrough: Go Back One Change |
-| `tabthrough.showStepDetail` | Tabthrough: Go to Current Step |
-| `tabthrough.finish` | Tabthrough: Finish and Restore Workspace |
-| `tabthrough.cancel` | Tabthrough: Cancel and Restore Workspace |
-| `tabthrough.restoreBackup` | Tabthrough: Restore from Backup |
-| `tabthrough.discardRecovery` | Tabthrough: Dismiss Pending Restore... |
-| `tabthrough.cleanupBackups` | Tabthrough: Clean Up Backups |
+| Command                      | Title                                     |
+| ---------------------------- | ----------------------------------------- |
+| `tabthrough.start`           | Tabthrough: Review Working Changes        |
+| `tabthrough.startFromCommit` | Tabthrough: Review a Commit...            |
+| `tabthrough.startFromRange`  | Tabthrough: Review a Commit Range...      |
+| `tabthrough.startFromGuide`  | Tabthrough: Review Using This Guide       |
+| `tabthrough.next`            | Tabthrough: Reveal Next Change            |
+| `tabthrough.previous`        | Tabthrough: Go Back One Change            |
+| `tabthrough.showStepDetail`  | Tabthrough: Go to Current Step            |
+| `tabthrough.showWalkthrough` | Tabthrough: Show Walkthrough              |
+| `tabthrough.finish`          | Tabthrough: Finish Review                 |
+| `tabthrough.cancel`          | Tabthrough: Cancel and Restore Workspace  |
+| `tabthrough.commitHandoff`   | Tabthrough: Open Source Control to Commit |
+| `tabthrough.restoreBackup`   | Tabthrough: Restore from Backup           |
+| `tabthrough.discardRecovery` | Tabthrough: Dismiss Pending Restore...    |
+| `tabthrough.cleanupBackups`  | Tabthrough: Clean Up Backups              |
 
 <!-- commands -->
 
@@ -110,8 +134,9 @@ Malformed guides never block a review: every failure falls back to the heuristic
 | **Shallow clones missing parents** | Refused with a fetch hint |
 | **One-click remote PR URLs** | Planned — use commit/range locally for now |
 | **LLM-generated guides** | Planned (BYOK); default path is offline |
-| **Binary / mode-only changes** | Visible skipped steps so the count stays honest |
+| **Binary / rename / mode / symlink / generated changes** | Read-only review supports explanation steps; apply refuses targets it cannot reproduce safely |
 | **Whitespace-only diffs** | Start refused |
+| **Apply ranges** | Use read-only review; apply supports working changes and single commits |
 
 ## Contributing
 

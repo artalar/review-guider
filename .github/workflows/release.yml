@@ -25,17 +25,21 @@ jobs:
       - name: Set node
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: '24'
           cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test:ci
+
+      - name: Generate .vsix file
+        run: pnpm ext:package
 
       - run: npx changelogithub
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-
-      - run: pnpm install
-
-      - name: Generate .vsix file
-        run: pnpm package
 
       - name: Publish Extension
         run: npx vsxpub --no-dependencies

@@ -97,6 +97,38 @@ describe('renderReveal', () => {
 })
 
 describe('renderReveal — file lifecycle', () => {
+  it('tracks a removed final newline independently from the added side', () => {
+    const diff = parseUnifiedDiff(
+      'diff --git a/file.txt b/file.txt\n'
+      + '--- a/file.txt\n'
+      + '+++ b/file.txt\n'
+      + '@@ -1 +1 @@\n'
+      + '-old\n'
+      + '+new\n'
+      + '\\ No newline at end of file\n',
+    ).files[0]
+    expect(diff.oldTrailingNewline).toBe(true)
+    expect(diff.newTrailingNewline).toBe(false)
+    expect(renderReveal('old\n', diff, []).text).toBe('old\n')
+    expect(renderReveal('old\n', diff, diff.groups).text).toBe('new')
+  })
+
+  it('tracks an added final newline independently from the removed side', () => {
+    const diff = parseUnifiedDiff(
+      'diff --git a/file.txt b/file.txt\n'
+      + '--- a/file.txt\n'
+      + '+++ b/file.txt\n'
+      + '@@ -1 +1 @@\n'
+      + '-old\n'
+      + '\\ No newline at end of file\n'
+      + '+new\n',
+    ).files[0]
+    expect(diff.oldTrailingNewline).toBe(false)
+    expect(diff.newTrailingNewline).toBe(true)
+    expect(renderReveal('old', diff, []).text).toBe('old')
+    expect(renderReveal('old', diff, diff.groups).text).toBe('new\n')
+  })
+
   it('renders an added file from an empty base and honours its missing newline', () => {
     const added = fileAt(awkward.files, 'src/added.ts')
     expect(renderReveal('', added, []).text).toBe('')

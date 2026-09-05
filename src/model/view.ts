@@ -1,8 +1,20 @@
+import type { PreflightRequest, SessionMode } from '../git/types'
 import type { GuideStep, LineRange } from '../guide/types'
+import type { SessionStatus } from './session'
 import type { SessionProgress } from './steps'
 import { computed } from '@reatom/core'
+import { describeTarget } from '../git/types'
 import { showRationale } from './config'
-import { session, sessionStatus, startBlockedReason } from './session'
+import {
+  preflightRequest,
+  recoveryPending,
+  restoreBlock,
+  session,
+  canStart as sessionCanStart,
+  sessionLiveElsewhere,
+  sessionStatus,
+  startBlockedReason,
+} from './session'
 
 /**
  * The bridge's projections. Everything VS Code renders is derived here, so the
@@ -61,6 +73,21 @@ export const statusText = computed((): string | null => {
   const model = session()
   if (model === null)
     return null
+
+  if (model.mode === 'apply') {
+    if (model.applyPending())
+      return '$(sync~spin) Applying step…'
+    if (model.isComplete())
+      return '$(edit) Apply complete · Finish keeps · Cancel restores'
+    const { index, total } = model.progress()
+    const step = model.currentStep()
+    const parts = [`$(edit) ${index} of ${total}`]
+    if (step !== null)
+      parts.push(basename(step.path))
+    if (showRationale() && step !== null && step.rationale !== '')
+      parts.push(step.rationale)
+    return parts.join(' · ')
+  }
 
   if (model.isComplete())
     return '$(book) Walkthrough complete · Finish and restore'
@@ -136,6 +163,9 @@ export const reviewViewModel = computed((): ReviewViewModel | null => {
   const model = session()
   if (model === null)
     return null
+  // Apply mode uses ordinary file editors (ADR 0004 D2); no virtual diff.
+  if (model.mode === 'apply')
+    return null
 
   const active = model.activeFile()
   const upcoming = model.nextStep()
@@ -163,3 +193,62 @@ export const reviewViewModel = computed((): ReviewViewModel | null => {
     complete: model.isComplete(),
   }
 }, 'ui.reviewViewModel')
+
+/** Bound into VS Code context keys so keybindings see live apply-in-flight (R-apply-5). */
+export const applyPending = computed(
+  (): boolean => session()?.applyPending() ?? false,
+  'ui.applyPending',
+)
+
+/**
+ * The native sidebar reads one projection instead of reaching into the
+ * session model itself. Keeping the projection here makes the extension host
+ * bridge a renderer, while all session state remains owned by Reatom.
+ */
+export interface SidebarViewModel {
+  readonly status: SessionStatus
+  readonly mode: SessionMode | null
+  readonly entry: string | null
+  readonly summary: string | null
+  readonly canStart: boolean
+  readonly progress: SessionProgress | null
+  readonly currentStep: GuideStep | null
+  readonly nextStep: GuideStep | null
+  readonly complete: boolean
+  readonly applyPending: boolean
+  readonly canAdvance: boolean
+  readonly canRetreat: boolean
+  readonly preflight: PreflightRequest | null
+  readonly recoveryPending: boolean
+  readonly liveElsewhere?: boolean
+  readonly blockedMessage: string | null
+  readonly idleReason: string | null
+}
+
+export const sidebarViewModel = computed((): SidebarViewModel => {
+  const model = session()
+  const status = sessionStatus()
+  const current = model?.currentStep() ?? null
+  const next = model?.nextStep() ?? null
+  const block = restoreBlock()
+
+  return {
+    status,
+    mode: model?.mode ?? null,
+    entry: model === null ? null : describeTarget(model.entry),
+    summary: model?.guide.summary ?? null,
+    canStart: sessionCanStart(),
+    progress: model?.progress() ?? null,
+    currentStep: current,
+    nextStep: next,
+    complete: model?.isComplete() ?? false,
+    applyPending: model?.applyPending() ?? false,
+    canAdvance: model?.canAdvance() ?? false,
+    canRetreat: model?.canRetreat() ?? false,
+    preflight: preflightRequest(),
+    recoveryPending: recoveryPending(),
+    liveElsewhere: sessionLiveElsewhere(),
+    blockedMessage: block?.kind === 'blocked' ? `${block.message}\n${block.commands.join('\n')}` : null,
+    idleReason: status === 'idle' ? startBlockedReason() : null,
+  }
+}, 'ui.sidebarViewModel')

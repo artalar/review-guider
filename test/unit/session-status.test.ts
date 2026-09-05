@@ -13,7 +13,7 @@ import {
  * transitions must be rejected, never silently applied.
  */
 
-const ALL: readonly SessionStatus[] = ['idle', 'preflight', 'stashing', 'active', 'restoring', 'blocked', 'error']
+const ALL: readonly SessionStatus[] = ['idle', 'preflight', 'stashing', 'active', 'applying', 'restoring', 'blocked', 'error']
 
 // `error` and `blocked` are only reachable through a mutation, so tests reach
 // them the same way the model does, one legal hop at a time.
@@ -22,8 +22,9 @@ const PATHS: Readonly<Record<SessionStatus, readonly SessionStatus[]>> = {
   preflight: ['preflight'],
   stashing: ['preflight', 'stashing'],
   active: ['preflight', 'stashing', 'active'],
+  applying: ['preflight', 'stashing', 'active', 'applying'],
   restoring: ['preflight', 'stashing', 'active', 'restoring'],
-  blocked: ['preflight', 'stashing', 'active', 'restoring', 'blocked'],
+  blocked: ['preflight', 'stashing', 'active', 'applying', 'blocked'],
   error: ['preflight', 'error'],
 }
 

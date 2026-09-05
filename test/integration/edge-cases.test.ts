@@ -187,7 +187,7 @@ describe('shallow clone with missing objects', () => {
 
     // The plan is the stat-only pass, so the refusal happens before the
     // pre-flight is even shown.
-    const failure = await planIsolation(clone.root, { entry: { kind: 'commit', rev: 'HEAD' }, includeUntracked: true })
+    const failure = await planIsolation(clone.root, { entry: { kind: 'commit', rev: 'HEAD' }, includeUntracked: true, sessionMode: 'readonly' })
       .then(() => null, (error: unknown) => error)
 
     expect(failure).toBeInstanceOf(MissingObjectsError)
@@ -239,7 +239,7 @@ describe('shallow clone with missing objects', () => {
     await clone.git('fetch', '--quiet', '--depth', '1', 'origin', 'feature')
 
     await expect(
-      planIsolation(clone.root, { entry: { kind: 'range', from: 'FETCH_HEAD', to: 'HEAD' }, includeUntracked: true }),
+      planIsolation(clone.root, { entry: { kind: 'range', from: 'FETCH_HEAD', to: 'HEAD' }, includeUntracked: true, sessionMode: 'readonly' }),
     ).rejects.toBeInstanceOf(MissingObjectsError)
   })
 })

@@ -1,4 +1,4 @@
-import type { HeadPosition, ReviewTarget } from './types'
+import type { HeadPosition, ReviewTarget, SessionMode } from './types'
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 
@@ -11,6 +11,8 @@ import { realpathSync } from 'node:fs'
  * implementation.
  */
 
+export type { SessionMode }
+
 export type IsolationStage
   /** Nothing touched. */
   = | 'planned'
@@ -20,12 +22,18 @@ export type IsolationStage
     | 'stashed'
   /** Detached HEAD at the target revision. */
     | 'checkedout'
-  /** Steady state. */
+  /** Steady state (read-only reveal or apply walk between Tabs). */
     | 'reviewing'
+  /** Apply mode: mid Tab/Previous write (journalled before mutate). */
+    | 'applying'
+  /** Apply mode Finish: carrying the working tree back to headBefore. */
+    | 'finishing-keep'
   /** Restore in flight. */
     | 'restoring'
   /** Restored and verified; the token is about to be deleted. */
     | 'done'
+  /** Apply Finish succeeded; tree kept; refs retained until cleanup. */
+    | 'done-kept'
 
 export const ISOLATION_STAGES: readonly IsolationStage[] = [
   'planned',
@@ -33,19 +41,25 @@ export const ISOLATION_STAGES: readonly IsolationStage[] = [
   'stashed',
   'checkedout',
   'reviewing',
+  'applying',
+  'finishing-keep',
   'restoring',
   'done',
+  'done-kept',
 ]
 
 const LEGAL_STAGES: Readonly<Record<IsolationStage, readonly IsolationStage[]>> = {
-  planned: ['captured', 'restoring', 'done'],
+  'planned': ['captured', 'restoring', 'done'],
   // `checkedout` is reachable directly because a clean tree is never stashed.
-  captured: ['stashed', 'checkedout', 'restoring', 'done'],
-  stashed: ['checkedout', 'restoring'],
-  checkedout: ['reviewing', 'restoring'],
-  reviewing: ['restoring'],
-  restoring: ['restoring', 'done'],
-  done: [],
+  'captured': ['stashed', 'checkedout', 'restoring', 'done'],
+  'stashed': ['checkedout', 'restoring'],
+  'checkedout': ['reviewing', 'restoring'],
+  'reviewing': ['applying', 'restoring', 'finishing-keep'],
+  'applying': ['reviewing', 'restoring'],
+  'finishing-keep': ['done-kept', 'restoring'],
+  'restoring': ['restoring', 'done'],
+  'done': [],
+  'done-kept': [],
 }
 
 export class IllegalStageError extends Error {
@@ -87,6 +101,15 @@ export interface SessionToken {
   readonly backupCommit: string | null
   readonly stashMessage: string | null
   readonly checkedOut: string | null
+  /**
+   * Session contract. Additive on `v: 1`: readers that predate the field treat
+   * a missing value as `readonly`.
+   */
+  readonly mode: SessionMode
+  /** Last successfully applied step index; `-1` means none. Missing → `-1`. */
+  readonly appliedIndex: number
+  /** `refs/tabthrough/applied/<id>`, apply mode only. */
+  readonly appliedRef: string | null
 }
 
 /** Persistence seam. `StorePort` in the model is this interface. */
@@ -153,9 +176,16 @@ export async function persistToken(store: TokenStore, token: SessionToken): Prom
   return token
 }
 
-/** A token worth offering recovery for: something was mutated and not yet undone. */
+/**
+ * A token worth offering crash recovery for: something was mutated and not yet
+ * undone. `done-kept` is terminal after Apply Finish — Start may proceed; refs
+ * stay until explicit cleanup (ADR 0004 D6 / R-apply-3).
+ */
 export function isRecoverable(token: SessionToken | null): token is SessionToken {
-  return token !== null && token.stage !== 'planned' && token.stage !== 'done'
+  return token !== null
+    && token.stage !== 'planned'
+    && token.stage !== 'done'
+    && token.stage !== 'done-kept'
 }
 
 /** How long a heartbeat is trusted before the window behind it counts as gone. */
@@ -233,6 +263,11 @@ export function parseToken(input: unknown): SessionToken | null {
   if (stage === null || !ISOLATION_STAGES.includes(stage as IsolationStage))
     return null
 
+  const mode = input.mode === 'apply' || input.mode === 'readonly' ? input.mode : 'readonly'
+  const appliedIndex = typeof input.appliedIndex === 'number' && Number.isFinite(input.appliedIndex)
+    ? Math.trunc(input.appliedIndex)
+    : -1
+
   return {
     v: 1,
     sessionId,
@@ -251,5 +286,8 @@ export function parseToken(input: unknown): SessionToken | null {
     backupCommit: asNullableString(input.backupCommit),
     stashMessage: asNullableString(input.stashMessage),
     checkedOut: asNullableString(input.checkedOut),
+    mode,
+    appliedIndex,
+    appliedRef: asNullableString(input.appliedRef),
   }
 }

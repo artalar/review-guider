@@ -294,7 +294,12 @@ describe('every document we publish validates against both', () => {
     return problems
   }
 
-  it.each(['valid.guide.json', 'replace.guide.json'])('%s', (name) => {
+  it.each([
+    'valid.guide.json',
+    'replace.guide.json',
+    'helper-consumer.guide.json',
+    'helper-consumer-merged.guide.json',
+  ])('%s', (name) => {
     const doc = readGuideFixture(name)
     expect(accepts(doc)).toBe(true)
     expect(undeclared(doc, schema, '$')).toEqual([])

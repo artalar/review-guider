@@ -3,6 +3,7 @@ import { watch } from 'reactive-vscode'
 import { window } from 'vscode'
 import { isRecoverable, isSessionLive } from '../git/journal'
 import {
+  forgetPendingRestore,
   guideDiagnostics,
   LIVE_ELSEWHERE_MESSAGE,
   ports,
@@ -14,6 +15,19 @@ import {
 } from '../model/session'
 import { logger } from '../utils'
 import { useAtomRef } from './binding'
+import {
+  describeRecoveryPrompt,
+  RECOVERY_DISMISS,
+  RECOVERY_LATER,
+  RECOVERY_RESTORE,
+} from './recovery-prompt'
+
+export {
+  describeRecoveryPrompt,
+  RECOVERY_DISMISS,
+  RECOVERY_LATER,
+  RECOVERY_RESTORE,
+} from './recovery-prompt'
 
 const answerPreflight = wrap(async (): Promise<void> => {
   const request = peek(preflightRequest)
@@ -30,7 +44,9 @@ const answerPreflight = wrap(async (): Promise<void> => {
     // Start with no way back, so a failed modal has to count as a decline.
     logger.error('pre-flight prompt failed; treating it as declined', error)
   }
-  preflightAnswer(approved)
+  // A modal from a cancelled attempt must not approve a later session.
+  if (peek(preflightRequest) === request)
+    preflightAnswer(approved)
 })
 
 /**
@@ -74,17 +90,20 @@ export const checkRecoveryOnActivate = wrap(async (): Promise<void> => {
 
   logger.warn(`Tabthrough found an unfinished session (${token.stage}) for ${token.repoRoot}`)
 
+  const { message, detail } = describeRecoveryPrompt(token)
   const answer = await wrap(window.showWarningMessage(
-    'Tabthrough did not finish restoring your work last time.',
-    { modal: true, detail: `Session ${token.sessionId} stopped at stage "${token.stage}". Nothing was discarded.` },
-    'Restore now',
-    'Later',
+    message,
+    { modal: true, detail },
+    RECOVERY_RESTORE,
+    RECOVERY_LATER,
+    RECOVERY_DISMISS,
   ))
 
-  if (answer === 'Restore now')
+  if (answer === RECOVERY_RESTORE)
     await wrap(recoverBackup())
+  else if (answer === RECOVERY_DISMISS)
+    await wrap(forgetPendingRestore())
 })
-
 /**
  * A broken sidecar costs the reader exactly one notification, however many
  * diagnostics are behind it (guide-schema.md §5.4). The full list — including

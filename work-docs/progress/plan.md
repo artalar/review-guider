@@ -1,11 +1,11 @@
-# Tabthrough — Implementation Plan (v0.1 MVP)
+# Tabthrough — Implementation Plan (v0.1 MVP + v0.2 Apply)
 
 **Owner:** Planner
-**Status:** Ready for Architect + Implementer
+**Status:** v0.1 Phases 0–6 landed in code; **v0.2 Phases 7–10 sequenced** (P0-A2 Done)
 **Last updated:** 2026-08-07
-**Scope source of truth:** [ADR 0001](../decisions/0001-mvp-scope.md) · [specs/product.md](../specs/product.md) · [backlog.md](./backlog.md)
+**Scope source of truth:** [ADR 0001](../decisions/0001-mvp-scope.md) · [ADR 0004](../decisions/0004-apply-mode.md) · [specs/product.md](../specs/product.md) · [backlog.md](./backlog.md)
 
-> This plan sequences **only P0**. Nothing here adds scope. Where a decision is genuinely open, it is marked **[ARCH]** and handed to the Architect rather than guessed at by the Implementer.
+> Phases 0–6 sequence **v0.1 P0**. Phases 7–10 sequence **v0.2 apply** (P0-A3…A6) against ADR 0004. Nothing here expands product scope. Read-only path stays shippable and additive — apply must not regress sacred restore. Guide skill track (P0-G*) is parallel and not owned here.
 
 ---
 
@@ -20,9 +20,14 @@ flowchart LR
   P3 --> P5[Phase 5<br/>UX loop]
   P4 --> P5
   P5 --> P6[Phase 6<br/>Edge hardening]
+  P6 --> P7[Phase 7<br/>Apply engine + commit]
+  P7 --> P8[Phase 8<br/>WT apply]
+  P7 --> P9[Phase 9<br/>Finish keep UX]
+  P8 --> P10[Phase 10<br/>Crash recovery]
+  P9 --> P10
 ```
 
-Safety (Phase 2) precedes everything user-visible. **No phase after 2 may merge while the stash round-trip suite is red.** Phases 3 and 4 are independent of each other and may interleave.
+Safety (Phase 2) precedes everything user-visible. **No phase after 2 may merge while the stash round-trip suite is red.** Phases 3 and 4 are independent of each other and may interleave. **v0.2:** Phase 7 is the apply critical path; 8 and 9 may interleave after 7’s engine gate; Phase 10 is the apply recovery gate.
 
 ---
 
@@ -361,6 +366,121 @@ Also in this phase: README with a "Known limitations" section covering the P2 ro
 
 ---
 
+## Phase 7 — Apply engine + commit target (P0-A3)
+
+**Backlog IDs:** P0-A3 (+ P1-13 revert engine, P1-8 drift warn early). **Depends on:** ADR 0004 · Phases 2–5 green in code · v0.1 sacred suite still green. **Owner:** Implementer.
+
+Additive only: read-only `progressive`/`dim` sessions must keep behaving as today. Do not rewrite virtual-doc reveal.
+
+### Tasks
+
+| # | Task | Detail |
+|---|------|--------|
+| 7-a | Journal / token fields | Additive `mode`, `appliedIndex`, `appliedRef` on `SessionToken` (v stays `1`; readers default missing). Stages: journal `applying` around each Tab/Previous write. |
+| 7-b | `src/git/apply.ts` | Intended states from `renderReveal`; fast-path write or 3-way merge; applied checkpoint commit (`refs/tabthrough/applied/<id>`); refuse unmerged paths. No `vscode` import. |
+| 7-c | Isolation fork for apply | Capture → stash → checkout **`base`** (commit: `C^`) → `reviewing` with `mode: 'apply'`, `appliedIndex: -1`. Pre-flight discloses disk writes. |
+| 7-d | Mode surface | Setting `tabthrough.session.mode`: `ask` \| `readonly` \| `apply` (default `ask`). Chooser when `ask`. `reveal.mode` ignored in apply. |
+| 7-e | Async next / prev | Apply: `action` + `withAsync` + `withAbort('first-in-win')`; no abort signal on write path. Status `applying` while in flight. Cursor / `appliedIndex` advance only after successful write + applied-ref bump. |
+| 7-f | Shift+Tab revert | Symmetric 3-way toward `intendedPrev`; block on conflict (P1-13 folded here). |
+| 7-g | Conflict + drift | Conflict → stop, do not advance; surface explanation. Warn on external drift for paths outside the step (P1-8 early, warn-only). |
+| 7-h | Keybinding (file scheme) | Apply uses real editors: ship `Alt+]`/`Alt+[` in apply; optional narrowed Tab when-clause for `resourceScheme == 'file'` + widget guards (overview §7.3). Do not steal Tab globally. |
+| 7-i | Cancel still sacred | Apply Cancel = existing restore path; confirm modal when `appliedIndex >= 0`. **Finish-keep is Phase 9** — this phase may leave Finish as restore-or-stub only if needed, but must not ship a Finish that silently restores while claiming “keep.” Prefer: Finish disabled or “not yet” until Phase 9 if keep path is incomplete. |
+
+### Done when
+
+- [x] Commit-entry apply: checkout `C^`; Tab applies steps to real files; user edits preserved or honest conflict
+- [x] Shift+Tab reverts last applied step or blocks on conflict
+- [x] Cancel restores pre-session byte-identical (sacred suite still green + apply Cancel cases)
+- [x] Read-only path unchanged in automated reveal/lifecycle suites
+- [x] No silent overwrite on merge conflict
+
+### Test gate
+
+| Gate | Where |
+|------|-------|
+| 3-way apply / revert / conflict-stop fixtures | unit + integration (`apply-step` suite) |
+| Sacred suite still green; apply Cancel after N steps | stash-roundtrip / lifecycle extended |
+| Journal `applying` crash leaves recoverable token | crash-matrix stub (full Resume UI in Phase 10) |
+| Contributions: file-scheme / chord when-clauses | `contributions.test.ts` + manual §6.4 apply rows |
+
+---
+
+## Phase 8 — Working-tree apply (P0-A4)
+
+**Backlog IDs:** P0-A4. **Depends on:** Phase 7 engine (7-b…7-f). **Owner:** Implementer. **May interleave with Phase 9** after 7’s engine gate.
+
+### Tasks
+
+| # | Task | Detail |
+|---|------|--------|
+| 8-a | WT isolation | Same capture/stash; apply **always** checks out `base = HEAD` (post-stash clean) even when already at HEAD — empty apply cursor at pedagogical zero (ADR 0004 D3). |
+| 8-b | Reapply walk | Same `apply.ts` engine; after-ref is content source; WT is editable projection. |
+| 8-c | Abort bar | Cancel after edits → pre-session WIP byte-identical (staged/unstaged via backup). |
+
+### Done when
+
+- [ ] Working-tree apply walk works end-to-end on dirty fixture repos
+- [ ] Abort after mid-walk edits restores fingerprint (product P0 v0.2 row “User edits then abort”)
+- [ ] Staged/unstaged flatten during walk disclosed; Cancel restores original split
+
+### Test gate
+
+Lifecycle + sacred extensions for WT apply start / Tab / Cancel; fingerprint before vs after Cancel.
+
+---
+
+## Phase 9 — Finish keep + Commit handoff (P0-A5)
+
+**Backlog IDs:** P0-A5. **Depends on:** Phase 7 (applied checkpoint). **Owner:** Implementer. **May interleave with Phase 8.**
+
+### Tasks
+
+| # | Task | Detail |
+|---|------|--------|
+| 9-a | Finish fork | Readonly Finish unchanged (restore). Apply Finish: save buffers → applied checkpoint → journal `finishing-keep` → carry WT to `headBefore` (no `-f`) → `done-kept` → **do not** stash-apply backup. |
+| 9-b | Carry failure | If checkout cannot carry changes: stay detached, keep refs, surface instructions (R-apply-2). |
+| 9-c | Commit handoff | `tabthrough.commitHandoff` + Finish offer → SCM / commit UI. Never silent `git commit`. |
+| 9-d | Copy / pre-flight | Disclose writes; Finish ≠ Cancel; after Finish, Cancel is no longer the restore path — recovery needs dangerous confirm to overwrite kept tree. |
+| 9-e | Cleanup | Refs + `done-kept` token retained until explicit cleanup / Clean up backups. |
+
+### Done when
+
+- [x] Finish keeps tree; Cancel restores; copy never confuses them
+- [x] No auto-commit; handoff opens SCM
+- [x] `done-kept` leaves after/backup/applied refs until cleanup
+- [ ] Product acceptance rows for Finish vs Commit ticked in dogfood checklist
+
+### Test gate
+
+Lifecycle: Finish-keep fingerprint ≠ Cancel; `done-kept` token present; readonly Finish still restores. **Automated** in `apply-commit.test.ts` (Finish-keep vs Cancel + carry failure). Dogfood checklist remains manual.
+
+---
+
+## Phase 10 — Apply crash / mid-edit recovery (P0-A6)
+
+**Backlog IDs:** P0-A6. **Depends on:** Phases 7 and 9 (`applying` + `done-kept`). **Owner:** Implementer.
+
+### Tasks
+
+| # | Task | Detail |
+|---|------|--------|
+| 10-a | Crash stages | Extend crash matrix: `applying` (partial write vs applied-ref mismatch), `finishing-keep`, `done-kept`. |
+| 10-b | Recovery UI | Offer **Restore pre-session** \| **Resume apply** (reset WT to applied checkpoint; cursor = `appliedIndex`) \| **Inspect**. Never silent repair of half-written files. |
+| 10-c | Conflict resume | After user resolves conflict in editor, resume apply without skipping ahead. |
+| 10-d | done-kept recovery | Not a crash; Start may proceed; cleanup/recovery still available; dangerous confirm to restore pre-session over kept tree. |
+
+### Done when
+
+- [ ] Product P0 v0.2 rows: crash mid-apply, conflict on user-edit, abort after edits — automated or runbook
+- [ ] Resume-apply and Restore paths never drop backup without verify
+- [ ] Reviewer safety pass on apply write path
+
+### Test gate
+
+Crash-matrix rows for apply stages; recovery protocol tests; manual drill §6.6 (apply crash).
+
+---
+
 ## Parallel tracks
 
 These run **beside** the core sequence and never block it.
@@ -372,10 +492,14 @@ These run **beside** the core sequence and never block it.
 | **C — Architecture docs** | `architecture/overview.md`, `architecture/reatom-model.md`, `architecture/guide-schema.md` | Architect | Now | `guide-schema.md` blocks P0-15; `reatom-model.md` blocks P0-8 |
 | **D — Product surface** | README, marketplace metadata, settings descriptions, keybinding documentation | Implementer (low priority) | Phase 0 | Phase 6 |
 | **E — P1 prep (docs only)** | `.guide.json` schema v1 publication + agent skill draft | Anyone idle | Phase 3 green | **Not MVP-blocking.** Zero code in `src/` |
+| **F — Apply (v0.2)** | Phases 7→10 (P0-A3…A6) | Implementer | P0-A2 (this plan) | v0.2 milestone |
+| **G — Guide quality** | P0-G1–G3 skill / fixtures / dogfood | Docs + Tester | P0-G1 Done | Parallel with F; does not block apply engine |
 
 Track B is the one worth starting immediately in parallel — the temp-repo helper is on the critical path for Phase 2, and building it early de-risks the hardest phase.
 
 Track E exists because ADR 0001 fixes the `.guide.json` shape early precisely so agent-facing work can proceed independently. **It writes documentation, not extension code.** LLM generation and the `gh` PR entry point remain out of MVP.
+
+**Track G** is parallel to apply: finer steps improve apply pedagogy but schema v1 is unchanged (ADR 0004 D8). Planner does not own G.
 
 ---
 
@@ -458,7 +582,76 @@ The heuristic will be wrong on complex refactors. ADR 0001 already accepts this.
 
 LLM generation, agent skill publication, and `gh` PR entry are all tempting and all out.
 
-*Mitigation:* Track E is documentation-only. Any PR touching `src/` for a P1 item is rejected at review.
+*Mitigation:* Track E is documentation-only. Any PR touching `src/` for a P1 item is rejected at review. (v0.2 apply is P0-A*, not this creep.)
+
+---
+
+## Apply-mode risk register (v0.2)
+
+From [ADR 0004](../decisions/0004-apply-mode.md) Consequences. Owners: Implementer unless noted. Test hooks point at [test-matrix.md](./test-matrix.md) §9.
+
+### R-apply-1 — 3-way merge quality on messy user edits
+
+**Likelihood:** High · **Impact:** High · **Phases:** 7, 10
+
+*Mitigation:* Fixture matrix: edit-then-Tab, edit-then-Previous, overlapping hunks; stop-on-conflict gate; never skip ahead.
+*Test hook:* §9.1 conflict / mid-edit rows; unit merge fixtures.
+
+### R-apply-2 — Finish carry-checkout fails (branch tip ≠ base)
+
+**Likelihood:** Medium · **Impact:** High · **Phases:** 9
+
+*Mitigation:* Explicit detached-keep UX + applied ref; instructions; never `checkout -f`.
+*Test hook:* §9.2 Finish carry failure; commit-entry when HEAD moved under session (simulated).
+
+### R-apply-3 — Pre-session WIP orphaned after Finish
+
+**Likelihood:** Medium · **Impact:** Critical · **Phases:** 9, 10
+
+*Mitigation:* `done-kept` token + recovery/cleanup copy; never auto-drop backup/after/applied.
+*Test hook:* §9.2 Finish keeps refs; §9.3 `done-kept` recovery; cleanup command drill.
+
+### R-apply-4 — Unsaved buffer / multi-editor races
+
+**Likelihood:** High · **Impact:** High · **Phases:** 7–8
+
+*Mitigation:* Save-before-apply; single-path steps (v1 guides); drift warn (P1-8 early).
+*Test hook:* §9.1 save-fail blocks advance; drift warn case.
+
+### R-apply-5 — Async Tab vs keybinding spam
+
+**Likelihood:** High · **Impact:** Medium · **Phases:** 7
+
+*Mitigation:* `withAbort('first-in-win')`; disable next/prev while `applyPending`; no git abort signal on write.
+*Test hook:* Model unit: double-Tab does not interleave; contributions enablement while pending.
+
+### R-apply-6 — Trust-boundary docs / write surface
+
+**Likelihood:** Low · **Impact:** High · **Phases:** 7 · **Owner:** Reviewer
+
+*Mitigation:* Writes only through `src/git/apply.ts` + model actions; overview §5 already updated; import-boundary test forbids ad-hoc FS from UI.
+*Test hook:* Import-boundary / review checklist; no `fs.writeFile` outside apply module.
+
+### R-apply-7 — Range apply
+
+**Likelihood:** — · **Impact:** — · **Phases:** out of v0.2
+
+*Mitigation:* Deferred to P1-12. Refuse or keep range entry read-only-only until then.
+*Test hook:* Range + `session.mode=apply` either blocked with message or forced readonly — Implementer pick in Phase 7; document in README limitations.
+
+### R-apply-8 — File-scheme Tab steals editor Tab (Planner-added)
+
+**Likelihood:** High · **Impact:** High · **Phases:** 7 · **Owner:** Implementer
+
+*Mitigation:* Prefer unconditional chords in apply; Tab on `file` only with narrow when-clause + widget guards; never global Tab steal (overview §7.3).
+*Test hook:* §9.4 apply keybinding rows; extend §6.4.
+
+### R-apply-9 — Finish stubbed as restore ships confusing UX (Planner-added)
+
+**Likelihood:** Medium · **Impact:** High · **Phases:** 7→9
+
+*Mitigation:* Phase 7 must not ship Finish that restores while labeled “keep.” Disable Finish or gate behind Phase 9 keep path.
+*Test hook:* Contributions / lifecycle asserts Finish behavior matches mode copy.
 
 ---
 
@@ -479,6 +672,7 @@ src/
     diff.ts                 # P0-2, P0-3, P0-4 — revision resolution + raw diff
     stash.ts                # P0-5, P0-6 — push, backup ref, apply/verify/drop
     snapshot.ts             # porcelain + content hashes for restore verification
+    apply.ts                # P0-A3 — 3-way write + applied checkpoint (v0.2)
 
   guide/                    # pure — no vscode, no subprocess, no I/O
     types.ts                # DiffFile, DiffHunk, LineGroup, Step, GuideGraph
@@ -487,7 +681,7 @@ src/
     sidecar.ts              # P0-15 — validate + merge (injected reader)
 
   model/                    # Reatom — orchestration only
-    session.ts              # P0-8 — status, session, stash handle
+    session.ts              # P0-8 — status, session, stash handle (+ apply mode v0.2)
     steps.ts                # steps, cursor, revealed set, derived labels
     recovery.ts             # P0-6 — durable token in globalState
     lock.ts                 # P0-7
@@ -499,11 +693,11 @@ src/
     prompts.ts              # pre-flight, conflict, resume dialogs
 
   commands/
-    index.ts                # P0-14 — registration + enablement
+    index.ts                # P0-14 — registration + enablement (+ commitHandoff v0.2)
 
 test/
   unit/                     # pure: parser, heuristic, sidecar, model transitions
-  integration/              # real temp git repos: stash round-trip, entry points
+  integration/              # real temp git repos: stash round-trip, entry points, apply
   fixtures/
     diffs/*.diff
     guides/*.guide.json
@@ -511,7 +705,7 @@ test/
     tmp-repo.ts             # build + mutate + hash a throwaway git repo
 ```
 
-**The load-bearing rule:** nothing under `git/`, `guide/`, or `model/` imports `vscode`. That is what lets the majority of the codebase run under plain vitest with no extension host, which in turn is what makes the safety and ordering suites cheap enough to run on every commit.
+**The load-bearing rule:** nothing under `git/`, `guide/`, or `model/` imports `vscode`. That is what lets the majority of the codebase run under plain vitest with no extension host, which in turn is what makes the safety and ordering suites cheap enough to run on every commit. Apply writes live only in `git/apply.ts` + session actions (R-apply-6).
 
 ---
 
@@ -523,7 +717,8 @@ Settings to declare in Phase 0 so later phases can read them without re-touching
 |---------|------|---------|-------|
 | `tabthrough.keybinding.useTab` | boolean | `true` | 5 |
 | `tabthrough.showRationale` | boolean | `true` | 5 |
-| `tabthrough.reveal.mode` | `'dim' \| 'fold'` | `'dim'` | 5 |
+| `tabthrough.reveal.mode` | `'progressive' \| 'dim'` | `'progressive'` | 5 (readonly only) |
+| `tabthrough.session.mode` | `'ask' \| 'readonly' \| 'apply'` | `'ask'` | 7 |
 | `tabthrough.guideFile` | string | `.guide.json` | 3 |
 | `tabthrough.stash.includeUntracked` | boolean | `true` | 2 |
 
@@ -540,8 +735,12 @@ Settings to declare in Phase 0 so later phases can read them without re-touching
 | 4 | Entry-point integration on scripted repos | — |
 | 5 | Advance/retreat/clamp; reveal purity; status bar composition | Keybinding conflict matrix; <3s benchmark; PO UX checklist |
 | 6 | Full P0 edge matrix | 5 dogfood sessions; Reviewer + PO sign-off |
+| 7 | Apply step/merge/revert; sacred Cancel; `applying` journal stub | Apply keybinding §9.4 |
+| 8 | WT apply + Cancel fingerprint | — |
+| 9 | Finish-keep vs Cancel; `done-kept` refs retained | Finish/Commit copy dogfood |
+| 10 | Crash matrix `applying` / `done-kept`; Resume vs Restore | Apply crash drill §6.6 |
 
-Per the Planner rules, **every P0 has a gate**: P0-1/8 in Phase 1, P0-5/6/7 in Phase 2, P0-9/10/15 in Phase 3, P0-2/3/4 in Phase 4, P0-11/12/13/14 in Phase 5, P0-16 in Phase 6.
+Per the Planner rules, **every P0 has a gate**: P0-1/8 in Phase 1, P0-5/6/7 in Phase 2, P0-9/10/15 in Phase 3, P0-2/3/4 in Phase 4, P0-11/12/13/14 in Phase 5, P0-16 in Phase 6, **P0-A3…A6 in Phases 7–10**.
 
 ---
 
@@ -552,27 +751,49 @@ Per the Planner rules, **every P0 has a gate**: P0-1/8 in Phase 1, P0-5/6/7 in P
 3. No `any` or unsafe casts; no drive-by refactors outside the slice.
 4. `progress/iteration-log.md` appended; `progress/backlog.md` status updated.
 5. Reatom code reviewed against the `reatom-review` skill before requesting review.
+6. **Apply slices:** read-only suites must stay green; sacred suite remains a merge blocker.
 
 ---
 
-## First Implementer slice
+## First Implementer slice (historical — Phase 0)
 
-**Phase 0 in full, plus P0-1.** One branch, small commits.
+~~Phase 0 in full, plus P0-1.~~ **Shipped.** See iteration-log.
 
-1. `pnpm install`; add `@reatom/core`; fix the `generated/meta` gap so `pnpm typecheck` passes for the first time.
-2. Rename the extension (`tabthrough`) and declare the five settings above.
-3. Add `vitest.config.ts` and `test:ci`; land the Reatom smoke test.
-4. Implement `git/exec.ts` and `git/probe.ts` with the discriminated result, and wire `tabthrough.gitUsable` to a stub Start command that is disabled with a reason when the probe fails.
-5. Tests: probe variants against recorded outputs; a real temp repo and a real non-repo directory.
+---
 
-Do **not** start the stash pipeline in this slice. Phase 2 deserves its own review pass, and the temp-repo helper (Track B) should land first.
+## Next Implementer slice — Phase 7 foundation (P0-A3 start)
+
+**One branch. Do this first. Owner: Implementer.**
+
+1. Add `src/git/apply.ts`: `renderReveal` intended prev/next → fast-path or 3-way merge → write bytes; applied checkpoint helper. Pure git/FS seam; injectable for tests.
+2. Extend journal/token with additive `mode` / `appliedIndex` / `appliedRef`; stage `applying` around the write.
+3. Session status: allow `active ↔ applying`; wire apply `next`/`prev` with `withAsync` + `first-in-win` (reatom-model §5.2).
+4. Commit-entry start path when mode is `apply`: checkout `base`, pre-flight discloses writes; Cancel still sacred restore.
+5. Tests: merge fixtures (clean / conflict / edit-then-Tab / revert); Cancel after N apply steps byte-identical; readonly lifecycle untouched.
+
+### Do **not** touch yet
+
+- Finish-keep / `done-kept` / SCM handoff (Phase 9 / P0-A5) — **Done**
+- WT apply dogfood (Phase 8 / P0-A4)
+- Apply crash / Resume UI (Phase 10 / P0-A6)
+- Working-tree apply specialization beyond shared engine (Phase 8 / P0-A4)
+- Full Resume-apply recovery UI (Phase 10 / P0-A6) — journal fields only
+- Range apply (P1-12 / R-apply-7)
+- Guide skill / P0-G* (Track G)
+- Rewriting readonly virtual-doc reveal or ADR 0004
+
+### Architect note (no ADR edit this turn)
+
+If Finish must remain temporarily unavailable in Phase 7, that is a UX gap to close in Phase 9 — do not invent alternate Finish semantics that contradict ADR 0004 D6.
 
 ---
 
 ## References
 
 - [ADR 0001 — MVP scope](../decisions/0001-mvp-scope.md)
+- [ADR 0004 — Apply mode](../decisions/0004-apply-mode.md)
 - [Product spec](../specs/product.md)
 - [Backlog](./backlog.md)
+- [Test matrix](./test-matrix.md) §9
 - [Process](../process/README.md)
 - Reatom skills: `.agents/skills/reatom/`, `.agents/skills/reatom-async/`, `.agents/skills/reatom-review/`

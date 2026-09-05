@@ -1,9 +1,11 @@
 import type { IsolationHandle } from '../../src/git/isolate'
 import type { SessionToken } from '../../src/git/journal'
 import type { GuideStep } from '../../src/guide/types'
+import type { SessionRuntime } from '../../src/model/steps'
 import { context, peek } from '@reatom/core'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { showRationale } from '../../src/model/config'
+import { memoryStore } from '../../src/model/ports'
 import { session } from '../../src/model/session'
 import { reatomSession } from '../../src/model/steps'
 import {
@@ -36,6 +38,9 @@ const TOKEN: SessionToken = {
   backupCommit: null,
   stashMessage: null,
   checkedOut: null,
+  mode: 'readonly',
+  appliedIndex: -1,
+  appliedRef: null,
 }
 
 const HANDLE: IsolationHandle = {
@@ -44,6 +49,24 @@ const HANDLE: IsolationHandle = {
   baseRev: 'base',
   afterRev: 'after',
   token: TOKEN,
+}
+
+const RUNTIME: SessionRuntime = {
+  ports: () => ({
+    store: memoryStore(),
+    ui: {
+      confirm: async () => true,
+      chooseSessionMode: async () => 'readonly',
+      notify: async () => undefined,
+      openReview: async () => {},
+      openWorkspaceFile: async () => {},
+      openSourceControl: async () => {},
+      saveDocuments: async () => ({ ok: true }),
+    },
+    clock: { now: () => 0, sessionId: () => 'view' },
+  }),
+  beginApply: () => false,
+  endApply: () => {},
 }
 
 function step(overrides: Partial<GuideStep> = {}): GuideStep {
@@ -69,6 +92,8 @@ function makeSession(steps: readonly GuideStep[]) {
     handle: HANDLE,
     diff: { files: [], digest: 'sha256:test' },
     guide: { steps, stale: false, diagnostics: [] },
+    mode: 'readonly',
+    runtime: RUNTIME,
   })
 }
 

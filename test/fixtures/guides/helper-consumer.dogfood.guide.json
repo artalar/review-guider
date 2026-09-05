@@ -1,0 +1,37 @@
+{
+  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
+  "version": 1,
+  "summary": "Extract eventActionName as the shared naming contract, then adopt it in jsxEvent and bind. Two thoughts in one file — helper before any consumer.",
+  "steps": [
+    {
+      "id": "event-action-name",
+      "order": 10,
+      "path": "src/jsx/events.ts",
+      "ranges": [{ "side": "new", "start": 1, "end": 4 }],
+      "significance": "high",
+      "title": "Named action helper",
+      "rationale": "The naming contract every later call site will share",
+      "notes": "`eventActionName` is the rule for turning a type into an `onFoo` listener name. Read it alone before any call site changes."
+    },
+    {
+      "id": "jsx-event-adopts",
+      "order": 20,
+      "path": "src/jsx/events.ts",
+      "ranges": [{ "side": "new", "start": 8, "end": 10 }],
+      "significance": "high",
+      "title": "jsxEvent adopts the helper",
+      "rationale": "First consumer — only makes sense after the helper above",
+      "dependsOn": ["event-action-name"]
+    },
+    {
+      "id": "bind-adopts",
+      "order": 30,
+      "path": "src/jsx/events.ts",
+      "ranges": [{ "side": "new", "start": 12, "end": 14 }],
+      "significance": "low",
+      "title": "bind switches to the helper",
+      "rationale": "Mechanical rest — same helper, second call site",
+      "dependsOn": ["event-action-name"]
+    }
+  ]
+}

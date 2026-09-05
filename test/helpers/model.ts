@@ -1,5 +1,6 @@
 import type { ReviewTarget } from '../../src/git/types'
 import type { NotifyLevel, Ports, StorePort } from '../../src/model/ports'
+import type { StartRequest } from '../../src/model/session'
 import type { Session } from '../../src/model/steps'
 import { peek } from '@reatom/core'
 import { vi } from 'vitest'
@@ -36,6 +37,10 @@ export interface ModelHarness {
   readonly notifications: Notification[]
   /** How the scripted `UiPort` answers the pre-flight. */
   approve: boolean
+  /** Which action button a notification comes back with, if any. */
+  answer: string | undefined
+  /** How many times the SCM handoff port was opened. */
+  scmOpened: number
   readonly dispose: () => void
 }
 
@@ -54,6 +59,8 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
     store,
     notifications,
     approve: true,
+    answer: undefined,
+    scmOpened: 0,
     dispose: () => {
       while (unsubscribes.length > 0)
         unsubscribes.pop()?.()
@@ -64,11 +71,17 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
     store,
     ui: {
       confirm: async () => harness.approve,
+      chooseSessionMode: async () => 'readonly',
       notify: async (level, message) => {
         notifications.push({ level, message })
-        return undefined
+        return harness.answer
       },
       openReview: async () => {},
+      openWorkspaceFile: async () => {},
+      openSourceControl: async () => {
+        harness.scmOpened += 1
+      },
+      saveDocuments: async () => ({ ok: true }),
     },
     clock: {
       now: () => 1_000,
@@ -88,9 +101,16 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
   return harness
 }
 
+function isStartRequest(request: ReviewTarget | StartRequest): request is StartRequest {
+  return 'entry' in request
+}
+
 /** Starts a session and plays the bridge's part in the pre-flight handshake. */
-export async function startReview(harness: ModelHarness, entry: ReviewTarget): Promise<Session> {
-  const running = startSession({ entry })
+export async function startReview(
+  harness: ModelHarness,
+  request: ReviewTarget | StartRequest,
+): Promise<Session> {
+  const running = startSession(isStartRequest(request) ? request : { entry: request })
   const settled = running.then(() => undefined, () => undefined)
 
   await Promise.race([

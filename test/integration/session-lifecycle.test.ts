@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { context, peek } from '@reatom/core'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listGuideRefs, RepoLockedError } from '../../src/git/isolate'
+import { advanceStage } from '../../src/git/journal'
 import { readStatus } from '../../src/git/probe'
 import { backupRefName, LOCK_REF, readLock, resolveRef, writeRef } from '../../src/git/refs'
 import { listStash } from '../../src/git/stash'
@@ -14,6 +15,7 @@ import {
   cleanupBackups,
   discardRecovery,
   EmptyDiffError,
+  forgetPendingRestore,
   gitCapability,
   GitUnavailableError,
   gitWatchToken,
@@ -71,19 +73,37 @@ interface Harness {
   answer: string | undefined
   /** What `ClockPort.now` returns; movable, so heartbeats can be aged. */
   now: number
+  /** Scriptable editor-save result and calls, for the pre-stash buffer guard. */
+  saveDocumentsResult: { readonly ok: true } | { readonly ok: false, readonly path: string }
+  readonly saveDocumentsCalls: Array<{ readonly repoRoot: string, readonly paths: readonly string[] }>
 }
 
 function install(store: StorePort = memoryStore()): Harness {
-  const harness: Harness = { store, notifications: [], approve: true, answer: undefined, now: 1_000 }
+  const harness: Harness = {
+    store,
+    notifications: [],
+    approve: true,
+    answer: undefined,
+    now: 1_000,
+    saveDocumentsResult: { ok: true },
+    saveDocumentsCalls: [],
+  }
   const installed: Ports = {
     store,
     ui: {
       confirm: async () => harness.approve,
+      chooseSessionMode: async () => 'readonly',
       notify: async (level, message) => {
         harness.notifications.push({ level, message })
         return harness.answer
       },
       openReview: async () => {},
+      openWorkspaceFile: async () => {},
+      openSourceControl: async () => {},
+      saveDocuments: async (repoRoot, paths) => {
+        harness.saveDocumentsCalls.push({ repoRoot, paths })
+        return harness.saveDocumentsResult
+      },
     },
     clock: {
       now: () => harness.now,
@@ -142,6 +162,27 @@ async function dirtyRepo(): Promise<TmpRepo> {
 }
 
 describe('session lifecycle over the real protocol', () => {
+  it('cancels a pending pre-flight and prevents a later approval from isolating', async () => {
+    const repo = await dirtyRepo()
+    const before = await repo.fingerprint()
+    await bootstrap(repo)
+    const running = startSession({ entry: { kind: 'workingTree' } })
+
+    await vi.waitFor(() => {
+      if (peek(preflightRequest) === null)
+        throw new Error('pre-flight not published yet')
+    }, { timeout: 5_000, interval: 5 })
+
+    await cancelSession('cancel')
+    await expect(running).rejects.toBeDefined()
+
+    expect(peek(sessionStatus)).toBe('idle')
+    expect(peek(preflightRequest)).toBeNull()
+    expect(await repo.fingerprint()).toEqual(before)
+    expect(await listGuideRefs(repo.root)).toEqual([])
+    expect(await readLock(repo.root)).toBeNull()
+  })
+
   it('isolates the tree on start and restores it on finish', async () => {
     const repo = await dirtyRepo()
     const before = await repo.fingerprint()
@@ -215,6 +256,30 @@ describe('session lifecycle over the real protocol', () => {
     expect(await harness.store.readToken(repo.root)).toBeNull()
     // Declining is a choice, not a failure: no error toast.
     expect(harness.notifications).toEqual([])
+  })
+
+  it('saves all dirty editor buffers for the probed repository before stashing', async () => {
+    const repo = await dirtyRepo()
+    const harness = await bootstrap(repo)
+
+    await start(harness)
+
+    expect(harness.saveDocumentsCalls).toContainEqual({ repoRoot: repo.root, paths: [] })
+    await cancelSession('cancel')
+  })
+
+  it('refuses to isolate when an editor buffer cannot be saved', async () => {
+    const repo = await dirtyRepo()
+    const before = await repo.fingerprint()
+    const harness = await bootstrap(repo)
+    harness.saveDocumentsResult = { ok: false, path: 'a.txt' }
+
+    await expect(start(harness)).rejects.toThrow()
+    await vi.waitFor(() => expect(peek(sessionStatus)).toBe('idle'))
+
+    expect(await repo.fingerprint()).toEqual(before)
+    expect(await listStash(repo.root)).toEqual([])
+    expect(harness.notifications.at(-1)?.message).toContain('Save a.txt')
   })
 
   it('refuses to start on an empty diff', async () => {
@@ -323,6 +388,18 @@ describe('session lifecycle over the real protocol', () => {
 })
 
 describe('recovery', () => {
+  it('reserves restoring before its first await so Start cannot race it', async () => {
+    const repo = await dirtyRepo()
+    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'recover-race' })
+    await bootstrap(repo, store)
+
+    const restoring = recoverBackup()
+    expect(peek(sessionStatus)).toBe('restoring')
+    await expect(startSession({ entry: { kind: 'workingTree' } })).rejects.toBeInstanceOf(SessionAlreadyActiveError)
+    expect((await restoring)?.kind).toBe('restored')
+    expect(peek(sessionStatus)).toBe('idle')
+  })
+
   it('blocks Start and offers a restore when a previous session left a token', async () => {
     const repo = await dirtyRepo()
     const before = await repo.fingerprint()
@@ -444,6 +521,29 @@ describe('recovery', () => {
   })
 
   /**
+   * Activation modal "Dismiss reminder" calls this without a second confirm.
+   * A recoverable token at idle (reload left stage restoring) must unblock Start.
+   */
+  it('unblocks Start when forgetPendingRestore clears an idle recovery reminder', async () => {
+    const repo = await dirtyRepo()
+    const { store, token } = await isolateUpTo(repo, 'reviewing', { sessionId: 'left-restoring' })
+    await advanceStage(store, token, 'restoring')
+    await bootstrapAt(repo.root, store)
+
+    await recoveryToken()
+    expect(peek(sessionStatus)).toBe('idle')
+    expect(peek(recoveryPending)).toBe(true)
+    expect(peek(canStart)).toBe(false)
+
+    expect(await forgetPendingRestore()).toBe(true)
+
+    await recoveryToken()
+    expect(peek(recoveryPending)).toBe(false)
+    expect(peek(canStart)).toBe(true)
+    expect(await store.readToken(repo.root)).toBeNull()
+  })
+
+  /**
    * A repository Tabthrough will not start in may still be holding the
    * user's work. Keying the journal lookup on a capability that has to be `ok`
    * would drop the reminder precisely when it matters most.
@@ -542,10 +642,11 @@ describe('recovery', () => {
     const head = await repo.head()
     await writeRef(repo.root, backupRefName('orphan'), head)
 
+    harness.answer = 'Remove backups'
     const removed = await cleanupBackups()
     expect(removed).toEqual([backupRefName('orphan')])
     expect(await listGuideRefs(repo.root)).toEqual([])
-    expect(harness.notifications).toEqual([])
+    expect(harness.notifications.some(entry => entry.message.includes('Clean Up Backups'))).toBe(true)
   })
 
   it('refuses cleanup while a token is outstanding', async () => {

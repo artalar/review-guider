@@ -82,7 +82,14 @@ export function renderReveal(
   }
   copyBaseThrough(lines.length + 1)
 
-  const endsWithNewline = baseText === '' ? !file.noTrailingNewline : trailingNewline
+  // Until every group is revealed the document is still the base-side view,
+  // including its final-newline byte. Once the file is complete, use the
+  // post-image marker. A single `noTrailingNewline` flag cannot distinguish a
+  // replacement where only the old or only the new line is unterminated.
+  const complete = file.groups.length > 0 && revealed.size === file.groups.length
+  const endsWithNewline = complete
+    ? (file.newTrailingNewline ?? !file.noTrailingNewline)
+    : (baseText === '' ? !file.noTrailingNewline : trailingNewline)
   const text = out.length === 0 ? '' : out.join('\n') + (endsWithNewline ? '\n' : '')
 
   const groupRanges = new Map<string, LineRange>()

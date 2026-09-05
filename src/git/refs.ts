@@ -19,6 +19,10 @@ export function backupRefName(sessionId: string): string {
   return `${REF_NAMESPACE}/backup/${sessionId}`
 }
 
+export function appliedRefName(sessionId: string): string {
+  return `${REF_NAMESPACE}/applied/${sessionId}`
+}
+
 export interface GuideRef {
   readonly name: string
   readonly objectName: string

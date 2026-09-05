@@ -1,12 +1,12 @@
 # Tabthrough — Reatom Session Model
 
-**Version:** 1.0 (MVP / v0.1)
+**Version:** 1.1 (v0.1 + apply-mode surface)
 **Owner:** Architect
-**Status:** Proposed for implementation
+**Status:** Proposed for implementation (apply atoms: design accepted, code not started)
 **Target:** `@reatom/core@1001`
 **Last updated:** 2026-08-07
-**Companions:** [overview.md](overview.md) · [guide-schema.md](guide-schema.md) · [ADR 0002](../decisions/0002-architecture.md)
-**Unblocks:** plan P0-8
+**Companions:** [overview.md](overview.md) · [guide-schema.md](guide-schema.md) · [ADR 0002](../decisions/0002-architecture.md) · [ADR 0004](../decisions/0004-apply-mode.md)
+**Unblocks:** plan P0-8; apply Implementer work after Planner P0-A2
 
 > Read `.agents/skills/reatom/SKILL.md` and `.agents/skills/reatom-async/SKILL.md` before touching this model. Everything below follows those defaults; where this document is more specific, the reason is stated.
 
@@ -39,7 +39,8 @@ ports                        atom<Ports>                         installed once 
 config.showRationale         atom<boolean>                       mirrored from VS Code settings
 config.heuristicOptions      atom<HeuristicOptions>
 config.guideFile             atom<string>
-config.revealMode            atom<'progressive' | 'dim'>
+config.revealMode            atom<'progressive' | 'dim'>         readonly sessions only
+config.sessionMode           atom<'ask' | 'readonly' | 'apply'>  default ask; chooser at start
 
 git.watchToken               atom<number>                        bumped by the bridge's FS watcher
 git.capability               computed + withAsyncData            repo? git? shallow? mid-rebase?
@@ -51,6 +52,7 @@ recovery.pending             computed<boolean>
 recovery.liveElsewhere       computed<boolean>                   fresh heartbeat = another window is reviewing
 recovery.orphanRefs          computed + withAsyncData            refs/tabthrough/** with no token
 recovery.restore             action + withAsync({status}) + withAbort('first-in-win')
+recovery.resumeApply         action + withAsync({status}) + withAbort('first-in-win')  // ADR 0004
 recovery.discard             action + withAsync
 session.heartbeat            action + withAsync                  stamps heartbeatAt while active
 
@@ -64,8 +66,9 @@ session.isolation            atom<IsolationHandle | null>        survives a fail
 session.diagnostics          atom<readonly GuideDiagnostic[]>
 session.isActive             computed<boolean>
 session.start                action + withAsync({status}) + withAbort('first-in-win')
-session.finish               action + withAsync({status}) + withAbort('first-in-win')
-session.cancel               action + withAsync({status}) + withAbort('first-in-win')
+session.finish               action + withAsync({status}) + withAbort('first-in-win')  // mode-dependent
+session.cancel               action + withAsync({status}) + withAbort('first-in-win')  // always restore
+session.commitHandoff        action + withAsync                  apply: SCM focus; never silent commit
 session.teardown             action + withAsync                  internal; never aborted mid-git
 session.failed               action + withAsync                  internal; unwinds isolation
 
@@ -73,10 +76,14 @@ ui.gitUsable                 computed<boolean>
 ui.canStart                  computed<boolean>
 ui.statusText                computed<string | null>
 ui.statusTooltip             computed<string | null>
-ui.reviewViewModel           computed<ReviewViewModel | null>    the bridge's single subscription
+ui.reviewViewModel           computed<ReviewViewModel | null>    readonly bridge subscription
+ui.applyViewModel            computed<ApplyViewModel | null>     apply: active path + pending flag
 
 — per session instance (reatomSession) —
-session#<id>.cursor          atom<number>                        -1 = nothing revealed
+session#<id>.mode            plain 'readonly' | 'apply'          frozen at start
+session#<id>.cursor          atom<number>                        -1 = nothing revealed/applied
+session#<id>.appliedIndex    atom<number>                        apply: last successful write; tracks cursor after settle
+session#<id>.applyPending    computed<boolean>                   true while next/prev async in flight
 session#<id>.currentStep     computed<GuideStep | null>
 session#<id>.nextStep        computed<GuideStep | null>
 session#<id>.progress        computed<{ index, total }>
@@ -84,12 +91,12 @@ session#<id>.canAdvance      computed<boolean>
 session#<id>.canRetreat      computed<boolean>
 session#<id>.isComplete      computed<boolean>
 session#<id>.activeFile      computed<ReviewFile | null>
-session#<id>.next            action
-session#<id>.prev            action
-session#<id>.jumpTo          action
+session#<id>.next            action  // readonly: sync; apply: + withAsync, no git signal
+session#<id>.prev            action  // readonly: sync; apply: + withAsync, no git signal
+session#<id>.jumpTo          action  // readonly only in v0.2; apply: disabled / walks
 session#<id>.trace           effect                              inside withConnectHook; dev tracing
 
-— per file (reatomReviewFile) —
+— per file (reatomReviewFile) — readonly path —
 …file#<path>.baseText        computed + withAsyncData            git cat-file blob <base>:<path>
 …file#<path>.revealedGroups  computed<readonly LineGroup[]>
 …file#<path>.render          computed<RevealRender | null>       pure fold: base + revealed groups
@@ -161,8 +168,9 @@ export type SessionStatus =
   | 'idle'        // no session; commands available
   | 'preflight'   // summary shown, waiting for the user; nothing touched yet
   | 'stashing'    // isolation in progress; the tree may be mid-change
-  | 'active'      // reviewing
-  | 'restoring'   // restore in flight
+  | 'active'      // reviewing (readonly) or apply walk (idle between Tabs)
+  | 'applying'    // apply mode: Tab/Previous write in flight
+  | 'restoring'   // restore in flight (Cancel / readonly Finish / recovery)
   | 'blocked'     // restore could not be verified; everything preserved, user must act
   | 'error'       // start failed and was unwound
 
@@ -170,9 +178,10 @@ const LEGAL: Readonly<Record<SessionStatus, readonly SessionStatus[]>> = {
   idle: ['preflight'],
   preflight: ['stashing', 'idle', 'error'],
   stashing: ['active', 'restoring', 'idle', 'error'],  // idle: isolate unwound itself
-  active: ['restoring'],
+  active: ['applying', 'restoring'],
+  applying: ['active', 'blocked', 'error'],            // blocked: conflict left tree needing user
   restoring: ['idle', 'blocked', 'error'],
-  blocked: ['restoring', 'idle'],
+  blocked: ['restoring', 'idle', 'active'],            // active: resume apply after conflict resolve
   error: ['idle'],
 }
 
@@ -205,6 +214,7 @@ import { showBlob } from '../git/diff'
 
 export interface SessionInit {
   readonly id: string
+  readonly mode: 'readonly' | 'apply'
   readonly repoRoot: string
   readonly entry: ReviewTarget
   readonly baseRev: string        // immutable commit
@@ -282,9 +292,9 @@ export function reatomSession(init: SessionInit) {
 export type Session = ReturnType<typeof reatomSession>
 ```
 
-Advance and retreat are **pure state movement** — no I/O, no `async`, no `withAsync`. The revealed set is `steps[0..cursor]` by construction, which makes Shift+Tab correct by construction too.
+Advance and retreat are **pure state movement in readonly mode** — no I/O, no `async`, no `withAsync`. The revealed set is `steps[0..cursor]` by construction, which makes Shift+Tab correct by construction too.
 
-### 5.1 Per-file reveal
+### 5.1 Per-file reveal (readonly)
 
 ```ts
 function reatomReviewFile(file: DiffFile, ctx: ReviewFileCtx) {
@@ -340,11 +350,45 @@ function reatomReviewFile(file: DiffFile, ctx: ReviewFileCtx) {
 export type ReviewFile = ReturnType<typeof reatomReviewFile>
 ```
 
-Three properties make Tab feel instant:
+Three properties make Tab feel instant in readonly mode:
 
 1. `revealText` is a **pure fold over immutable data** — nothing on the Tab path does I/O.
 2. `baseText` is fetched **lazily, once per file**, triggered by connection (reading `.data()` from a connected computed) and cached by `withAsyncData`.
 3. The bridge subscribes to `ui.reviewViewModel`, which also reads the *next* step's file base text (§7). Connection starts that fetch, so the next file is warm before the cursor arrives. No prefetch scheduler, no imperative cache — the dependency graph does it.
+
+### 5.2 Apply mode — async next / prev (ADR 0004)
+
+In `mode === 'apply'`, `next` / `prev` are mutations:
+
+```ts
+const next = action(async () => {
+  if (init.mode === 'readonly') {
+    if (!canAdvance()) return false
+    cursor.set(index => index + 1)
+    return true
+  }
+  if (!canAdvance() || peek(sessionStatus) !== 'active') return false
+  sessionStatus.to('applying')
+  const k = cursor() + 1
+  const outcome = await wrap(applyStep({ /* base, step k, repoRoot, store */ }))
+  if (outcome.kind === 'applied') {
+    cursor.set(k)
+    appliedIndex.set(k)
+    sessionStatus.to('active')
+    return true
+  }
+  sessionStatus.to(outcome.kind === 'conflict' ? 'blocked' : 'active')
+  await wrap(peek(ports).ui.notify('warn', describeApplyConflict(outcome)))
+  return false
+}, `${name}.next`).extend(withAsync({ status: true }), withAbort('first-in-win'))
+```
+
+- No `signal` to git/file writes.  
+- `appliedIndex` updates only after a successful write + applied-ref journal bump.  
+- `prev` mirrors with `revertStep`.  
+- `jumpTo` is a no-op (or throws) in apply mode for v0.2.
+
+Apply UI opens real workspace files and uses `ui.applyViewModel` for status / conflict state rather than virtual reveal text. `renderReveal` is still called inside `applyStep` as the intended-state oracle.
 
 ---
 
@@ -461,16 +505,26 @@ const startFailed = action(async (error: unknown) => {
 
 ```ts
 export const finishSession = action(async () => {
-  if (peek(sessionStatus) !== 'active')
+  if (peek(sessionStatus) !== 'active' && peek(sessionStatus) !== 'blocked')
     return
+  const model = peek(session)
+  if (model?.mode === 'apply') {
+    await wrap(finishApplyKeep({ reason: 'finish' }))
+    return
+  }
   await wrap(teardownSession({ reason: 'finish' }))
 }, 'session.finish').extend(withAsync({ status: true }), withAbort('first-in-win'))
 
 export const cancelSession = action(async (reason: CancelReason = 'cancel') => {
   if (peek(sessionStatus) === 'idle')
     return
+  // apply: confirm when appliedIndex >= 0 (UiPort); then identical sacred restore
   await wrap(teardownSession({ reason }))
 }, 'session.cancel').extend(withAsync({ status: true }), withAbort('first-in-win'))
+
+export const commitHandoff = action(async () => {
+  await wrap(peek(ports).ui.openSourceControl())
+}, 'session.commitHandoff').extend(withAsync())
 
 const teardownSession = action(async ({ reason }: { reason: CancelReason }) => {
   const handle = peek(isolation)
@@ -493,8 +547,6 @@ const teardownSession = action(async ({ reason }: { reason: CancelReason }) => {
     return
   }
 
-  // Conflict or verification mismatch: keep everything. Stash entry, both refs, the lock
-  // and the token all stay, so the user — or the next activation — can finish the job.
   sessionStatus.to('blocked')
   await wrap(peek(ports).ui.notify(
     'warn',
@@ -504,9 +556,11 @@ const teardownSession = action(async ({ reason }: { reason: CancelReason }) => {
 }, 'session.teardown').extend(withAsync())
 ```
 
+`finishApplyKeep` (internal): save dirty buffers → applied checkpoint → journal `finishing-keep` → checkout `headBefore` carrying changes (no `-f`) → journal `done-kept` → clear live session → notify + offer commit handoff. **Does not** stash-apply the backup. Refs + token retained until cleanup.
+
 `cancelSession` intentionally still works when `session()` is `null` but `isolation()` is not — that is the shape of a mid-start failure and of a post-crash resume.
 
-Cancel is **not** a discard. It runs exactly the same restore as Finish; the only difference is the message.
+For **readonly**, Cancel is **not** a discard relative to Finish: both restore. For **apply**, Cancel restores pre-session; Finish keeps the tree — messaging and journal terminal stages must never be overloaded.
 
 ### 6.4 Recovery
 
@@ -524,7 +578,11 @@ export const recoveryToken = computed(async (): Promise<SessionToken | null> => 
 
 export const recoveryPending = computed(() => {
   const token = recoveryToken.data()
-  return token !== null && token.stage !== 'planned' && token.stage !== 'done'
+  if (!token) return false
+  // done-kept: not a crash; Start may proceed but cleanup/recovery commands remain available
+  if (token.stage === 'planned' || token.stage === 'done' || token.stage === 'done-kept')
+    return false
+  return true
 }, 'recovery.pending')
 
 export const recoverBackup = action(async () => {
@@ -642,9 +700,11 @@ W5 deserves emphasis. Dependency tracking happens during the *synchronous* porti
 |--------|-----------|---------------------|-----|
 | `git.capability`, `git.repoStatus`, `…baseText`, `recovery.token`, `recovery.orphanRefs` | `withAsyncData` (includes `withAbort`) | yes | Stale probes should die; they only read |
 | `session.start` | `withAsync({status:true})`, `withAbort('first-in-win')` | yes, through `isolate` | An abort during isolation triggers `startFailed`, which restores |
-| `session.finish`, `session.cancel`, `recovery.restore` | `withAsync({status:true})`, `withAbort('first-in-win')` | **no** | A second cancel must be ignored, never allowed to interrupt the first restore |
-| `session.teardown`, `session.failed` | `withAsync()` | **no** | Restore is atomic from the user's point of view |
-| `session#….next / .prev / .jumpTo` | none (synchronous) | n/a | Pure state movement |
+| `session#….next / .prev` (readonly) | none (synchronous) | n/a | Pure state movement |
+| `session#….next / .prev` (apply) | `withAsync({status:true})`, `withAbort('first-in-win')` | **no** | Disk writes must not be half-cancelled |
+| `session.finish`, `session.cancel`, `recovery.restore`, `recovery.resumeApply` | `withAsync({status:true})`, `withAbort('first-in-win')` | **no** | A second cancel must be ignored, never allowed to interrupt the first restore/keep |
+| `session.teardown`, `session.failed`, `finishApplyKeep` | `withAsync()` | **no** | Restore/keep is atomic from the user's point of view |
+| `session.commitHandoff` | `withAsync()` | n/a | UI only |
 
 Corollaries the Reviewer should check:
 

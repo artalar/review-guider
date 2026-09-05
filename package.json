@@ -37,7 +37,8 @@
   "files": [
     "LICENSE.md",
     "dist/*",
-    "res/*"
+    "res/*",
+    "schema/guide-v1.json"
   ],
   "engines": {
     "vscode": "^1.97.0"
@@ -76,6 +77,12 @@
         "enablement": "tabthrough.canStart"
       },
       {
+        "command": "tabthrough.startFromGuide",
+        "title": "Review Using This Guide",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart && tabthrough.activeGuideValid"
+      },
+      {
         "command": "tabthrough.next",
         "title": "Reveal Next Change",
         "category": "Tabthrough",
@@ -94,8 +101,14 @@
         "enablement": "tabthrough.sessionActive"
       },
       {
+        "command": "tabthrough.showWalkthrough",
+        "title": "Show Walkthrough",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.gitUsable"
+      },
+      {
         "command": "tabthrough.finish",
-        "title": "Finish and Restore Workspace",
+        "title": "Finish Review",
         "category": "Tabthrough",
         "enablement": "tabthrough.sessionActive"
       },
@@ -104,6 +117,12 @@
         "title": "Cancel and Restore Workspace",
         "category": "Tabthrough",
         "enablement": "tabthrough.sessionOpen"
+      },
+      {
+        "command": "tabthrough.commitHandoff",
+        "title": "Open Source Control to Commit",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.gitUsable"
       },
       {
         "command": "tabthrough.restoreBackup",
@@ -124,26 +143,90 @@
         "enablement": "tabthrough.gitUsable"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "tabthrough.startFromGuide",
+          "when": "tabthrough.canStart && tabthrough.activeGuideValid",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "tabthrough.startFromGuide",
+          "when": "tabthrough.canStart && tabthrough.activeGuideValid",
+          "group": "navigation@10"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "tabthrough.startFromGuide",
+          "when": "tabthrough.canStart && resourceFilename =~ /\\.guide\\.json$/",
+          "group": "navigation@10"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "tabthrough.start",
+          "when": "view == tabthrough.sidebar && tabthrough.canStart",
+          "group": "navigation@1"
+        },
+        {
+          "command": "tabthrough.cancel",
+          "when": "view == tabthrough.sidebar && tabthrough.sessionOpen",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "tabthrough",
+          "title": "Tabthrough",
+          "icon": "res/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "tabthrough": [
+        {
+          "id": "tabthrough.sidebar",
+          "name": "Walkthrough",
+          "type": "webview"
+        }
+      ]
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          ".guide.json",
+          "**/.guide.json",
+          "*.guide.json",
+          "**/*.guide.json"
+        ],
+        "url": "./schema/guide-v1.json"
+      }
+    ],
     "keybindings": [
       {
         "command": "tabthrough.next",
         "key": "tab",
-        "when": "tabthrough.sessionActive && resourceScheme == 'tabthrough' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.tabthrough.keybinding.useTab"
+        "when": "tabthrough.sessionActive && tabthrough.sessionMode != 'apply' && resourceScheme == 'tabthrough' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.tabthrough.keybinding.useTab"
       },
       {
         "command": "tabthrough.previous",
         "key": "shift+tab",
-        "when": "tabthrough.sessionActive && resourceScheme == 'tabthrough' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.tabthrough.keybinding.useTab"
+        "when": "tabthrough.sessionActive && tabthrough.sessionMode != 'apply' && resourceScheme == 'tabthrough' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.tabthrough.keybinding.useTab"
       },
       {
         "command": "tabthrough.next",
         "key": "alt+]",
-        "when": "tabthrough.sessionActive"
+        "when": "tabthrough.sessionActive && !tabthrough.applyPending"
       },
       {
         "command": "tabthrough.previous",
         "key": "alt+[",
-        "when": "tabthrough.sessionActive"
+        "when": "tabthrough.sessionActive && !tabthrough.applyPending"
       }
     ],
     "configuration": {
@@ -166,7 +249,22 @@
             "The whole change is rendered and unrevealed lines are dimmed."
           ],
           "default": "progressive",
-          "description": "How the reviewed change is revealed as you advance through steps."
+          "description": "How the reviewed change is revealed as you advance through steps. Ignored in apply mode."
+        },
+        "tabthrough.session.mode": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "readonly",
+            "apply"
+          ],
+          "enumDescriptions": [
+            "Ask before each session whether to review read-only or apply steps to real files.",
+            "Always use read-only virtual documents.",
+            "Always apply steps to the real working tree."
+          ],
+          "default": "ask",
+          "description": "Session contract: read-only review, apply-with-user, or ask each time."
         },
         "tabthrough.guideFile": {
           "type": "string",
@@ -210,6 +308,7 @@
     "vscode:prepublish": "nr build",
     "release": "bumpp",
     "ext:package": "vsce package --no-dependencies",
+    "ext:install": "bash scripts/install-cursor.sh",
     "ext:publish": "vsxpub --no-dependencies"
   },
   "devDependencies": {

@@ -1,0 +1,18 @@
+---
+description: Rebuild the VSIX after code changes so the user can sideload and test
+alwaysApply: true
+---
+
+# Package VSIX after changes
+
+Whenever you finish a code change the user will test in the editor, package and install into Cursor before ending the turn:
+
+```bash
+pnpm ext:install
+```
+
+That runs `scripts/install-cursor.sh` (package with mise Node 24, then `cursor --install-extension … --force`).
+
+- Output: `tabthrough-0.0.0.vsix` at the repo root, installed into Cursor.
+- Use **Node 24 via mise**, not the default Node 25 — `vsce` crashes on Node 25 (`SlowBuffer` removed in `buffer-equal-constant-time`).
+- Skip only for docs-only / non-extension edits that cannot affect the installed build.

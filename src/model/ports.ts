@@ -1,5 +1,5 @@
 import type { SessionToken, TokenStore } from '../git/journal'
-import type { PreflightRequest } from '../git/types'
+import type { PreflightRequest, SessionMode } from '../git/types'
 import { repoKey } from '../git/journal'
 
 /**
@@ -12,6 +12,10 @@ export type StorePort = TokenStore
 
 export type NotifyLevel = 'info' | 'warn' | 'error'
 
+export type SaveDocumentsResult
+  = | { readonly ok: true }
+    | { readonly ok: false, readonly path: string }
+
 export interface ReviewDocTarget {
   readonly sessionId: string
   readonly path: string
@@ -21,8 +25,17 @@ export interface ReviewDocTarget {
 
 export interface UiPort {
   confirm: (request: PreflightRequest) => Promise<boolean>
+  /** `null` means the user cancelled the chooser. */
+  chooseSessionMode: () => Promise<SessionMode | null>
   notify: (level: NotifyLevel, message: string, actions?: readonly string[]) => Promise<string | undefined>
   openReview: (target: ReviewDocTarget) => Promise<void>
+  openWorkspaceFile: (repoRoot: string, path: string) => Promise<void>
+  openSourceControl: () => Promise<void>
+  /**
+   * Persist dirty file editors belonging to `repoRoot` before git mutates it.
+   * An empty path list means all open dirty file editors in that repository.
+   */
+  saveDocuments: (repoRoot: string, paths: readonly string[]) => Promise<SaveDocumentsResult>
 }
 
 export interface ClockPort {
@@ -49,8 +62,12 @@ export const inertPorts: Ports = {
   },
   ui: {
     confirm: async () => false,
+    chooseSessionMode: async () => null,
     notify: async () => undefined,
     openReview: async () => {},
+    openWorkspaceFile: async () => {},
+    openSourceControl: async () => {},
+    saveDocuments: async () => ({ ok: true }),
   },
   clock: {
     now: () => Date.now(),

@@ -38,17 +38,23 @@ const BASE: SessionToken = {
   backupCommit: null,
   stashMessage: null,
   checkedOut: null,
+  mode: 'readonly',
+  appliedIndex: -1,
+  appliedRef: null,
 }
 
 /** Every transition the protocol is allowed to make, listed exhaustively. */
 const LEGAL: Readonly<Record<IsolationStage, readonly IsolationStage[]>> = {
-  planned: ['captured', 'restoring', 'done'],
-  captured: ['stashed', 'checkedout', 'restoring', 'done'],
-  stashed: ['checkedout', 'restoring'],
-  checkedout: ['reviewing', 'restoring'],
-  reviewing: ['restoring'],
-  restoring: ['restoring', 'done'],
-  done: [],
+  'planned': ['captured', 'restoring', 'done'],
+  'captured': ['stashed', 'checkedout', 'restoring', 'done'],
+  'stashed': ['checkedout', 'restoring'],
+  'checkedout': ['reviewing', 'restoring'],
+  'reviewing': ['applying', 'restoring', 'finishing-keep'],
+  'applying': ['reviewing', 'restoring'],
+  'finishing-keep': ['done-kept', 'restoring'],
+  'restoring': ['restoring', 'done'],
+  'done': [],
+  'done-kept': [],
 }
 
 function at(stage: IsolationStage): SessionToken {
@@ -102,10 +108,11 @@ describe('isRecoverable', () => {
     expect(isRecoverable(null)).toBe(false)
     expect(isRecoverable(at('planned'))).toBe(false)
     expect(isRecoverable(at('done'))).toBe(false)
+    expect(isRecoverable(at('done-kept'))).toBe(false)
   })
 
-  it('flags every state that mutated something', () => {
-    for (const stage of ['captured', 'stashed', 'checkedout', 'reviewing', 'restoring'] as const)
+  it('flags every state that mutated something and is not yet terminal', () => {
+    for (const stage of ['captured', 'stashed', 'checkedout', 'reviewing', 'applying', 'finishing-keep', 'restoring'] as const)
       expect(isRecoverable(at(stage))).toBe(true)
   })
 })
@@ -141,9 +148,9 @@ describe('isSessionLive', () => {
    * that window is the most dangerous one to race.
    */
   it('covers every recoverable stage, and no others', () => {
-    for (const stage of ['captured', 'stashed', 'checkedout', 'reviewing', 'restoring'] as const)
+    for (const stage of ['captured', 'stashed', 'checkedout', 'reviewing', 'applying', 'finishing-keep', 'restoring'] as const)
       expect(isSessionLive(live(stage, NOW), NOW)).toBe(true)
-    for (const stage of ['planned', 'done'] as const)
+    for (const stage of ['planned', 'done', 'done-kept'] as const)
       expect(isSessionLive(live(stage, NOW), NOW)).toBe(false)
   })
 
@@ -222,5 +229,13 @@ describe('parseToken', () => {
     expect(parseToken(rest)?.heartbeatAt).toBeNull()
     expect(parseToken({ ...BASE, heartbeatAt: 'soon' })?.heartbeatAt).toBeNull()
     expect(parseToken({ ...BASE, heartbeatAt: 42 })?.heartbeatAt).toBe(42)
+  })
+
+  it('reads a token that predates apply-mode fields', () => {
+    const { mode: _m, appliedIndex: _i, appliedRef: _r, ...rest } = BASE
+    const parsed = parseToken(rest)
+    expect(parsed?.mode).toBe('readonly')
+    expect(parsed?.appliedIndex).toBe(-1)
+    expect(parsed?.appliedRef).toBeNull()
   })
 })

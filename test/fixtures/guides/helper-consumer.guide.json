@@ -1,0 +1,28 @@
+{
+  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
+  "version": 1,
+  "scope": { "kind": "commit", "base": "1111111", "head": "2222222" },
+  "summary": "Extract a shared action-name helper, then adopt it in jsxEvent. Two thoughts — do not read them as one flash.",
+  "steps": [
+    {
+      "id": "event-action-name",
+      "order": 10,
+      "path": "src/jsx/events.ts",
+      "ranges": [{ "side": "new", "start": 1, "end": 4 }],
+      "significance": "high",
+      "title": "Named action helper",
+      "rationale": "The contract every later event call site will share",
+      "notes": "`eventActionName` is the naming rule. Read it alone before any call site changes, or the refactor looks like noise."
+    },
+    {
+      "id": "jsx-event-adopts",
+      "order": 20,
+      "path": "src/jsx/events.ts",
+      "ranges": [{ "side": "new", "start": 8, "end": 14 }],
+      "significance": "high",
+      "title": "jsxEvent adopts the helper",
+      "rationale": "First consumer — only makes sense after the helper above",
+      "dependsOn": ["event-action-name"]
+    }
+  ]
+}

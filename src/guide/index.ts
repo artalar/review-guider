@@ -1,3 +1,4 @@
+export * from './from-file'
 export * from './groups'
 export * from './heuristic'
 export * from './merge'

@@ -1,7 +1,7 @@
 import type { TextEditor, Uri as VscodeUri } from 'vscode'
 import type { LineRange } from '../guide/types'
 import type { ReviewDocRef, ReviewViewModel } from '../model/view'
-import { peek } from '@reatom/core'
+import { peek, wrap } from '@reatom/core'
 import { useActiveTextEditor, useDisposable, useEditorDecorations, watch } from 'reactive-vscode'
 import {
   commands,
@@ -15,6 +15,7 @@ import {
   window,
   workspace,
 } from 'vscode'
+import { ports, session } from '../model/session'
 import { REVIEW_SCHEME, reviewDocPath, reviewViewModel } from '../model/view'
 import { logger } from '../utils'
 import { useAtomRef } from './binding'
@@ -28,6 +29,7 @@ import { useAtomRef } from './binding'
  */
 
 const LOADING = '// Tabthrough is reading this file…\n'
+const ENDED = '// Tabthrough review ended.\n'
 
 export function reviewUri(ref: ReviewDocRef, rev?: string): VscodeUri {
   return Uri.from({
@@ -93,25 +95,62 @@ export function focusCurrentStep(): void {
 
 /** Status-bar click and `Go to Current Step`: reopen the diff if it was closed. */
 export async function revealCurrentStep(): Promise<void> {
+  const model = peek(session)
+  if (model?.mode === 'apply') {
+    const step = model.currentStep()
+    if (step !== null)
+      await wrap(peek(ports).ui.openWorkspaceFile(model.repoRoot, step.path))
+    return
+  }
+
   const view = withActivePath(peek(reviewViewModel))
   if (view === null)
     return
 
   const { base, reveal } = urisFor(view)
-  const open = window.visibleTextEditors.some(editor => editor.document.uri.toString() === reveal.toString())
-  if (!open)
-    await openDiff(base, reveal, view.title)
+  // Reopening an existing diff activates it too. Merely changing its selection
+  // leaves keyboard focus in the sidebar, so Tab would navigate buttons.
+  await wrap(openDiff(base, reveal, view.title))
 
   focusCurrentStep()
 }
 
-async function openDiff(base: VscodeUri, reveal: VscodeUri, title: string): Promise<void> {
+async function openDiff(base: VscodeUri, reveal: VscodeUri, title: string): Promise<boolean> {
   try {
     await commands.executeCommand('vscode.diff', base, reveal, title, { preview: false })
+    return true
   }
   catch (error) {
     logger.error('could not open the review diff', error)
+    return false
   }
+}
+
+/** Close virtual review tabs when a session ends or an async open is stale. */
+async function closeReviewTabs(staleKey?: string): Promise<void> {
+  const tabs = window.tabGroups.all
+    .flatMap(group => [...group.tabs])
+    .filter((tab) => {
+      const input = tab.input
+      if (input === null || typeof input !== 'object')
+        return false
+      const original = 'original' in input ? input.original : undefined
+      const modified = 'modified' in input ? input.modified : undefined
+      if (!isReviewUri(original) && !isReviewUri(modified))
+        return false
+      if (staleKey === undefined)
+        return true
+      return original?.toString() === staleKey || modified?.toString() === staleKey
+    })
+  if (tabs.length > 0)
+    await window.tabGroups.close(tabs, true)
+}
+
+function isReviewUri(uri: unknown): uri is VscodeUri {
+  return typeof uri === 'object'
+    && uri !== null
+    && 'scheme' in uri
+    && (uri as { scheme?: unknown }).scheme === REVIEW_SCHEME
 }
 
 export function useReviewDocuments(): void {
@@ -120,10 +159,12 @@ export function useReviewDocuments(): void {
   // `provideTextDocumentContent` is a synchronous pull: a write-only
   // projection of `reviewViewModel`, never read back by the model.
   const contents = new Map<string, string>()
+  const ended = new Set<string>()
 
   useDisposable(workspace.registerTextDocumentContentProvider(REVIEW_SCHEME, {
     onDidChange: emitter.event,
-    provideTextDocumentContent: uri => contents.get(uri.toString()) ?? LOADING,
+    provideTextDocumentContent: uri => contents.get(uri.toString())
+      ?? (ended.has(uri.toString()) ? ENDED : LOADING),
   }))
 
   // VS Code re-reads the provider after `fire`; this is the moment the editor
@@ -135,11 +176,13 @@ export function useReviewDocuments(): void {
 
   const view = useAtomRef(reviewViewModel)
   let openedFor: string | null = null
+  let updateGeneration = 0
 
   const publish = (uri: VscodeUri, text: string | null): void => {
     if (text === null)
       return
     const key = uri.toString()
+    ended.delete(key)
     if (contents.get(key) === text)
       return
     contents.set(key, text)
@@ -147,10 +190,14 @@ export function useReviewDocuments(): void {
   }
 
   const apply = async (next: ReviewViewModel | null): Promise<void> => {
+    const generation = ++updateGeneration
     const active = withActivePath(next)
     if (active === null) {
+      for (const key of contents.keys())
+        ended.add(key)
       contents.clear()
       openedFor = null
+      await closeReviewTabs()
       return
     }
 
@@ -165,9 +212,21 @@ export function useReviewDocuments(): void {
 
     const key = reveal.toString()
     if (openedFor !== key) {
-      openedFor = key
-      await openDiff(base, reveal, active.title)
+      const opened = await openDiff(base, reveal, active.title)
+      // A view can change while vscode.diff is resolving. Close a diff that
+      // belongs to the superseded session/path and leave the current one to
+      // the latest update.
+      if (generation !== updateGeneration) {
+        const latest = withActivePath(view.value)
+        if (latest === null || urisFor(latest).reveal.toString() !== key)
+          await closeReviewTabs(key)
+        return
+      }
+      if (opened)
+        openedFor = key
     }
+    if (generation !== updateGeneration)
+      return
     focusCurrentStep()
   }
 
@@ -187,9 +246,12 @@ export function useReviewDecorations(): void {
 
   const ranges = (pick: (model: ReviewViewModel) => readonly LineRange[]) => (target: TextEditor): Range[] => {
     const model = view.value
-    if (model === null || !isRevealDocument(target.document.uri))
+    const active = withActivePath(model)
+    if (active === null || !isRevealDocument(target.document.uri))
       return []
-    return toEditorRanges(pick(model), target)
+    if (target.document.uri.toString() !== urisFor(active).reveal.toString())
+      return []
+    return toEditorRanges(pick(active), target)
   }
 
   useEditorDecorations(

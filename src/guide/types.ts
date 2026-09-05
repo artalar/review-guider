@@ -57,6 +57,11 @@ export interface DiffFile {
   readonly status: FileStatus
   readonly isBinary: boolean
   readonly isGenerated: boolean
+  /** Whether the pre-image ended in a newline. Omitted by older callers. */
+  readonly oldTrailingNewline?: boolean
+  /** Whether the post-image ended in a newline. Omitted by older callers. */
+  readonly newTrailingNewline?: boolean
+  /** Kept for v1 callers; true when either side has an explicit no-newline marker. */
   readonly noTrailingNewline: boolean
   readonly oldMode?: string
   readonly newMode?: string
@@ -136,6 +141,8 @@ export interface GuideStep {
 
 export interface Guide {
   readonly steps: readonly GuideStep[]
+  /** Optional author supplied orientation shown before the first step. */
+  readonly summary?: string
   readonly stale: boolean
   readonly diagnostics: readonly GuideDiagnostic[]
 }

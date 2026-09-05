@@ -71,6 +71,9 @@ export async function isolateUpTo(
     backupCommit: null,
     stashMessage: null,
     checkedOut: null,
+    mode: 'readonly',
+    appliedIndex: -1,
+    appliedRef: null,
   }
   await store.writeToken(token)
   if (stage === 'planned')

@@ -1,11 +1,12 @@
 # Test Matrix
 
-**Last updated:** 2026-08-07 · **Owner:** Tester
+**Last updated:** 2026-08-07 · **Owner:** Tester (+ Planner §9 apply plan)
 **Scope:** what is covered automatically, what needs a human, and what is still open.
 
-Sources: [plan.md](./plan.md) test gates · [specs/product.md](../specs/product.md#edge-case-budget) edge rows · [architecture/overview.md](../architecture/overview.md) §3.5.
+Sources: [plan.md](./plan.md) test gates · [specs/product.md](../specs/product.md#edge-case-budget) edge rows · [architecture/overview.md](../architecture/overview.md) §3.5 · [ADR 0004](../decisions/0004-apply-mode.md).
 
 > Phase 2 rule from the plan: **no phase after 2 may merge while the stash round-trip suite is red.**
+> Apply rule (v0.2): **Phases 7–10 must keep the sacred suite green; apply Cancel remains byte-identical.**
 
 ---
 
@@ -316,3 +317,90 @@ Three of the four costs are git subprocesses — capture, checkout, `readDiff` �
 | Gitignored `.guide.json` on the working-tree entry | `add -A` honours `.gitignore`, so an ignored sidecar is not in the capture commit and is never read. Committing it, or not ignoring it, is the workaround | Documented in the README's limitations |
 | `git.path` / non-PATH git | The probe reports `git-missing` and says to install git or set `git.path`; the setting itself is not read yet | P1 |
 | `shallow-missing-objects` is never returned by the probe | The reason exists in `GitCapabilityReason` but a shallow clone probes as usable, which is correct — the missing object only matters once an entry point asks for history, and that refusal now happens in `planIsolation` (§2.1). The unused variant is worth deleting or wiring | P1 tidy-up |
+| Apply mode (Phases 7–10) | Planned coverage in §9; no automated apply suite until Implementer P0-A3 | v0.2 |
+
+---
+
+## 9. Apply mode (v0.2) — planned coverage
+
+Normative: [ADR 0004](../decisions/0004-apply-mode.md). Product edges: [specs/product.md → P0 (v0.2 apply)](../specs/product.md#edge-case-budget). Risks: [plan.md R-apply-1…9](./plan.md#apply-mode-risk-register-v02).
+
+**Status:** Planned (Planner P0-A2). Implementer fills Pass/Fail as Phases 7–10 land. Tester owns fixture authorship once code exists.
+
+### 9.1 Apply step / merge / revert (Phase 7 — P0-A3)
+
+| Case | Assert | Risk |
+|------|--------|------|
+| Fast-path Tab (`current === intendedPrev`) | Writes `intendedNext`; `appliedIndex` advances; applied-ref bumps | — |
+| Edit-then-Tab clean 3-way | User edit preserved; step lands; advance | R-apply-1 |
+| Edit-then-Tab conflict | **Stop**; no advance; conflict surfaced; no silent overwrite | R-apply-1 · product row |
+| Shift+Tab / Previous clean | Reverts last step; `appliedIndex` decrements | P1-13 |
+| Shift+Tab after messy edit → conflict | Block; explanation; index unchanged | R-apply-1 |
+| Overlapping hunks / multi-hunk user edit | Conflict or clean merge per 3-way; never skip | R-apply-1 |
+| Unsaved buffer cannot save | Apply refused; index unchanged | R-apply-4 |
+| Double-Tab / spam while pending | Second apply does not interleave (`first-in-win`) | R-apply-5 |
+| Stub / binary step | No file write; advance with status note | — |
+| Drift outside step path | Warn (P1-8 early); do not auto-overwrite foreign files | R-apply-4 |
+| Cancel after N applied steps (+ mid edits) | Pre-session fingerprint restored (sacred) | product “User edits then abort” |
+| Readonly session regression | Existing reveal/lifecycle suites still Pass | additive constraint |
+
+### 9.2 Finish vs Cancel (Phase 9 — P0-A5)
+
+| Case | Assert | Risk |
+|------|--------|------|
+| Apply Cancel | Sacred restore; confirm when `appliedIndex >= 0` | — |
+| Apply Finish | Tree **kept**; backup **not** stash-applied; journal `done-kept` | R-apply-3 |
+| Finish vs Cancel fingerprints | Distinct outcomes; copy/UI never confuse them | R-apply-9 |
+| Finish carry-checkout fails | Stay detached; refs kept; instructions; no `-f` | R-apply-2 |
+| Commit handoff | SCM / commit UI focused; **no** extension `git commit` | — |
+| Readonly Finish | Still restores (unchanged) | — |
+| After Finish, cleanup | after/backup/applied refs retained until explicit cleanup | R-apply-3 |
+
+Rows added by [review 003](./reviews/003.md) — none of §9.2 was implemented at the Phase 9 gate.
+The first four block the ship; they are backlog **P0-A5-F11**.
+
+| Case | Assert | Review ref |
+|------|--------|-----------|
+| Finish offered after a conflict | Completion message + Finish button **not** shown while `canAdvance()`; Finish refuses a tree holding markers | **B1** |
+| Apply `deactivate` | Does not silently discard the walk; user-authored file survives; nothing destructive without consent | **B2** |
+| User creates a file mid-walk, then Cancel | File survives, or is disclosed and stashed — never removed as "junk" | **M1** |
+| `finishKeepFromToken` blocked branch | Carry failure → `blocked`, refs kept, detached, no `-f` (fix P0-A5-F1 is currently unasserted) | **M4, P0-A5-F1** |
+| Finish mid-walk (incomplete) | Partial application kept, journal `done-kept`, no claim the walk finished | **T1** |
+| WT-entry Finish (Phase 8) | Applied work kept; pre-session stash **not** re-applied over it | R-apply-9 |
+| Start after `done-kept` | Prior kept-session backup pointer not lost; `restoreBackup` / `recoverBackup` give a usable message, not `IllegalStageError` | **M2, M3** |
+| Finish with an unsaved buffer | Non-step dirty editors are saved or disclosed before the carry | **m3** |
+| No commit, ever | No code path constructs `git commit` (currently true, unasserted) | — |
+
+### 9.3 Crash / recovery stages (Phase 10 — P0-A6)
+
+Extend `crash-matrix` / recovery protocol:
+
+| Journal / state | On disk | Recovery must | Risk |
+|-----------------|---------|---------------|------|
+| `applying`, applied-ref not bumped | Partial or prior WT | Offer Restore \| Resume-from-previous index \| Inspect; **never** silent merge of half-write | product “Crash mid-apply” |
+| `applying`, applied-ref bumped, index not yet written | Checkpoint ahead of token | Prefer Resume at checkpoint; show mismatch | — |
+| `reviewing` apply, `appliedIndex = k` | Applied checkpoint | Resume apply at k | — |
+| `finishing-keep` interrupted | WT may be mid-carry | Keep refs; offer complete keep or Restore with confirm | R-apply-2 |
+| `done-kept` | Tree kept; refs present | Not a crash; Start may proceed; cleanup available; Restore pre-session over kept tree needs **dangerous confirm** | R-apply-3 |
+
+### 9.4 Apply keybinding / file-scheme (Phase 7 + manual)
+
+Readonly §6.4 still applies to `tabthrough:` docs. Apply adds:
+
+| Focus / state | Expected |
+|---------------|----------|
+| Apply session, workspace `file` editor | <kbd>Alt</kbd>+<kbd>]</kbd> / <kbd>Alt</kbd>+<kbd>[</kbd> advance / revert |
+| Apply + narrowed Tab when-clause (if shipped) | Tab advances only with widget guards; IntelliSense / snippet / inline suggestion still win |
+| Apply session, normal editor, no chord | Ordinary Tab indent — must not be stolen globally |
+| `tabthrough:` doc during apply | N/A if apply opens real files only; if both exist, document which binding wins |
+| Pending apply (`applyPending`) | Next/Previous disabled or no-op |
+
+**Manual drill §6.6 (apply crash)** — add when Phase 10 lands: kill host mid-Tab (`applying`); reload; choose Restore vs Resume; fingerprint / checkpoint asserts. Until then: ☐ not written as a full runbook.
+
+### 9.5 P0 v0.2 product edge map
+
+| Product row | Covered by |
+|-------------|------------|
+| Crash mid-apply | §9.3 |
+| User edits then abort | §9.1 Cancel row · Phase 8 WT |
+| Conflict applying next step onto user edits | §9.1 conflict rows |

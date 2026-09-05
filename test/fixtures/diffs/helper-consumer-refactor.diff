@@ -1,0 +1,23 @@
+diff --git a/src/jsx/events.ts b/src/jsx/events.ts
+index 1111111..2222222 100644
+--- a/src/jsx/events.ts
++++ b/src/jsx/events.ts
+@@ -1,10 +1,14 @@
++export function eventActionName(type: string): string {
++  const name = type.startsWith('on') ? type.slice(2) : type
++  return `on${name[0]!.toUpperCase()}${name.slice(1)}`
++}
++
+ export type EventDetail = unknown
+ 
+-export function jsxEvent(type: string): string {
+-  const name = type.startsWith('on') ? type.slice(2) : type
+-  return `on${name[0]!.toUpperCase()}${name.slice(1)}`
++export function jsxEvent(type: string, detail?: EventDetail): string {
++  return eventActionName(type)
+ }
+ 
+ export function bind(el: Element, type: string, fn: EventListener): void {
+-  el.addEventListener(jsxEvent(type), fn)
++  el.addEventListener(eventActionName(type), fn)
+ }

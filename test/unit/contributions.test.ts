@@ -28,6 +28,7 @@ interface Manifest {
   readonly contributes: {
     readonly commands: readonly Contribution[]
     readonly keybindings: readonly Contribution[]
+    readonly menus?: Readonly<Record<string, readonly Contribution[]>>
     readonly configuration: { readonly properties: Readonly<Record<string, unknown>> }
   }
 }
@@ -40,6 +41,7 @@ async function manifest(): Promise<Manifest> {
 /** ADR 0002 D2, clause by clause. */
 const TAB_CLAUSES: readonly string[] = [
   'tabthrough.sessionActive',
+  'tabthrough.sessionMode != \'apply\'',
   'resourceScheme == \'tabthrough\'',
   'editorTextFocus',
   '!suggestWidgetVisible',
@@ -60,14 +62,17 @@ describe('contributed commands', () => {
     expect(declared).toEqual([
       'tabthrough.cancel',
       'tabthrough.cleanupBackups',
+      'tabthrough.commitHandoff',
       'tabthrough.discardRecovery',
       'tabthrough.finish',
       'tabthrough.next',
       'tabthrough.previous',
       'tabthrough.restoreBackup',
       'tabthrough.showStepDetail',
+      'tabthrough.showWalkthrough',
       'tabthrough.start',
       'tabthrough.startFromCommit',
+      'tabthrough.startFromGuide',
       'tabthrough.startFromRange',
     ])
   })
@@ -104,11 +109,23 @@ describe('contributed commands', () => {
 
   it('only offers the three entry points when the model says a start can succeed', async () => {
     const { contributes } = await manifest()
-    const starts = contributes.commands.filter(entry => entry.command.startsWith('tabthrough.start'))
+    const starts = contributes.commands.filter(entry =>
+      entry.command === 'tabthrough.start'
+      || entry.command === 'tabthrough.startFromCommit'
+      || entry.command === 'tabthrough.startFromRange')
 
     expect(starts).toHaveLength(3)
     for (const entry of starts)
       expect(entry.enablement).toBe('tabthrough.canStart')
+  })
+
+  it('offers Review Using This Guide only for a valid open *.guide.json', async () => {
+    const { contributes } = await manifest()
+    const fromGuide = contributes.commands.find(entry => entry.command === 'tabthrough.startFromGuide')
+
+    expect(fromGuide?.enablement).toBe('tabthrough.canStart && tabthrough.activeGuideValid')
+    expect(contributes.menus?.['editor/title']?.some(entry => entry.command === 'tabthrough.startFromGuide')).toBe(true)
+    expect(contributes.menus?.['editor/context']?.some(entry => entry.command === 'tabthrough.startFromGuide')).toBe(true)
   })
 })
 
@@ -131,7 +148,9 @@ describe('workspace trust', () => {
 describe('keybindings', () => {
   it('scopes Tab to the reveal document, every widget guard, and the opt-out', async () => {
     const { contributes } = await manifest()
-    const tab = contributes.keybindings.filter(entry => entry.key === 'tab' || entry.key === 'shift+tab')
+    const tab = contributes.keybindings.filter(entry =>
+      (entry.key === 'tab' || entry.key === 'shift+tab')
+      && (entry.when ?? '').includes('resourceScheme == \'tabthrough\''))
 
     expect(tab.map(entry => entry.command)).toEqual(['tabthrough.next', 'tabthrough.previous'])
     for (const entry of tab) {
@@ -150,17 +169,57 @@ describe('keybindings', () => {
     }
   })
 
-  it('keeps the chord unconditional, so accessibility mode still has a way forward', async () => {
+  it('keeps the chord available while idle between apply steps', async () => {
     const { contributes } = await manifest()
     const chord = contributes.keybindings.filter(entry => entry.key === 'alt+]' || entry.key === 'alt+[')
 
     expect(chord.map(entry => entry.command)).toEqual(['tabthrough.next', 'tabthrough.previous'])
-    for (const entry of chord)
-      expect(entry.when).toBe('tabthrough.sessionActive')
+    for (const entry of chord) {
+      expect(entry.when).toContain('tabthrough.sessionActive')
+      expect(entry.when).toContain('!tabthrough.applyPending')
+    }
+  })
+
+  it('does not steal Tab in ordinary file editors during apply (review 004 B2 / §9.4)', async () => {
+    const { contributes } = await manifest()
+    const tabKeys = contributes.keybindings.filter(entry =>
+      entry.key === 'tab' || entry.key === 'shift+tab')
+
+    for (const entry of tabKeys) {
+      expect(entry.when ?? '', entry.key).not.toContain('resourceScheme == \'file\'')
+      expect(entry.when ?? '', entry.key).not.toContain('sessionMode == \'apply\'')
+      expect(entry.when ?? '', entry.key).toContain('resourceScheme == \'tabthrough\'')
+    }
+
+    const chord = contributes.keybindings.filter(entry => entry.key === 'alt+]' || entry.key === 'alt+[')
+    expect(chord).toHaveLength(2)
   })
 
   it('lets the user turn the Tab binding off entirely', async () => {
     const { contributes } = await manifest()
     expect(contributes.configuration.properties['tabthrough.keybinding.useTab']).toBeDefined()
+  })
+
+  it('declares the session mode setting with ask default', async () => {
+    const { contributes } = await manifest()
+    const setting = contributes.configuration.properties['tabthrough.session.mode'] as {
+      default?: string
+      enum?: string[]
+    }
+    expect(setting.default).toBe('ask')
+    expect(setting.enum).toEqual(['ask', 'readonly', 'apply'])
+  })
+
+  it('offers Finish for every active session, including apply', async () => {
+    const { contributes } = await manifest()
+    const finish = contributes.commands.find(entry => entry.command === 'tabthrough.finish')
+    expect(finish?.enablement).toBe('tabthrough.sessionActive')
+    expect(finish?.title).toBe('Finish Review')
+  })
+
+  it('offers commit handoff without requiring a live session', async () => {
+    const { contributes } = await manifest()
+    const handoff = contributes.commands.find(entry => entry.command === 'tabthrough.commitHandoff')
+    expect(handoff?.enablement).toBe('tabthrough.gitUsable')
   })
 })

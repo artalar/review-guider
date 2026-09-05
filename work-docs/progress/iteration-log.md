@@ -370,3 +370,498 @@ Agent-team loop completed for MVP v0.1:
 - Token lookup failed when `mkdtemp` path ≠ `git --show-toplevel` (macOS `/var`↔`/private/var`, Windows drive case)
 - Windows: `URL.pathname` doubled the drive; CRLF broke fixtures + ````json` fence regex
 - Fix: `canonicalizeRepoRoot` + `repoKey`, `memoryStore` via `repoKey`, `realpath` temps, `.gitattributes` LF, `fileURLToPath`
+
+## Product Owner — 2026-08-07 — apply-with-user + finer guide steps
+
+Docs only; no `src/`, no new ADR (Architect owns ADR amendments).
+
+**Intent captured.** Two product tracks for v0.2:
+
+1. **Finer guide steps / skill** — Dogfood anti-pattern: bundling a helper (e.g. `eventActionName`) and a consumer refactor (e.g. `jsxEvent`) into one flashy panel. Guides must force **one thought per Tab** and split distinct edits. Skill + `agent-guide-authoring.md` tightening is a product requirement (P0-G1); full rewrite deferred to the docs slice once Architect confirms schema v1 suffices.
+2. **Apply-with-user / commit workflow** — Reveal must work like **rebase with fixes**: commit target → checkout previous → apply `C` step-by-step with the user (edits allowed); working-tree target → stash → reapply the same way. Success = the **developer commits**, not a virtual slideshow that restores away.
+
+**ADR 0002 D1 conflict.** PO **formally reopens** D1’s rejection of “staged apply to disk.” Preferred reconciliation (not an ADR — Architect writes it): keep read-only `progressive`/`dim`; add a third **`apply` mode** where dirty `git status` is the feature under the same journal/stash safety bar. Acceptance criteria, risks, and Finish-vs-Commit expectations live in `specs/product.md`.
+
+**Artifacts updated**
+
+- `specs/product.md` — v0.2 vision, journeys J1–J4, apply-mode + guide-quality acceptance, open questions
+- `progress/backlog.md` — P0-A1…A6 (apply), P0-G1…G3 (granularity); P1 order revised (drift earlier; P1-2 re-gated)
+- `roles/product-owner.md` — priorities now include apply + granularity after v0.1 close
+- `process/README.md` — current milestone notes v0.2 next
+
+**Handoff**
+
+- **Architect (P0-A1, blocking for apply code):** Amend D1 / overview §7 — apply mode design; stash contract under reapply; mid-step user edits; Finish vs Commit; Shift+Tab; crash journal for applied step index; coexistence default.
+- **Planner (P0-A2):** Phase + risk register for apply; sequence P0-A3–A6 after Architect; keep v0.1 manual drills on the critical path for Marketplace dogfood.
+- **Docs / skill (P0-G1, can start now):** Tighten skill + authoring guide with helper+consumer anti-pattern and checklist gate; golden fixture P0-G2.
+- **Implementer:** No apply implementation until P0-A1 accepted. v0.1 drills still unblocked.
+
+**Open questions** (full list in product.md): stash contract for working-tree reapply; dirty edits mid-step; Finish vs Commit; Previous in apply; mode default; schema change vs ranges/grouping only.
+
+## Docs — 2026-08-07 — P0-G1 guide authoring granularity
+
+Docs only; no `src/`, no schema/ADR changes.
+
+**Delivered**
+
+- `.agents/skills/tabthrough/SKILL.md` — patch-first procedure gate; one-thought-per-Tab rules; `ranges` required for multi-thought files; `eventActionName` / `jsxEvent` anti-pattern named (long JSON deferred to long-form); emit checklist includes “Did I merge two whiteboard thoughts?”
+- `work-docs/guides/agent-guide-authoring.md` — matching long-form: §2.2 / helper+consumer recipe, §5.1 worked wrong→right split, checklist granularity gate
+- `.cursor/skills/tabthrough/SKILL.md` synced to the agents copy
+- Backlog: P0-G1 → **Done** (dogfood still P0-G2/G3)
+
+**Follow-ups (skill alone cannot close)**
+
+- **P0-G2:** golden mixed helper+refactor fixture for skill dogfood
+- **P0-G3 / P1-2:** re-gate agent guide dogfood on no multi-thought panels
+- **P1-11:** heuristic soft-split (definition + first use) for coarse *offline* guides — v1 `ranges`/`order`/`dependsOn` already suffice for agents; no new schema fields needed for P0-G1
+
+## Architect — 2026-08-07 — P0-A1 apply-with-user (ADR 0004)
+
+Docs only; no `src/`. Closes the PO reopen of ADR 0002 D1.
+
+**Decision record:** [decisions/0004-apply-mode.md](../decisions/0004-apply-mode.md). ADR 0002 D1 **amended in place** (read-only rejection stands; apply is a separate session contract).
+
+### Decisions (decisive answers to PO open questions)
+
+| Topic | Call |
+|-------|------|
+| Coexistence | Keep `progressive`/`dim`; add session mode **`apply`**. `tabthrough.session.mode` default **`ask`**. |
+| Isolation | Same capture → journal → stash → lock. Apply checks out **`base`** (commit: `C^`; WT: clean `HEAD`). |
+| Tab | Intended trees from `renderReveal`; fast-path write or **3-way merge** with user edits; conflict stops — never silent overwrite. |
+| Shift+Tab | Symmetric revert of last applied step; block on conflict. |
+| Cancel | Sacred restore of pre-session WIP (confirm if progressed). |
+| Finish | **Keep** tree; journal `done-kept`; do **not** stash-apply backup; offer SCM handoff. |
+| Commit | Handoff only — never silent `git commit`. |
+| Never lost | after-ref, backup-ref, **applied-ref** checkpoint, journal until verified restore or explicit cleanup. |
+| Schema | **v1 unchanged** — `ranges`/`grouping` suffice (Docs/P0-G1 unblocked). |
+
+### Artifacts updated
+
+- `decisions/0004-apply-mode.md` (new)
+- `decisions/0002-architecture.md` (D1 scoped + status)
+- `architecture/overview.md` §3.5 / §4.3 / §5 / §6 / §7.3 / §11
+- `architecture/reatom-model.md` v1.1 — `applying` status, async apply next/prev, finish-keep, `commitHandoff`, token fields
+- `specs/product.md` open questions marked decided
+- `progress/backlog.md` — P0-A1 **Done**; P0-A2 **Next**
+- `process/README.md` milestone note
+
+### Planner handoff (P0-A2)
+
+Sequence phases for P0-A3–A6 against ADR 0004. Register residual risks **R-apply-1…7** from the ADR (merge quality, Finish carry-checkout, orphaned WIP after Finish, buffer races, async Tab spam, trust-boundary writes, range deferred). Concrete plan items:
+
+1. Extend sacred suite + crash matrix for `applying` / `done-kept` / Resume-apply.
+2. Module `src/git/apply.ts` + journal token additive fields (backward-compatible readers).
+3. Status machine: add `applying`; Finish forks by mode.
+4. Keybinding: file-scheme / chord plan for apply (overview §7.3) — Tab on `tabthrough:` alone is insufficient.
+5. Pull **P1-8 drift detection** into the apply phase gate.
+6. Keep v0.1 manual drills on Marketplace critical path; do not block them on apply.
+
+**Next:** Planner P0-A2. Implementer: no apply `src/` until plan lands. Docs track continues P0-G2.
+
+## Docs/Tester — 2026-08-07 — P0-G2 golden helper+consumer fixture
+
+Fixtures + unit test only; no `src/` product changes, no apply-mode / P1-11 work.
+
+**Delivered**
+
+- `test/fixtures/diffs/helper-consumer-refactor.diff` — same-file `eventActionName` helper + `jsxEvent`/`bind` consumer refactor (canonical §5.1 anti-pattern shape)
+- `test/fixtures/guides/helper-consumer.guide.json` — correct split (`event-action-name` → `jsx-event-adopts` with `ranges` + `dependsOn`)
+- `test/fixtures/guides/helper-consumer-merged.guide.json` — schema-valid wrong guide (one whole-file step; dogfood reject sample)
+- `test/unit/helper-consumer-fixture.test.ts` — schema + merge asserts two sidecar steps in order; merged guide collapses to one panel
+- `test/fixtures/README.md` — index + **P0-G3 dogfood protocol**
+- `agent-guide-authoring.md` §5.1 — line numbers aligned to the fixture; pointer for dogfood
+
+**Backlog:** P0-G2 → **Done**. Next: **P0-G3** — agent emits a guide for this (or a real PR) without seeing the golden JSON; reviewer confirms ≥2 steps / no multi-thought panels.
+
+**Run:** `pnpm exec vitest run test/unit/helper-consumer-fixture.test.ts`
+
+## Docs/Tester — 2026-08-07 — P0-G3 dogfood (helper+consumer)
+
+Blind authoring against `helper-consumer-refactor.diff` + skill only; golden/merged unread until after emit.
+
+**Result: PASS**
+
+- Attempt: `test/fixtures/guides/helper-consumer.dogfood.guide.json` — 3 steps (`event-action-name` → `jsx-event-adopts` → `bind-adopts`), all with `ranges`; helper before consumers; schema-valid
+- Not the merged anti-pattern (whole-file one panel). First draft already split — skill’s named anti-pattern + §5.1 worked; optional third `low` call-site step matches skill “mechanical rest” note (golden folds bind into consumer ranges 8–14 — both pass granularity)
+- What worked: patch-first gate, “if rationale needs and, split”, required `ranges` for multi-thought files, explicit helper+consumer order recipe
+
+**Backlog:** P0-G3 → **Done**. P1-2 pass criteria (granularity) satisfied for this fixture.
+
+## Planner — 2026-08-07 — P0-A2 apply-mode phasing
+
+Docs only; no `src/`. ADR 0004 left untouched.
+
+### Phase order (plan.md Phases 7–10)
+
+| Phase | Backlog | Focus | Depends |
+|-------|---------|-------|---------|
+| **7** | P0-A3 | Apply engine + **commit** target: `git/apply.ts`, journal fields, async Tab/Previous, 3-way + conflict stop, Shift+Tab revert, file-scheme/chord, Cancel sacred | ADR 0004 |
+| **8** | P0-A4 | **Working-tree** apply (always checkout `base`) | Phase 7 engine |
+| **9** | P0-A5 | Finish-keep / `done-kept` / SCM handoff (never silent commit) | Phase 7 |
+| **10** | P0-A6 | Crash recovery: `applying` / `done-kept`; Resume vs Restore | Phases 7 + 9 |
+
+Phases **8 ∥ 9** after Phase 7 gate. Phase 10 is the apply recovery gate. Track G (guide quality) is parallel — not owned here.
+
+### Risks registered
+
+ADR **R-apply-1…7** plus Planner **R-apply-8** (file-scheme Tab steal) and **R-apply-9** (Finish stubbed as restore). Mitigations + test hooks in `plan.md` and `test-matrix.md` §9.
+
+### Artifacts
+
+- `progress/plan.md` — Phases 7–10, apply risk register, Implementer handoff
+- `progress/test-matrix.md` §9 — apply/merge/revert, Finish vs Cancel, crash stages, file-scheme keybindings
+- `progress/backlog.md` — P0-A2 **Done**; A3 **Next** (Phase 7); A4–A6 sequenced
+- `process/README.md` — milestone → Implementer P0-A3
+
+### Implementer handoff — build first
+
+**Phase 7 foundation only:** `src/git/apply.ts` + additive token fields + `applying` status + commit-entry checkout `base` + async next/prev (`first-in-win`) + Cancel still sacred. Tests: merge fixtures, Cancel after N steps, readonly suites green.
+
+**Do not touch yet:** Finish-keep / `done-kept` / handoff (A5); WT specialization (A4); full Resume UI (A6); range apply (P1-12); guide skill; readonly virtual-doc rewrite.
+
+**Constraint:** If Finish is incomplete in Phase 7, disable it or gate it — do not ship Finish that restores while labeled “keep” (R-apply-9 / ADR 0004 D6).
+
+**Next:** Implementer P0-A3. v0.1 manual drills (§6) remain on Marketplace critical path and must not wait on apply.
+
+## Implementer — 2026-08-07 — Phase 7 / P0-A3 (apply engine + commit target)
+
+Shipped the apply-mode engine for **commit targets** per ADR 0004. VSIX installed via `pnpm ext:install`.
+
+### What landed
+
+- `src/git/apply.ts` — `renderReveal` intended prev/next → fast-path or `git merge-file` 3-way; applied checkpoint at `refs/tabthrough/applied/<id>`; refuse unmerged paths; drift warn list for foreign dirty paths.
+- Journal: additive `mode` / `appliedIndex` / `appliedRef`; stages `applying` (+ `finishing-keep` / `done-kept` reserved); readers default missing fields.
+- Isolation: apply checks out **base** (`C^` for commits; HEAD for WT when mode=apply); range+apply refused (`ApplyModeUnsupportedError`).
+- Session: `applying` status; `tabthrough.session.mode` (`ask`|`readonly`|`apply`, default `ask`); chooser + pre-flight disclose writes; async apply next/prev with `withAsync` + `first-in-win`; Shift+Tab revert; Finish **disabled** in apply (R-apply-9); Cancel confirms when `appliedIndex >= 0` and discards apply writes (`reset --hard` + `clean -fd`) before sacred stash restore.
+- Keybindings: file-scheme Tab/Shift+Tab when `sessionMode == apply`; chords gated on `!applyPending`.
+
+### Tests
+
+- `test/unit/apply-step.test.ts` — clean merge, conflict-stop (R-apply-1), forward apply, revert, `applying` journal stub.
+- `test/integration/apply-commit.test.ts` — commit apply + Cancel byte-identical WIP.
+- Readonly / sacred suites remain green.
+
+### Risks hit
+
+| ID | Hit? | Notes |
+|----|------|-------|
+| R-apply-1 | Exercised | Conflict fixture stops without advancing; no silent overwrite. |
+| R-apply-5 | Mitigated | `first-in-win` + `applyPending` context key. |
+| R-apply-9 | Mitigated | Finish enablement excludes apply; notify-only stub. |
+| Cancel×apply WT | Hit then fixed | Checkout to `headBefore` failed over dirty apply writes → discard session tree before restore (apply-only). |
+
+### Deferred
+
+- Phase 8 / P0-A4 — WT apply dogfood (engine already checks out base for WT+apply).
+- Phase 9 / P0-A5 — Finish-keep / `done-kept` / SCM handoff.
+- Phase 10 / P0-A6 — Resume-apply recovery UI.
+
+**Next:** Implementer P0-A4 ∥ P0-A5.
+
+## Implementer — 2026-08-07 — Phase 9 / P0-A5 (Finish-keep / SCM handoff)
+
+Shipped apply-mode **Finish keeps tree**; Cancel remains sacred restore. VSIX via `pnpm ext:install`.
+
+### What landed
+
+- `finishKeepFromToken` — save → applied checkpoint → journal `finishing-keep` → `git add -A` then carry checkout to `headBefore` (no `-f`) → `done-kept`; **never** stash-applies backup; lock released; after/backup/applied refs retained.
+- Carry failure (R-apply-2): stay detached, keep refs, warn with instructions.
+- `isRecoverable` excludes `done-kept` so Start proceeds; cleanup clears `done-kept` token with refs.
+- `finishSession` forks apply → keep; readonly Finish still restores. Finish command re-enabled for all modes (`Finish Review`).
+- `tabthrough.commitHandoff` + Finish offer **Open Source Control** (never silent `git commit`).
+- Pre-flight / status / end-of-apply toast copy: Finish ≠ Cancel.
+
+### Tests
+
+- `apply-commit.test.ts` — Cancel byte-identical; Finish-keep ≠ Cancel fingerprint + `done-kept` + SCM open + cleanup; carry failure stays detached.
+
+### Risks
+
+| ID | Hit? | Notes |
+|----|------|-------|
+| R-apply-2 | Exercised | Branch rename → stay detached; stage-then-checkout fixes tip-match carry. |
+| R-apply-3 | Mitigated | `done-kept` + refs until Clean Up Backups. |
+| R-apply-9 | Closed | Finish keeps; not restore-labeled-as-keep. |
+
+### Deferred
+
+- Phase 8 / P0-A4 — WT apply dogfood.
+- Phase 10 / P0-A6 — Resume / dangerous restore-over-kept confirm; crash matrix for `finishing-keep`.
+- Manual Finish/Commit dogfood checklist row.
+
+**Next:** Implementer P0-A4 or P0-A6.
+
+## Reviewer — 2026-08-07 — Phase 7 / P0-A3 gate → [review 002](./reviews/002.md)
+
+**Verdict: request fixes.** Phase 7 not approved; P0-A4 (Phase 8) should not start on this
+engine. **3 blockers, 8 majors, 8 minors, 3 test gaps.** Backlog P0-A3 reopened with fix items
+**P0-A3-F1…F11** + **P0-A5-F1**.
+
+### Blockers
+
+| ID | Finding | Where |
+|----|---------|-------|
+| **B1** | Apply Cancel runs a bare `git clean -fd` — deletes pre-session **untracked** work that `stash.includeUntracked: false` deliberately never stashed, then verification fails against the after-tree and the restore blocks. Plan P0-6's rule is *"never force, never `checkout -f`, never `clean`"*. Also runs **before** the "already restored?" check, so a retried restore wipes a tree a partial restore put back — breaking the idempotence the docblock and crash matrix §4 promise | `src/git/isolate.ts:461-481` |
+| **B2** | No `try`/`finally` around `applyGuideStep`, so any throw (its first statement is a `git status` that fails on the user's `index.lock`) leaves `sessionStatus` at `applying` — and `cancelSession` returns early from `applying`. Half-written tree, **no reachable exit** short of a window reload. Sacred restore unreachable | `src/model/steps.ts:252-334`, `src/model/session.ts:429-441,740` |
+| **B3** | Conflict → `blocked`, and nothing transitions out of `blocked`. The toast says *"Resolve the markers, then try again"*; there is no try-again, and the only exit (Cancel) discards the user's resolution work. Retrying re-merges the marker text as `ours` → **nested markers**, and `git status` cannot see plain-text markers so the `unmerged` guard does not catch it | `src/model/steps.ts:285,334` |
+
+All three share one shape — *the session enters a state the protocol correctly put it in and
+cannot get out* — which is review 001's B2/B3/M5 recurring in a new subsystem.
+
+### Majors
+
+M1 drift warning compares to HEAD, so it names Tabthrough's own prior writes and fires on every
+step after the first · M2 `tabthrough.applyPending` is bound through a Vue-tracked getter over a
+Reatom computed, so it is `false` for the session's whole life and R-apply-5's mitigation is
+dead in all three keybindings · M3 apply still opens the `tabthrough:` virtual diff, whose Tab
+binding has no mode or pending guard and writes to disk (§9.4's undecided row) · M4 `appliedRef`
+survives a verified Cancel → phantom orphan, §6 drills fail · M5 heartbeat stops during
+`applying` and forever in `blocked`, reopening review 001 M2 · M6 `IsolationHandle.token` is
+mutable outside the graph and `appliedIndex` duplicates it (two sources of truth; git gets one,
+the UI the other) · M7 `finishApplyKeep`'s blocked branch does an illegal `restoring → active`
+→ same wedge as B2 · M8 **`pnpm test:ci` red**: 4 files / 9 tests / 8 errors,
+`TypeError: un is not a function` from `@reatom/core`; files pass in isolation.
+
+### Verified by execution, not only by reading
+
+B1, B3 and M1 were confirmed with a throwaway probe suite driving `applyGuideStep` and
+`restoreFromToken` against real temp repos (output quoted in the review; file deleted — its
+assertions are the T1 fix). Recommend this for future apply reviews: three findings would have
+read as theoretical otherwise.
+
+### Clean (recorded so it is not re-derived)
+
+Double-Tab genuinely cannot interleave (`saveDocuments` before `beginApply`; second
+`beginApply` no-ops) · journal ordering (`applying` before any byte; index/ref only after
+success; `reviewing` restored on every refusal) · token forward-compat at `v: 1` ·
+`mergeThreeWay`'s `merge-file` argument order and exit-code contract · conflict advances nothing
+· range+apply refused in the stat-only pass (**R-apply-7 closed**) · import boundaries ·
+Reatom idioms (`withAsync` then `withAbort('first-in-win')`, every git boundary `wrap`ed, no
+`context.reset()` under `src/`, everything named) · pre-flight disclosure and the Cancel
+confirmation.
+
+### Process finding
+
+Phase 9 / P0-A5 landed in `src/` **during** this review, before the Phase 7 gate ran —
+`plan.md` sequences 8 ∥ 9 *after* Phase 7's gate and `process/README.md`'s loop is IM → RV → TE.
+Phase 9 is therefore built on B1/B2/B3/M5 and inherits M7; it needs its own reviewer turn.
+Definition-of-done item 1 (green suite) was also not met at handoff (M8). Both corrected in the
+backlog rather than in the Implementer entries, which stand as the record of what shipped —
+except the two lines m8 flags as describing behaviour not in the tree.
+
+### Re-scored Phase 7 done-when
+
+Commit-entry apply **partial** · Shift+Tab revert **partial** · Cancel byte-identical **no**
+(B1) · readonly path unchanged **unproven** (M8) · no silent overwrite **yes**, with markers
+nesting on retry.
+
+**Next:** Implementer **P0-A3-F1…F4** (blocks P0-A4), then **P0-A5-F1 / F5…F8** (blocks the
+Finish-keep ship). Tester: T2 apply row in the sacred suite is the highest-value missing test.
+
+## Implementer — 2026-08-07 — Phase 7 blockers (review 002 F1–F8 + M1/M3/M8)
+
+**Verdict-ready for Reviewer re-review of Phase 7.** Did not start Phase 8. Phase 9 Finish-keep
+was touched only where blockers required it (M7 illegal transition → `blocked`; heartbeat
+widened so apply sessions stay live). **Leave a dedicated Phase 9 review** for Finish-keep UX
+and remaining P0-A5 surface.
+
+`pnpm lint && typecheck && test:ci` green: **531 tests**, 27 files, ~366 s (serialised).
+
+### Blockers closed
+
+| ID | Fix |
+|----|-----|
+| **B1 / F1** | `restoreFromToken` verifies *before* any discard; apply discard is `reset --hard` + `git clean -fd -- <paths>` scoped to untracked that are tracked at `headBefore` or absent from the after-ref capture — never a bare `clean`. Pre-session untracked under `includeUntracked: false` survive Cancel |
+| **B2 / F2** | `try`/`finally` around apply/revert; `finally` calls `endApply('blocked')` only if still `applying`. `cancelSession` refuses `applying` only when `applyPending()` is true. `LEGAL_TRANSITIONS.applying` includes `restoring` |
+| **B3 / F2** | Conflict stays `active` (not `blocked`) so Tab retries; toast tells the user to press Tab after resolving. `hasConflictMarkers` refuses re-merge (no nested markers). Opens the conflicted workspace file |
+| **T2 / F4** | Sacred suite: apply Cancel with both `includeUntracked` settings + restore-twice row |
+
+### Majors closed (this slice)
+
+| ID | Fix |
+|----|-----|
+| **M1 / F9** | Drift compares against `appliedRef` (else base), not HEAD/`git status` vs index |
+| **M2 / F7** | `ui.applyPending` computed + `useAtomRef` — keybindings see live pending |
+| **M3 / F8** | `reviewViewModel` null in apply; `tabthrough:` Tab/Shift+Tab require `sessionMode != 'apply'` |
+| **M4 / F5** | `finalize` deletes `appliedRef` on verified Cancel |
+| **M5 / F6** | Heartbeat while session open except `restoring`/`stashing`; accepts stage `applying`; loop uses `isSessionOpen` |
+| **M7 / P0-A5-F1** | `finishApplyKeep` blocked branch → `blocked` (not illegal/`active`) |
+| **M8 / F3** | `vitest.config.ts` `fileParallelism: false` — stops `context.reset()` racing in-flight `take()` (`un is not a function`) |
+
+### Tests added
+
+- `apply-step`: marker refuse; drift not naming prior step paths
+- `apply-commit`: B2 stuck-applying Cancel; B3 conflict stays active + second Tab refuses; M4 empty `refs/tabthrough`
+- `stash-roundtrip`: apply Cancel × both untracked settings; restore twice
+- `contributions`: scheme Tab clause includes `sessionMode != 'apply'`
+
+### Still open for Reviewer / later
+
+- **M6** — `IsolationHandle.token` mutable + duplicated `appliedIndex` (not cheap)
+- **m1–m5, m7** — rename/mode/utf8/deletion inference; write-surface import assert; real mid-write crash inject
+- **T1** rows beyond what this slice added (clean edit-then-Tab, unsaved buffer, double-Tab, stub apply)
+- **Phase 9** — full Finish-keep review (landed mid-gate; only M7 interaction fixed here)
+
+**Next:** Reviewer re-review of Phase 7 / P0-A3. Do not start Phase 8 until approved.
+
+## Reviewer — 2026-08-07 — Phase 9 / P0-A5 gate → [review 003](./reviews/003.md)
+
+**Verdict: request fixes.** **2 blockers, 7 majors, 5 minors, 3 test gaps.** Backlog P0-A5
+reopened with **P0-A5-F2…F12**. `pnpm lint && typecheck && test:ci` all green — **531 tests, 27
+files, 497 s** — so this is the first apply gate to run against a green suite (review 002 M8
+closed).
+
+The keep mechanism is right: Finish never stash-restores, `done-kept` is a correct terminal
+stage, journal order across Finish is right, the carry never uses `-f`, and every Phase 7 fix I
+re-checked holds. Both blockers are **consent** failures, not engine bugs.
+
+### Blockers
+
+| ID | Finding | Where |
+|----|---------|-------|
+| **B1** | `advance()` treats all six reasons `next()` returns `false` as "the walk is over", so a merge conflict is announced as *"Apply complete. Finish keeps your changes so you can commit."* with a **Finish and Keep** button — and Finish takes it. Nothing in `finishApplyKeep` checks the tree, so the conflict markers Tabthrough just wrote get checkpointed, staged by `add -A`, journalled `done-kept`, and handed to Source Control. Also defeats 002 B3's own retry affordance | `src/commands/index.ts:85-97`, `src/model/session.ts:665` |
+| **B2** | `deactivate` → `cancelSession('deactivate')` runs the destructive apply Cancel. D6's confirmation is gated on `reason === 'cancel'`, so window close / reload skips it, discards the walk, and **deletes files the user authored during it** — no prompt, no ref (the applied checkpoint is deleted by `finalize` and postdates the file anyway), no stash. Product bar is "zero data-loss in apply mode" | `src/index.ts:124`, `src/model/session.ts:751` |
+
+### Majors
+
+M1 the 002-B1 fix swapped a bare `clean -fd` for a scoped one whose predicate is *"absent from
+the pre-session capture"* — which is every file the user creates mid-walk, labelled "junk" ·
+M2 R-apply-3's copy half is inverted: the kept message names only **Clean Up Backups** (no
+confirm, no disclosure that a stash of their WIP is in it, clears the token that named the stash
+message), and D6's *"recovery command can still restore pre-session with a dangerous confirm"*
+does not exist — `restoreBackup` is disabled by `isRecoverable` and `recoverBackup` throws
+`IllegalStageError` if reached, swallowed by `guard` · M3 the next Start silently overwrites the
+`done-kept` token · M4 Finish's `git add -A` stages the whole tree and never unstages it,
+contradicting D3 and undisclosed · M5 a crash mid-carry (`finishing-keep`) recovers as Cancel
+and the prompt says "did not finish restoring your work" to a user who asked to keep · M6 Finish
+has none of the pre-checks Tab enforces (unmerged / markers / drift) · M7 `IsolationHandle.token`
+still mutable outside the graph, with Finish now a third writer (002 M6).
+
+### Verified by execution, not only by reading
+
+B1, B2, M1, M2 and M4 were confirmed with a throwaway probe suite driving the real actions
+against temp repos (output quoted in the review; files deleted — their assertions are
+**P0-A5-F11**). Highlights: Finish leaves `<<<<<<<` on disk at stage `done-kept` with index
+`M src/service.ts`; `deactivate` reports *"restored your working tree before shutting down"*
+while the user's own new file is gone and `appliedRef` is `null`; `recoverBackup` on `done-kept`
+throws `IllegalStageError`; the pre-session **stash entry** does survive Clean Up Backups, so
+that work is unpinned rather than destroyed.
+
+### Clean (recorded so it is not re-derived)
+
+Finish genuinely never stash-restores (**R-apply-9 holds**) · `done-kept` terminal and correctly
+excluded from `isRecoverable` · checkpoint + `appliedRef` written before `finishing-keep`, lock
+released before `done-kept`, checkpoint failure returns `blocked` without advancing the stage ·
+carry is plain `checkout` on both branches (**R-apply-2 holds**) · no code path anywhere
+constructs a `git commit` · all of 002's F1–F9 re-verified (conflict stays `active` + marker
+refuse, `finally { endApply }` + `applyPending()` Cancel guard, `appliedRef` deleted on verified
+Cancel, heartbeat through `applying`/`blocked`, live `ui.applyPending`, no virtual diff in apply)
+· Reatom idioms in the Finish path (`withAsync` then `withAbort('first-in-win')`, every boundary
+`wrap`ed, `peek` for reads, everything named).
+
+### Re-scored Phase 9 done-when
+
+Finish keeps / Cancel restores / copy never confuses them → **no** (B1, B2) · no auto-commit →
+**yes**, unasserted · `done-kept` retains refs → **yes**, with M2/M3 caveats · dogfood rows →
+unchanged, blocked behind the blockers.
+
+**Next:** Implementer **P0-A5-F2…F5** + **F11** rows 1–4 (blocks the Finish-keep ship). **F4 also
+blocks P0-A4** — a working-tree apply session inherits the same file-deleting predicate.
+
+## Reviewer — 2026-08-07 — Phase 7 / P0-A3 re-review, the gate → [review 004](./reviews/004.md)
+
+**Verdict: request fixes. Phase 7 is not approved and Phase 8 (P0-A4) must not start.**
+**2 blockers, 5 majors, 6 minors, 5 test gaps.** Backlog P0-A3 reopened with **P0-A3-G1…G7**;
+F1 and F9 re-opened, F2–F8 confirmed closed. `pnpm lint && typecheck && test:ci` green — **531
+tests, 27 files, 435 s**, run in full and serialised.
+
+Eight of review 002's ten gate items are genuinely closed and I re-verified three of them by
+execution. The slice made real progress: **B3 is fully fixed** — a conflict stays `active`, writes
+one set of markers, refuses a retry rather than nesting, and a *resolved* file really does apply on
+the next Tab (nothing asserted that last part; it works). **B2's wedge is gone.** Apply Cancel is
+byte-identical and now preserves pre-session untracked files under `includeUntracked: false`.
+
+Both blockers are in the fixes themselves.
+
+### Blockers
+
+| ID | Finding | Where |
+|----|---------|-------|
+| **B1** | F1 promoted the "already restored?" verification to step 1 and moved the HEAD restore to step 3 — and the early branch **returns** without it. `verifyRestored` has no notion of where HEAD points (`canonicalStatus` drops branch headers by design), so whenever the reviewed content equals the pre-session content the restore reports success on a **detached HEAD**, then `finalize` drops every ref and the lock. That is plain *"Review a Commit… → HEAD"* with a clean tree — the v0.1 read-only path. The user is told *"Your working tree is back"*; their next commit lands where their branch cannot see it. **Regression, sacred path** | `src/git/isolate.ts:528` |
+| **B2** | The apply Tab bindings are gated on `resourceScheme == 'file'` and `advance()` never checks which editor is focused, so for the whole session **Tab writes to disk in every file in the workspace** instead of indenting — default on. test-matrix §9.4 has a row forbidding exactly this, and `contributions.test.ts` currently pins the forbidden behaviour. It also makes 002-B3's own new instruction (*"resolve the markers, then press Tab"*) unusable: Tab does not indent in the file the user must type in, and a mistimed press re-runs the apply | `package.json`, R-apply-8 |
+
+### Majors
+
+M1 F9 is **not closed** — right anchor, wrong comparison: the checkpoint tree contains untracked
+files while the diff enumerates the index, so every step warns about every untracked path
+(002's *"a warning that fires on every step teaches the user to ignore it"* verbatim) ·
+M2 an apply exception lands in `blocked`, which nothing transitions out of, so a half-second
+`index.lock` collision costs the entire walk · M3 `next`/`prev` report abort rejections as
+*"Apply failed: …"* despite `withAbort('first-in-win')` (`startFailed` already gets this right) ·
+M4 `IsolationHandle.token` still mutable outside the graph (002 M6 / 003 M7 — fix once, jointly
+with Phase 9) · M5 the F1 discard predicate is *"anything absent from the capture"*, i.e. still
+deletes files the **user** authored mid-walk (= 003 M1/B2; Phase 8 inherits it).
+
+### Verified by execution, not only by reading
+
+B1, M1, M5 and B3's resolve-then-Tab path were driven through real temp repos with throwaway probe
+suites (output quoted in the review; files deleted — their assertions are **P0-A3-G3** and
+**P0-A3-G5**). B1 and M1 both *read* as correct in the source and are both wrong on disk; that is
+now three gates running. Highlights: `symbolic-ref` exits 1 after a "restored" read-only session;
+the drift warning names `mine.txt` on all three steps; a resolved conflict applies cleanly and the
+markers vanish.
+
+### Closed and verified (recorded so it is not re-derived)
+
+002 B2 (`try/finally` + `applyPending()` Cancel guard + the `applying → restoring` edge in both
+tables) · 002 B3 in full · 002 B1's untracked half and the verify-before-discard ordering; no bare
+`clean` anywhere in `src/` · M2 live `ui.applyPending` (real `computed` + `useAtomRef`, `{ status:
+true }` present) · M3 no virtual diff in apply · M4 `appliedRef` deleted on verified Cancel, CAS'd ·
+M5 heartbeat spans `applying`/`blocked` · M7 `finishApplyKeep` blocked branch · M8 green suite ·
+Reatom idioms in the changed code (`withAsync` then `withAbort`, every boundary `wrap`ed including
+inside `finally`, no `context.reset()` under `src/`, everything named, `LEGAL_TRANSITIONS` still the
+only status writer) · import boundaries hold.
+
+### Re-scored Phase 7 done-when
+
+Commit-entry apply → **partial** (conflict honest *and* recoverable; "edits preserved" untested;
+Tab misbound) · Shift+Tab revert → **yes** · Cancel byte-identical → **no** (B1 detaches HEAD on the
+read-only path; M5 deletes user files) · read-only unchanged → **no** (B1) · no silent overwrite →
+**yes**.
+
+**Next:** Implementer **P0-A3-G1, G2, G3, G4** + **G5** before Phase 8. **G1 first and alone if
+need be** — it is a regression in the v0.1 read-only path, so it outranks the entire apply track,
+and no v0.1 drill should be re-run until it lands. **G4 = P0-A5-F4**: fix once. Phase 9's
+[review 003](./reviews/003.md) B1 is a direct consequence of this phase's B3 fix and belongs in the
+same slice.
+
+## Implementer — 2026-08-07 — Review 004 B1/B2 + shared F4 + Phase 9 F2–F5
+
+Priority interrupt: [review 004](./reviews/004.md) B1 (v0.1 sacred-path detached HEAD) outranked
+Phase 9 Finish work. Shipped both gates' ship-blockers in one slice.
+
+### Review 004 (Phase 7 gate)
+
+| ID | Fix |
+|----|-----|
+| **G1 / B1** | `restoreFromToken` early return now requires `verification.ok && headSettled`; discard gated on `!verification.ok`. Clean commit-of-HEAD round trip asserts `symbolic-ref HEAD` → `main` |
+| **G2 / B2** | Dropped apply-mode `resourceScheme == 'file'` Tab/Shift+Tab bindings. Apply advances via `alt+]` / `alt+[`. Contributions test pins §9.4 |
+| **G4 / F4** | `discardApplyWrites` removes only untracked paths tracked at `headBefore` — never "absent from capture" (user mid-walk files + pre-session untracked stay) |
+| **G5** | Sacred-suite clean WT + clean commit-HEAD rows with `symbolic-ref` |
+
+Still open for Phase 7: **G3** (drift tree-to-tree), G6/G7.
+
+### Review 003 (Phase 9 Finish)
+
+| ID | Fix |
+|----|-----|
+| **F2 / B1** | `advance()` offers Finish only when `!canAdvance()`; `finishApplyKeep` refuses unmerged paths and conflict markers |
+| **F3 / B2** | `cancelSession('deactivate')` no-ops in apply mode — leaves `reviewing` journal + tree for Phase 10 |
+| **F5 / M2** | Clean Up Backups modal confirm; Finish message carries `git stash apply <backupRef>`; `recoverBackup` refuses `done-kept` with that recipe |
+| **F11** | Rows 1–3: Finish-after-conflict, apply deactivate, mid-walk user file on Cancel |
+| **F12 partial** | Dropped unused `restoring→active` / `blocked→active`; Finish uses `writeAppliedCheckpoint` |
+
+`pnpm lint && typecheck && test:ci` green: **535 tests, 27 files**. Packaged via `pnpm ext:install`.
+
+**Next:** Dual re-review of [004](./reviews/004.md) + [003](./reviews/003.md). Do not start Phase 8
+until 004 re-opens the gate. Remaining: G3 drift, F6–F7/F9–F10, rest of F11.

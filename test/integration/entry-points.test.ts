@@ -181,6 +181,7 @@ describe('entry point: commit range', () => {
     const plan = await planIsolation(repo.root, {
       entry: { kind: 'range', from: 'main', to: 'feature' },
       includeUntracked: true,
+      sessionMode: 'readonly',
     })
     const base = (await repo.git('merge-base', 'main', 'feature')).trim()
 
@@ -276,6 +277,39 @@ describe('the guide sidecar reaches the session', () => {
     // per problem (guide-schema.md §5.4).
     const published = peek(guideDiagnostics)
     expect(published.filter(entry => entry.severity === 'warning')).toHaveLength(1)
+  })
+
+  it('prefers an explicit sidecar buffer over whatever is committed', async () => {
+    const repo = await linearRepo()
+    await repo.write('src/app.ts', 'import type { User } from \'./types\'\n\nexport function greet(user: User) {\n  return user.name\n}\n')
+    await repo.write('src/types.ts', 'export interface User { id: string, name: string }\n')
+    await repo.write('.guide.json', JSON.stringify({
+      version: 1,
+      steps: [
+        { id: 'committed-types', path: 'src/types.ts', order: 1, rationale: 'Committed order puts types first' },
+        { id: 'committed-app', path: 'src/app.ts', order: 2, rationale: 'Then the caller' },
+      ],
+    }))
+
+    const harness = await bootstrap(repo)
+    const model = await startReview(harness, {
+      entry: { kind: 'workingTree' },
+      guideFile: 'pr.guide.json',
+      sidecar: {
+        path: 'pr.guide.json',
+        text: JSON.stringify({
+          version: 1,
+          steps: [
+            { id: 'buffer-app', path: 'src/app.ts', order: 1, rationale: 'Open buffer puts the caller first' },
+            { id: 'buffer-types', path: 'src/types.ts', order: 2, rationale: 'Then the types' },
+          ],
+        }),
+      },
+    })
+
+    expect(stepPaths()[0]).toBe('src/app.ts')
+    expect(model.guide.steps[0]?.id).toBe('buffer-app')
+    expect(model.guide.steps[0]?.source).toBe('sidecar')
   })
 })
 

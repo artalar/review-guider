@@ -146,6 +146,9 @@ interface FileDraft {
   renameTo?: string
   isBinary: boolean
   noTrailingNewline: boolean
+  oldTrailingNewline?: boolean
+  newTrailingNewline?: boolean
+  lastContentSide?: 'old' | 'new' | 'both'
   oldMode?: string
   newMode?: string
   isAdded: boolean
@@ -240,6 +243,7 @@ export function parseUnifiedDiff(
           })
           hunk.pendingOld--
           hunk.pendingNew--
+          file!.lastContentSide = 'both'
         }
         else if (marker === '+') {
           hunk.lines.push({
@@ -248,6 +252,7 @@ export function parseUnifiedDiff(
             newLine: hunk.newStart + (hunk.newLines - hunk.pendingNew),
           })
           hunk.pendingNew--
+          file!.lastContentSide = 'new'
         }
         else {
           hunk.lines.push({
@@ -256,12 +261,18 @@ export function parseUnifiedDiff(
             oldLine: hunk.oldStart + (hunk.oldLines - hunk.pendingOld),
           })
           hunk.pendingOld--
+          file!.lastContentSide = 'old'
         }
         continue
       }
       if (marker === '\\') {
-        if (file !== null)
+        if (file !== null) {
           file.noTrailingNewline = true
+          if (file.lastContentSide === 'old' || file.lastContentSide === 'both')
+            file.oldTrailingNewline = false
+          if (file.lastContentSide === 'new' || file.lastContentSide === 'both')
+            file.newTrailingNewline = false
+        }
         continue
       }
       // Truncated hunk: fall through and re-read this line as a header.
@@ -269,8 +280,13 @@ export function parseUnifiedDiff(
     }
 
     if (line.startsWith('\\ ')) {
-      if (file !== null)
+      if (file !== null) {
         file.noTrailingNewline = true
+        if (file.lastContentSide === 'old' || file.lastContentSide === 'both')
+          file.oldTrailingNewline = false
+        if (file.lastContentSide === 'new' || file.lastContentSide === 'both')
+          file.newTrailingNewline = false
+      }
       continue
     }
 
@@ -385,6 +401,8 @@ export function parseUnifiedDiff(
       isBinary: draft.isBinary,
       isGenerated: generated(resolved.path),
       noTrailingNewline: draft.noTrailingNewline,
+      oldTrailingNewline: draft.oldTrailingNewline ?? true,
+      newTrailingNewline: draft.newTrailingNewline ?? true,
       ...(draft.oldMode === undefined ? {} : { oldMode: draft.oldMode }),
       ...(draft.newMode === undefined ? {} : { newMode: draft.newMode }),
       hunks,

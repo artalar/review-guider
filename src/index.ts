@@ -10,17 +10,20 @@ import {
   guideFile,
   HEARTBEAT_INTERVAL_MS,
   heuristicOptions,
-  isSessionActive,
+  isSessionOpen,
   refreshHeartbeat,
   revealMode,
+  sessionModeSetting,
   showRationale,
   stashIncludeUntracked,
   workspaceRoot,
 } from './model/session'
+import { useActiveGuideContext } from './ui/active-guide'
 import { useAtomRef } from './ui/binding'
 import { useReviewDecorations, useReviewDocuments } from './ui/documents'
 import { installPorts } from './ui/ports'
 import { checkRecoveryOnActivate, useGuideDiagnostics, usePreflightPrompt, useRestoreBlockNotice } from './ui/prompts'
+import { useGuideSidebar } from './ui/sidebar'
 import { useGuideContextKeys, useGuideStatusBar } from './ui/status-bar'
 import { logger } from './utils'
 
@@ -47,7 +50,9 @@ const { activate, deactivate: disposeScope } = defineExtension(() => {
   useReviewDecorations()
   useGuideCommands()
   useGuideStatusBar()
+  useGuideSidebar()
   useGuideContextKeys()
+  useActiveGuideContext()
 
   // Keeps the gating computeds connected so the context keys stay live.
   useAtomRef(canStart)
@@ -68,6 +73,7 @@ function bindConfig(): void {
     showRationale.set(config.showRationale)
     guideFile.set(config.guideFile)
     revealMode.set(config['reveal.mode'])
+    sessionModeSetting.set(config['session.mode'])
     stashIncludeUntracked.set(config['stash.includeUntracked'])
     heuristicOptions.set({
       maxLinesPerStep: config.maxLinesPerStep,
@@ -100,7 +106,7 @@ function bindGitWatcher(): void {
  */
 function bindSessionHeartbeat(): void {
   const { unsubscribe } = effect(async () => {
-    while (isSessionActive()) {
+    while (isSessionOpen()) {
       await wrap(sleep(HEARTBEAT_INTERVAL_MS))
       await wrap(refreshHeartbeat())
     }

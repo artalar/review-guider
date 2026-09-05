@@ -1,10 +1,11 @@
 # ADR 0002: Architecture for the Tabthrough MVP
 
-**Status:** Proposed
+**Status:** Accepted (D1 scoped by ADR 0004 — 2026-08-07)
 **Date:** 2026-08-07
 **Deciders:** Architect
 **Consulted:** ADR 0001 (MVP scope), product spec, implementation plan (risk register + `[ARCH]` handoffs), Reatom v1001 skills
 **Supersedes:** nothing
+**Amended by:** [ADR 0004 — Apply-with-user session mode](0004-apply-mode.md) (D1 reopen)
 **Detailed design:** [architecture/overview.md](../architecture/overview.md) · [architecture/reatom-model.md](../architecture/reatom-model.md) · [architecture/guide-schema.md](../architecture/guide-schema.md)
 
 ---
@@ -33,9 +34,9 @@ Nine decisions follow. D1–D3 are the ones the product lives or dies on.
 
 *Decorations over the final file (the plan's "dim" default).* Rejected as the primary mechanism because the content is still there — a user can select it, copy it, or simply read the dimmed text. It also fights the diff editor's own colouring. Retained as `tabthrough.reveal.mode: "dim"`, sharing the same provider, URIs, and `LineGroup` data; only the fold differs. The reversibility the plan asked for is preserved, and the pre-Phase-5 spike shrinks from an architectural fork to a one-file comparison.
 
-*Applying patches progressively to real files.* Rejected. It writes to the working tree during a session whose entire premise is that the working tree is under our protection: it pollutes `git status`, races the user's editor and undo stack, and couples the reveal loop to the stash contract. This is the highest-risk option in the plan's own table, and the virtual-document approach obtains the same "genuinely absent" property without any of it.
+*Applying patches progressively to real files.* **Rejected as the read-only reveal mechanism.** It would write to the working tree during a session whose premise is isolation-for-looking: it pollutes `git status`, races the user's editor and undo stack, and couples reveal to the stash contract while Finish still means restore. Virtual documents obtain the same "genuinely absent" property without that. **v0.2 reopen:** Product now requires an ownership path (apply-with-user). That is **not** a replacement for this decision — it is a separate session mode with different Finish/Cancel semantics, equal stash/journal safety, and an explicit disk-write contract. See [ADR 0004](0004-apply-mode.md).
 
-**Consequences.** Positive: R5 is retired without a spike; Tab is synchronous because the fold is pure and the base blobs are cached; Shift+Tab is correct by construction. Negative: very large files re-render a whole string per step (mitigated by memoization and, if needed, the P1 compact mode); the reveal document is not a real file, so features keyed to filesystem paths behave differently — acceptable, since the checked-out workspace still holds the real files.
+**Consequences.** Positive: R5 is retired without a spike; Tab is synchronous because the fold is pure and the base blobs are cached; Shift+Tab is correct by construction. Negative: very large files re-render a whole string per step (mitigated by memoization and, if needed, the P1 compact mode); the reveal document is not a real file, so features keyed to filesystem paths behave differently — acceptable, since the checked-out workspace still holds the real files. Apply-mode disk writes are deliberately out of D1’s read-only contract and owned by ADR 0004.
 
 ---
 
@@ -162,12 +163,14 @@ The status machine is a plain atom with a single guarded transition action rathe
 - Backup and after refs accumulate after a conflicted restore, by design. Cleanup is explicit and never automatic.
 - Progressive rendering re-folds a whole file string per step. Fine at MVP diff sizes; the P1 compact mode is the escape hatch.
 - Two reveal modes (`progressive`, `dim`) must both keep working. Mitigated by sharing everything except the fold.
+- Apply mode (ADR 0004) adds a third session contract; read-only Finish/Cancel restore semantics must not be overloaded by that path.
 
 ---
 
 ## Related
 
 - [ADR 0001 — MVP scope](0001-mvp-scope.md)
+- [ADR 0004 — Apply-with-user](0004-apply-mode.md)
 - [Product spec](../specs/product.md)
 - [Implementation plan](../progress/plan.md)
 - [Architecture overview](../architecture/overview.md) · [Reatom model](../architecture/reatom-model.md) · [Guide schema](../architecture/guide-schema.md)

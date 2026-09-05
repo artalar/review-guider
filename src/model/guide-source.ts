@@ -24,6 +24,8 @@ export interface GuideRequest {
   readonly afterRev: string
   readonly options: HeuristicOptions
   readonly guideFile: string
+  /** Prefer this over a git blob lookup when the user started from an open guide. */
+  readonly sidecar?: SidecarSource
   readonly signal?: AbortSignal
   readonly exec?: GitOptions['exec']
 }
@@ -63,7 +65,7 @@ export const buildGuideSource: GuideSource = async (request) => {
   const options: GitOptions = { signal: request.signal, exec: request.exec }
 
   const raw = await readDiff(request.repoRoot, request.baseRev, request.afterRev, options)
-  const sidecar = await readSidecar(request, options)
+  const sidecar = request.sidecar ?? await readSidecar(request, options)
 
   // Pure from here down: no I/O, no clock, no randomness — which is what makes
   // the ordering suite a fixture test rather than an integration test.

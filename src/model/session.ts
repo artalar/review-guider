@@ -1,10 +1,11 @@
 import type { IsolationHandle, IsolationPlan, OrphanRef, RestoreOutcome } from '../git/isolate'
 import type { SessionToken } from '../git/journal'
 import type { GitCapability, RepoStatus } from '../git/probe'
-import type { PreflightRequest, ReviewTarget } from '../git/types'
+import type { PreflightRequest, ReviewTarget, SessionMode } from '../git/types'
+import type { SidecarSource } from '../guide/sidecar'
 import type { GuideDiagnostic } from '../guide/types'
 import type { Ports } from './ports'
-import type { Session } from './steps'
+import type { Session, SessionRuntime } from './steps'
 import {
   abortVar,
   action,
@@ -20,8 +21,12 @@ import {
   withAsyncData,
   wrap,
 } from '@reatom/core'
+import { findConflictMarkedPath } from '../git/apply'
 import {
+  ApplyModeUnsupportedError,
+  ApplyTargetUnsupportedError,
   cleanupGuideRefs,
+  finishKeepFromToken,
   isolate,
   IsolationBlockedError,
   listGuideRefs,
@@ -34,14 +39,21 @@ import { isRecoverable, isSessionLive } from '../git/journal'
 import { probeGit, readStatus } from '../git/probe'
 import { readLock } from '../git/refs'
 import { describeTarget } from '../git/types'
-import { guideFile, heuristicOptions, stashIncludeUntracked } from './config'
+import { guideFile, heuristicOptions, sessionModeSetting, stashIncludeUntracked } from './config'
 import { guideSource } from './guide-source'
 import { inertPorts } from './ports'
 import { reatomSession } from './steps'
 
 // Settings live in `./config` so `steps.ts` can read `revealMode` without a
 // cycle; re-exported here because the bridge treats the model as one surface.
-export { guideFile, heuristicOptions, revealMode, showRationale, stashIncludeUntracked } from './config'
+export {
+  guideFile,
+  heuristicOptions,
+  revealMode,
+  sessionModeSetting,
+  showRationale,
+  stashIncludeUntracked,
+} from './config'
 
 /**
  * The single source of truth (architecture/reatom-model.md).
@@ -74,21 +86,30 @@ export type SessionStatus
     | 'preflight'
   /** Isolation in progress; the tree may be mid-change. */
     | 'stashing'
-  /** Reviewing. */
+  /** Reviewing (read-only) or apply walk idle between Tabs. */
     | 'active'
+  /** Apply mode: Tab/Previous write in flight. */
+    | 'applying'
   /** Restore in flight. */
     | 'restoring'
-  /** Restore could not be verified; everything preserved, the user must act. */
+  /** Restore could not be verified, or apply conflict left the tree needing attention. */
     | 'blocked'
   /** Start failed and was unwound. */
     | 'error'
 
 export const LEGAL_TRANSITIONS: Readonly<Record<SessionStatus, readonly SessionStatus[]>> = {
-  idle: ['preflight'],
+  // Recovery reserves this state before its first await, closing the same
+  // start/recover race as the repository lock closes cross-window races.
+  idle: ['preflight', 'restoring'],
   preflight: ['stashing', 'idle', 'error'],
   // `idle` is reachable because `isolate` unwinds itself on failure.
   stashing: ['active', 'restoring', 'idle', 'error'],
-  active: ['restoring'],
+  active: ['applying', 'restoring'],
+  // `restoring` is reachable so Cancel can unwind a stuck apply (review 002 B2)
+  // when `applyPending` is false; in-flight writes still refuse Cancel.
+  applying: ['active', 'blocked', 'error', 'restoring'],
+  // No `→ active`: abandoning an in-flight restore / blocked Finish is not a
+  // legal walk resume (review 003 m1). Cancel / recover go through restoring.
   restoring: ['idle', 'blocked', 'error'],
   blocked: ['restoring', 'idle'],
   error: ['idle'],
@@ -296,24 +317,65 @@ export const recoverBackup = action(async (): Promise<RestoreOutcome | null> => 
   if (entryStatus !== 'idle' && entryStatus !== 'blocked')
     return null
 
+  // Reserve recovery synchronously before reading the token. Otherwise Start
+  // can pass its idle gate during this await and isolate the same tree.
+  const reservedIdle = entryStatus === 'idle'
+  let restoreStarted = false
+  sessionStatus.to('restoring')
+  framePromise().catch(wrap(() => {
+    // A token read failure must not strand the machine in restoring. There is
+    // no restore outcome to show yet, so idle can retry; a blocked session
+    // keeps its blocked escape hatch.
+    if (peek(sessionStatus) === 'restoring')
+      sessionStatus.to(entryStatus === 'idle' && !restoreStarted ? 'idle' : 'blocked')
+  }))
+
   const token = await wrap(recoveryToken())
-  if (token === null)
+  if (token === null) {
+    if (peek(sessionStatus) === 'restoring')
+      sessionStatus.to('idle')
     return null
+  }
+
+  // Apply Finish left the tree kept on purpose. Overwriting it with the
+  // pre-session stash needs an explicit dangerous confirm (ADR 0004 D6 /
+  // Phase 10). Refuse with the restore recipe instead of throwing (review 003 M2).
+  if (token.stage === 'done-kept') {
+    const recipe = token.backupRef === null
+      ? 'the backup stash listed by `git stash list`'
+      : `git stash apply ${token.backupRef}`
+    await wrap(peek(ports).ui.notify(
+      'warn',
+      `This session was finished with Keep. Restoring the pre-session backup would overwrite your kept tree. If you intentionally want the pre-session WIP back, run: ${recipe}.`,
+    ))
+    if (peek(sessionStatus) === 'restoring')
+      sessionStatus.to(entryStatus)
+    return null
+  }
 
   // A live token belongs to a window that is still reviewing. Applying its
   // stash would end that review's isolation underneath it, so this stays a
   // notice rather than a restore until the heartbeat goes stale.
-  if (peek(sessionStatus) === 'idle' && isSessionLive(token, peek(ports).clock.now())) {
+  if (reservedIdle && isSessionLive(token, peek(ports).clock.now())) {
     await wrap(peek(ports).ui.notify('info', LIVE_ELSEWHERE_MESSAGE))
+    if (reservedIdle && peek(sessionStatus) === 'restoring')
+      sessionStatus.to('idle')
     return null
   }
 
-  if (peek(sessionStatus) === 'blocked')
-    sessionStatus.to('restoring')
-  else if (peek(sessionStatus) !== 'idle')
+  if (peek(sessionStatus) !== 'restoring')
     return null
 
+  if (token.mode === 'apply') {
+    const answer = await wrap(peek(ports).ui.notify('warn', 'Restore the pre-session workspace? This discards applied steps and edits made during the walkthrough.', ['Restore and discard walkthrough edits', 'Keep current files']))
+    if (answer !== 'Restore and discard walkthrough edits') {
+      sessionStatus.to(entryStatus)
+      return null
+    }
+  }
+
   // No signal: an interrupted `git stash apply` is the one outcome we cannot survive.
+  restoreStarted = true
   const outcome = await wrap(restoreFromToken({ token, store: peek(ports).store }))
   recoveryEpoch.set(value => value + 1)
 
@@ -336,18 +398,19 @@ export const recoverBackup = action(async (): Promise<RestoreOutcome | null> => 
   return outcome
 }, 'recovery.restore').extend(withAsync({ status: true }), withAbort('first-in-win'))
 
-/** Forgets the reminder. Never destroys a backup — that is a separate command. */
-export const discardRecovery = action(async (): Promise<boolean> => {
+/**
+ * Clears the durable reminder without destroying stash/refs. Used by the
+ * activation modal's "Dismiss reminder" (already confirmed there) and by
+ * `discardRecovery` after its own confirm.
+ */
+export const forgetPendingRestore = action(async (): Promise<boolean> => {
+  if (peek(sessionStatus) !== 'idle' && peek(sessionStatus) !== 'blocked')
+    return false
   const token = await wrap(recoveryToken())
   if (token === null)
     return false
 
-  const confirmed = await wrap(peek(ports).ui.notify(
-    'warn',
-    'Dismiss the pending Tabthrough restore reminder? The stash entry and backup refs stay in git until you clean them up.',
-    ['Forget'],
-  ))
-  if (confirmed !== 'Forget')
+  if (peek(sessionStatus) !== 'idle' && peek(sessionStatus) !== 'blocked')
     return false
 
   await wrap(peek(ports).store.clearToken(token.repoRoot))
@@ -363,6 +426,23 @@ export const discardRecovery = action(async (): Promise<boolean> => {
     sessionStatus.to('idle')
   }
   return true
+}, 'recovery.forget').extend(withAsync())
+
+/** Forgets the reminder. Never destroys a backup — that is a separate command. */
+export const discardRecovery = action(async (): Promise<boolean> => {
+  const token = await wrap(recoveryToken())
+  if (token === null)
+    return false
+
+  const confirmed = await wrap(peek(ports).ui.notify(
+    'warn',
+    'Dismiss the pending Tabthrough restore reminder? The stash entry and backup refs stay in git until you clean them up.',
+    ['Forget'],
+  ))
+  if (confirmed !== 'Forget')
+    return false
+
+  return await wrap(forgetPendingRestore())
 }, 'recovery.discard').extend(withAsync())
 
 export const cleanupBackups = action(async (): Promise<readonly string[]> => {
@@ -372,7 +452,25 @@ export const cleanupBackups = action(async (): Promise<readonly string[]> => {
   if (peek(recoveryPending))
     throw new RecoveryPendingError()
 
+  const leftover = await wrap(peek(ports).store.readToken(capability.repoRoot))
+  const stashHint = leftover?.stage === 'done-kept' && leftover.stashMessage !== null
+    ? ` A pre-session stash entry (message "${leftover.stashMessage}") may still appear in \`git stash list\` after the refs are gone.`
+    : leftover?.backupRef !== null && leftover?.backupRef !== undefined
+      ? ` Pre-session backup ref ${leftover.backupRef} will be deleted.`
+      : ''
+
+  const answer = await wrap(peek(ports).ui.notify(
+    'warn',
+    `Clean Up Backups permanently removes Tabthrough refs under refs/tabthrough, including any Finish-kept session pointer.${stashHint} This does not drop stash entries by itself, but clears the product's pointer to them.`,
+    ['Remove backups', 'Keep backups'],
+  ))
+  if (answer !== 'Remove backups')
+    return []
+
   const removed = await wrap(cleanupGuideRefs(capability.repoRoot))
+  const after = await wrap(peek(ports).store.readToken(capability.repoRoot))
+  if (after?.stage === 'done-kept')
+    await wrap(peek(ports).store.clearToken(capability.repoRoot))
   recoveryEpoch.set(value => value + 1)
   return removed
 }, 'recovery.cleanup').extend(withAsync({ status: true }), withAbort('first-in-win'))
@@ -383,12 +481,56 @@ export const cleanupBackups = action(async (): Promise<readonly string[]> => {
 
 export interface StartRequest {
   readonly entry: ReviewTarget
+  /** Repo-relative sidecar path; defaults to `tabthrough.guideFile`. */
+  readonly guideFile?: string
+  /**
+   * When set, the guide engine uses this text instead of reading the sidecar
+   * from git — the path for starting from an open `*.guide.json` editor.
+   */
+  readonly sidecar?: SidecarSource
+  /** Overrides the setting / chooser when tests pin a mode. */
+  readonly sessionMode?: SessionMode
+}
+
+/** Start attempts are cancellable while waiting for pre-flight or isolation. */
+const startAttempt = atom(0, 'session.startAttempt')
+const cancelledStartAttempt = atom<number | null>(null, 'session.cancelledStartAttempt')
+const startSettled = action((attempt: number) => attempt, 'session.startSettled')
+const finishPending = atom(false, 'session.finishPending')
+
+function sessionRuntime(): SessionRuntime {
+  return {
+    ports: () => peek(ports),
+    beginApply: () => {
+      if (peek(sessionStatus) !== 'active')
+        return false
+      sessionStatus.to('applying')
+      return true
+    },
+    endApply: (next) => {
+      if (peek(sessionStatus) === 'applying')
+        sessionStatus.to(next)
+    },
+  }
+}
+
+async function resolveSessionMode(request: StartRequest): Promise<SessionMode> {
+  if (request.sessionMode !== undefined)
+    return request.sessionMode
+  const setting = peek(sessionModeSetting)
+  if (setting !== 'ask')
+    return setting
+  const chosen = await wrap(peek(ports).ui.chooseSessionMode())
+  if (chosen === null)
+    throwAbort()
+  return chosen
 }
 
 interface StartFailure {
   readonly error: unknown
   /** Isolation that already existed when the failed start began. */
   readonly inherited: IsolationHandle | null
+  readonly attempt: number
 }
 
 /**
@@ -396,58 +538,75 @@ interface StartFailure {
  * puts the machine back in a state the user can act from. A failed start must
  * leave the tree exactly as it was found.
  */
-const startFailed = action(async ({ error, inherited }: StartFailure): Promise<void> => {
+const startFailed = action(async ({ error, inherited, attempt }: StartFailure): Promise<void> => {
   const handle = peek(isolation)
-
+  try {
   // A start refused before it touched anything — a second Start while a review
-  // is running, say — must leave the running session completely alone. Undoing
-  // someone else's isolation would be the worst possible response to "no".
-  if (handle !== null && handle === inherited) {
-    if (!isAbort(error))
-      await wrap(peek(ports).ui.notify('error', describeStartFailure(error)))
-    return
-  }
-
-  if (error instanceof IsolationBlockedError) {
-    // `isolate` already tried to undo itself and could not. Everything is kept.
-    sessionStatus.to('restoring')
-    restoreBlock.set(error.outcome)
-    sessionStatus.to('blocked')
-  }
-  else if (handle !== null) {
-    sessionStatus.to('restoring')
-    const outcome = await wrap(restoreFromToken({ token: handle.token, store: peek(ports).store }))
-    if (outcome.kind === 'restored') {
-      isolation.set(null)
-      restoreBlock.set(null)
-      sessionStatus.to('idle')
+    // is running, say — must leave the running session completely alone. Undoing
+    // someone else's isolation would be the worst possible response to "no".
+    if (handle !== null && handle === inherited) {
+      if (!isAbort(error))
+        await wrap(peek(ports).ui.notify('error', describeStartFailure(error)))
+      return
     }
-    else {
-      restoreBlock.set(outcome)
+
+    if (error instanceof IsolationBlockedError) {
+    // `isolate` already tried to undo itself and could not. Everything is kept.
+      sessionStatus.to('restoring')
+      restoreBlock.set(error.outcome)
       sessionStatus.to('blocked')
     }
-  }
-  else if (peek(sessionStatus) !== 'idle') {
+    else if (handle !== null) {
+      sessionStatus.to('restoring')
+      const outcome = await wrap(restoreFromToken({ token: handle.token, store: peek(ports).store }))
+      if (outcome.kind === 'restored') {
+        isolation.set(null)
+        restoreBlock.set(null)
+        sessionStatus.to('idle')
+      }
+      else {
+        restoreBlock.set(outcome)
+        sessionStatus.to('blocked')
+      }
+    }
+    else if (peek(sessionStatus) !== 'idle') {
     // Nothing was mutated: `isolate` unwound itself, or it never ran.
-    sessionStatus.to('idle')
+      sessionStatus.to('idle')
+    }
+
+    session.set(null)
+    preflightRequest.set(null)
+    recoveryEpoch.set(value => value + 1)
+
+    // Aborts are a user choice (declined pre-flight, superseded call), not a business error.
+    if (!isAbort(error))
+      await wrap(peek(ports).ui.notify('error', describeStartFailure(error)))
   }
-
-  session.set(null)
-  preflightRequest.set(null)
-  recoveryEpoch.set(value => value + 1)
-
-  // Aborts are a user choice (declined pre-flight, superseded call), not a business error.
-  if (!isAbort(error))
-    await wrap(peek(ports).ui.notify('error', describeStartFailure(error)))
+  catch (failure) {
+    preflightRequest.set(null)
+    if (peek(sessionStatus) === 'restoring')
+      sessionStatus.to('blocked')
+    await wrap(peek(ports).ui.notify('error', `Workspace recovery needs attention: ${failure instanceof Error ? failure.message : String(failure)}`))
+  }
+  finally {
+    startSettled(attempt)
+  }
 }, 'session.failed').extend(withAsync())
 
 export const startSession = action(async (request: StartRequest): Promise<Session> => {
-  // Attach failure handling once, at the top; the happy path below stays flat.
-  const inherited = peek(isolation)
-  framePromise().catch(error => startFailed({ error, inherited }))
-
   if (peek(sessionStatus) !== 'idle')
     throw new SessionAlreadyActiveError(peek(sessionStatus))
+
+  // Attach failure handling once, at the top; the happy path below stays flat.
+  // The attempt id lets Cancel wait for the unwind belonging to this start,
+  // even if another rejected click arrives while the first one is suspended.
+  const inherited = peek(isolation)
+  const attempt = startAttempt.set(value => value + 1)
+  cancelledStartAttempt.set(null)
+  framePromise().catch(error => startFailed({ error, inherited, attempt }))
+  // Reserve before the first probe/read await. This closes same-window
+  // start/start and start/recovery races during the pre-flight preparation.
+  sessionStatus.to('preflight')
 
   const signal = abortVar.require().signal
 
@@ -478,10 +637,26 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
   if (lockOwner !== null)
     throw new RepoLockedError(lockOwner)
 
-  sessionStatus.to('preflight')
+  const resolvedMode = await wrap(resolveSessionMode(request))
+
+  if (peek(cancelledStartAttempt) === attempt)
+    throwAbort()
+  // Count the same saved content that isolation will capture, including edits
+  // that previously existed only in a VS Code buffer.
+  const savedBeforePlan = await wrap(peek(ports).ui.saveDocuments(repoRoot, []))
+  if (!savedBeforePlan.ok) {
+    await wrap(peek(ports).ui.notify('warn', `Save ${savedBeforePlan.path} before starting Tabthrough.`))
+    throwAbort()
+  }
 
   // Stat-only pass: resolves base/after and counts changed lines. Touches nothing.
-  const plan: IsolationPlan = await wrap(planIsolation(repoRoot, { entry: request.entry, includeUntracked }, { signal }))
+  const plan: IsolationPlan = await wrap(planIsolation(
+    repoRoot,
+    { entry: request.entry, includeUntracked, sessionMode: resolvedMode },
+    { signal },
+  ))
+  if (peek(cancelledStartAttempt) === attempt)
+    throwAbort()
   if (plan.preflight.changedLineCount === 0)
     throw new EmptyDiffError(request.entry, 'empty')
   if (plan.substantiveLineCount === 0)
@@ -495,10 +670,38 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
   // that throws an abort only means "not this value, keep waiting", which would
   // leave a declined pre-flight hanging forever.
   preflightRequest.set(plan.preflight)
+  if (peek(cancelledStartAttempt) === attempt)
+    throwAbort()
   const approved = await wrap(take(preflightAnswer, 'preflightApproval'))
   preflightRequest.set(null)
   if (!approved)
     throwAbort()
+
+  // VS Code buffers are not part of Git's view of the working tree. Persist
+  // every dirty editor in this repository before the first stash, or a later
+  // editor save could overwrite the isolated tree with content that was never
+  // captured by the journal.
+  const saved = await wrap(peek(ports).ui.saveDocuments(repoRoot, []))
+  if (!saved.ok) {
+    await wrap(peek(ports).ui.notify('warn', `Save ${saved.path} before starting Tabthrough.`))
+    throwAbort()
+  }
+
+  if (peek(cancelledStartAttempt) === attempt)
+    throwAbort()
+
+  // The confirmation can stay open while files, HEAD, or merge state change.
+  // Never execute an obsolete checkout/stash plan after saving those edits.
+  const currentCapability = await wrap(probeGit(repoRoot, { signal }))
+  if (!currentCapability.ok)
+    throw new GitUnavailableError(currentCapability)
+  const currentPlan = await wrap(planIsolation(
+    repoRoot,
+    { entry: request.entry, includeUntracked, sessionMode: resolvedMode },
+    { signal },
+  ))
+  if (JSON.stringify(currentPlan) !== JSON.stringify(plan))
+    throw new Error('The repository changed while the start confirmation was open. Start the review again to confirm the updated changes.')
 
   sessionStatus.to('stashing')
   const id = peek(ports).clock.sessionId()
@@ -511,20 +714,41 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
     plan,
     store: peek(ports).store,
     includeUntracked,
+    sessionMode: resolvedMode,
     now: peek(ports).clock.now,
     signal,
   }))
   isolation.set(handle)
   recoveryEpoch.set(value => value + 1)
 
+  // Cancellation during the non-abortable isolation window is handled after
+  // isolate has returned, so its own restore path can see the complete handle.
+  if (peek(cancelledStartAttempt) === attempt)
+    throwAbort()
+
   const built = await wrap(peek(guideSource).build({
     repoRoot,
     baseRev: handle.baseRev,
     afterRev: handle.afterRev,
     options: peek(heuristicOptions),
-    guideFile: peek(guideFile),
+    guideFile: request.guideFile ?? peek(guideFile),
+    ...(request.sidecar === undefined ? {} : { sidecar: request.sidecar }),
     signal,
   }))
+  if (peek(cancelledStartAttempt) === attempt)
+    throwAbort()
+
+  if (resolvedMode === 'apply') {
+    const unsupported = built.diff.files.find(file =>
+      file.isBinary || file.status === 'mode-only' || file.status === 'renamed'
+      || file.oldMode === '120000' || file.newMode === '120000'
+      || file.oldMode === '160000' || file.newMode === '160000'
+      || (file.oldMode !== undefined && file.newMode !== undefined && file.oldMode !== file.newMode)
+      || (file.status === 'added' && file.newMode === '100755')
+      || built.guide.steps.some(step => step.path === file.path && step.kind === 'stub'))
+    if (unsupported !== undefined)
+      throw new ApplyTargetUnsupportedError(unsupported.path, unsupported.isBinary ? 'binary' : unsupported.status)
+  }
 
   const model = reatomSession({
     id,
@@ -535,18 +759,26 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
     handle,
     diff: built.diff,
     guide: built.guide,
+    mode: resolvedMode,
+    runtime: sessionRuntime(),
   })
 
   guideDiagnostics.set(built.diagnostics)
   session.set(model)
   sessionStatus.to('active')
-  model.next()
+  await wrap(Promise.resolve(model.next()))
+  cancelledStartAttempt.set(null)
+  startSettled(attempt)
   return model
 }, 'session.start').extend(withAsync({ status: true }), withAbort('first-in-win'))
 
 export type CancelReason = 'finish' | 'cancel' | 'deactivate'
 
 const teardownSession = action(async ({ reason }: { reason: CancelReason }): Promise<void> => {
+  framePromise().catch(wrap(() => {
+    if (peek(sessionStatus) === 'restoring')
+      sessionStatus.to('blocked')
+  }))
   const handle = peek(isolation)
   if (handle === null) {
     session.set(null)
@@ -556,6 +788,10 @@ const teardownSession = action(async ({ reason }: { reason: CancelReason }): Pro
   }
 
   sessionStatus.to('restoring')
+  framePromise().catch(wrap(() => {
+    if (peek(sessionStatus) === 'restoring')
+      sessionStatus.to('blocked')
+  }))
 
   // No `signal` on purpose: `git stash apply` must never be cancelled halfway.
   const outcome = await wrap(restoreFromToken({ token: handle.token, store: peek(ports).store }))
@@ -580,26 +816,182 @@ const teardownSession = action(async ({ reason }: { reason: CancelReason }): Pro
   await wrap(peek(ports).ui.notify('warn', describeBlocked(outcome)))
 }, 'session.teardown').extend(withAsync())
 
+/**
+ * Apply Finish: keep the tree, journal `done-kept`, offer SCM. Does not restore
+ * the pre-session stash (ADR 0004 D6 / R-apply-9).
+ */
+const finishApplyKeep = action(async (): Promise<void> => {
+  const handle = peek(isolation)
+  const model = peek(session)
+  if (handle === null || model === null)
+    return
+
+  // Reserve before saving documents or scanning git. Cancel observes this
+  // synchronously and cannot start a competing restore over Finish.
+  sessionStatus.to('applying')
+  finishPending.set(true)
+  // Keep an unexpected read/checkpoint failure from wedging the reservation.
+  framePromise().catch(wrap(() => {
+    finishPending.set(false)
+    if (peek(sessionStatus) === 'applying' || peek(sessionStatus) === 'restoring')
+      sessionStatus.to('blocked')
+  }))
+
+  const paths = [...new Set(model.guide.steps.map(step => step.path))]
+  const saved = await wrap(peek(ports).ui.saveDocuments(model.repoRoot, paths))
+  if (!saved.ok) {
+    await wrap(peek(ports).ui.notify('warn', `Save ${saved.path} before finishing.`))
+    finishPending.set(false)
+    if (peek(sessionStatus) === 'applying')
+      sessionStatus.to('active')
+    return
+  }
+
+  // Same refusals Tab enforces — never keep conflict markers (review 003 B1 / M6).
+  const status = await wrap(readStatus(model.repoRoot))
+  if (status.unmerged.length > 0) {
+    await wrap(peek(ports).ui.notify(
+      'warn',
+      `Resolve unmerged paths before finishing: ${status.unmerged.slice(0, 3).join(', ')}${status.unmerged.length > 3 ? '…' : ''}`,
+    ))
+    finishPending.set(false)
+    if (peek(sessionStatus) === 'applying')
+      sessionStatus.to('active')
+    return
+  }
+
+  const conflictPath = await wrap(findConflictMarkedPath(model.repoRoot, paths))
+  if (conflictPath !== null) {
+    await wrap(peek(ports).ui.notify(
+      'warn',
+      `Resolve conflict markers in ${conflictPath} before finishing. Finish keeps the working tree as-is — markers must not be committed as the walk outcome.`,
+    ))
+    await wrap(peek(ports).ui.openWorkspaceFile(model.repoRoot, conflictPath))
+    finishPending.set(false)
+    if (peek(sessionStatus) === 'applying')
+      sessionStatus.to('active')
+    return
+  }
+
+  sessionStatus.to('restoring')
+
+  const outcome = await wrap(finishKeepFromToken({
+    token: handle.token,
+    store: peek(ports).store,
+  }))
+  handle.token = outcome.token
+
+  if (outcome.kind === 'blocked') {
+    // Checkpoint failure: stay reachable via Cancel (review 002 M7). `blocked`
+    // keeps Cancel enabled; do not resume the walk without a checkpoint.
+    sessionStatus.to('blocked')
+    recoveryEpoch.set(value => value + 1)
+    await wrap(peek(ports).ui.notify('warn', outcome.message))
+    finishPending.set(false)
+    return
+  }
+
+  isolation.set(null)
+  session.set(null)
+  restoreBlock.set(null)
+  sessionStatus.to('idle')
+  recoveryEpoch.set(value => value + 1)
+
+  const answer = await wrap(peek(ports).ui.notify(
+    outcome.carried ? 'info' : 'warn',
+    outcome.message,
+    ['Open Source Control'],
+  ))
+  if (answer === 'Open Source Control')
+    await wrap(peek(ports).ui.openSourceControl())
+  finishPending.set(false)
+}, 'session.finishApplyKeep').extend(withAsync())
+
 export const finishSession = action(async (): Promise<void> => {
   if (peek(sessionStatus) !== 'active')
     return
+  const model = peek(session)
+  if (model?.mode === 'apply') {
+    await wrap(finishApplyKeep())
+    return
+  }
   await wrap(teardownSession({ reason: 'finish' }))
 }, 'session.finish').extend(withAsync({ status: true }), withAbort('first-in-win'))
 
 /**
+ * Focus Source Control so the user can commit. Never runs `git commit`.
+ */
+export const commitHandoff = action(async (): Promise<void> => {
+  await wrap(peek(ports).ui.openSourceControl())
+}, 'session.commitHandoff').extend(withAsync())
+
+/**
  * Still works when `session()` is `null` but `isolation()` is not — that is the
  * shape of a mid-start failure and of a post-crash resume. Cancel is *not* a
- * discard: it runs exactly the same restore as Finish, only the message differs.
+ * discard in read-only mode: it runs exactly the same restore as Finish, only
+ * the message differs. In apply mode Cancel restores pre-session and discards
+ * mid-walk edits (ADR 0004 D6).
  */
 export const cancelSession = action(async (reason: CancelReason = 'cancel'): Promise<void> => {
   const status = peek(sessionStatus)
   if (status === 'idle')
     return
+
+  // A start has no isolation handle until the journal has been captured. Feed
+  // a decline through the pre-flight event so the suspended start frame exits;
+  // merely changing status would leave it waiting and a later approval could
+  // still mutate the repository.
+  if (status === 'preflight') {
+    const attempt = peek(startAttempt)
+    cancelledStartAttempt.set(attempt)
+    const settled = take(startSettled, value => value === attempt, 'startCancelled')
+    startSession.abort()
+    await wrap(settled)
+    return
+  }
+
+  // Isolation deliberately remains non-abortable here. Mark the attempt and
+  // let `startSession` wait for isolate to return its complete handle, then its
+  // normal failure path restores the tree and releases the lock.
+  if (status === 'stashing') {
+    const attempt = peek(startAttempt)
+    cancelledStartAttempt.set(attempt)
+    await wrap(take(startSettled, value => value === attempt, 'startCancelled'))
+    return
+  }
   // `finish` and `cancel` are separate actions, so their `first-in-win` guards
   // cannot see each other: without this, Cancel during an in-flight Finish
   // would start a second `git stash apply` over the first one.
   if (status === 'restoring')
     return
+  // Refuse only while a write is actually in flight — a stuck `applying`
+  // status (exception before endApply) must not hide Cancel (review 002 B2).
+  const model = peek(session)
+  if (status === 'applying' && (model?.applyPending() === true || peek(finishPending)))
+    return
+
+  // Window close / reload must not run destructive apply Cancel without D6
+  // consent. Leave the tree and `reviewing` journal for Phase 10 recovery
+  // (review 003 B2). Read-only deactivate still restores.
+  const handle = peek(isolation)
+  const applyMode = model?.mode === 'apply' || handle?.token.mode === 'apply'
+  if (reason === 'deactivate' && applyMode)
+    return
+
+  if (reason === 'cancel' && applyMode) {
+    const answer = await wrap(peek(ports).ui.notify(
+      'warn',
+      'Cancel restores your pre-session working tree and discards applied steps and mid-walk edits.',
+      ['Cancel and restore', 'Keep reviewing'],
+    ))
+    if (answer !== 'Cancel and restore')
+      return
+    // The confirmation awaited user input. Finish or Next may have acquired
+    // the session meanwhile, so never restore using a stale confirmation.
+    if (peek(session) !== model || peek(sessionStatus) !== status)
+      return
+  }
+
   await wrap(teardownSession({ reason }))
 }, 'session.cancel').extend(withAsync({ status: true }), withAbort('first-in-win'))
 
@@ -615,14 +1007,15 @@ export const HEARTBEAT_INTERVAL_MS = 7_000
  * can tell a crashed session from a live one (review 001 M2). The bridge ticks
  * it; see `bindSessionHeartbeat` in `src/index.ts`.
  *
- * Only while `active`, deliberately. In `stashing` and `restoring` the journal
- * belongs to `isolate` and `restoreFromToken`, and a read-modify-write racing
- * either of those could roll a stage back — the journal is the one artifact
- * recovery cannot afford to have lied to.
+ * Beats while the session is open except during `restoring` / `stashing`, where
+ * the journal belongs to isolate/restore and a read-modify-write could race.
+ * Apply mode's `applying` and `blocked` must keep beating — otherwise a second
+ * window offers to restore a live apply session (review 002 M5).
  */
 export const refreshHeartbeat = action(async (): Promise<boolean> => {
   const handle = peek(isolation)
-  if (handle === null || peek(sessionStatus) !== 'active')
+  const status = peek(sessionStatus)
+  if (handle === null || status === 'idle' || status === 'restoring' || status === 'stashing')
     return false
 
   const store = peek(ports).store
@@ -630,9 +1023,12 @@ export const refreshHeartbeat = action(async (): Promise<boolean> => {
 
   // Re-checked after the await: the session may have started tearing down
   // while the read was in flight, and this must not write over that.
-  if (peek(sessionStatus) !== 'active')
+  const statusAfter = peek(sessionStatus)
+  if (statusAfter === 'idle' || statusAfter === 'restoring' || statusAfter === 'stashing')
     return false
-  if (stored === null || stored.sessionId !== handle.sessionId || stored.stage !== 'reviewing')
+  if (stored === null || stored.sessionId !== handle.sessionId)
+    return false
+  if (stored.stage !== 'reviewing' && stored.stage !== 'applying')
     return false
 
   await wrap(store.writeToken({ ...stored, heartbeatAt: peek(ports).clock.now() }))
@@ -676,6 +1072,10 @@ export const startBlockedReason = computed((): string | null => {
 export function describeStartFailure(error: unknown): string {
   if (error instanceof RepoLockedError)
     return 'Another window is already reviewing this repository.'
+  if (error instanceof ApplyModeUnsupportedError)
+    return error.message
+  if (error instanceof ApplyTargetUnsupportedError)
+    return error.message
   if (error instanceof EmptyDiffError || error instanceof SessionAlreadyActiveError)
     return error.message
   // Already phrased for the user, hint included.

@@ -1,13 +1,13 @@
 # Tabthrough — Architecture Overview
 
-**Version:** 1.0 (MVP / v0.1)
+**Version:** 1.1 (v0.1 + apply-mode design)
 **Owner:** Architect
-**Status:** Proposed for implementation
+**Status:** Proposed for implementation (apply mode: design accepted, code not started)
 **Last updated:** 2026-08-07
-**Companions:** [reatom-model.md](reatom-model.md) · [guide-schema.md](guide-schema.md) · [ADR 0002](../decisions/0002-architecture.md)
+**Companions:** [reatom-model.md](reatom-model.md) · [guide-schema.md](guide-schema.md) · [ADR 0002](../decisions/0002-architecture.md) · [ADR 0004](../decisions/0004-apply-mode.md)
 **Reconciles with:** [plan.md](../progress/plan.md) (phases, module layout, risk register) · [ADR 0001](../decisions/0001-mvp-scope.md) · [product.md](../specs/product.md)
 
-> Answers to the four open **[ARCH]** questions raised in the plan are in [§10](#10-answers-to-the-open-arch-questions).
+> Answers to the four open **[ARCH]** questions raised in the plan are in [§10](#10-answers-to-the-open-arch-questions). Apply-with-user is [§7.3](#73-apply-with-user-mode-v02).
 
 ---
 
@@ -97,9 +97,10 @@ src/
   git/
     refs.ts        # create / list / delete refs/tabthrough/**  + the lock ref CAS
     journal.ts     # SessionToken shape + stage transitions (pure over an injected store)
+    apply.ts       # v0.2 — step apply/revert writes + applied checkpoint (ADR 0004)
   guide/
     groups.ts      # LineGroup extraction (splits parse-diff for testability)
-    render.ts      # renderReveal — the pure fold that drives progressive reveal
+    render.ts      # renderReveal — the pure fold that drives progressive reveal AND apply intent
     schema.ts      # .guide.json v1 types + total hand-rolled validator
     merge.ts       # sidecar x heuristic merge
   model/
@@ -301,8 +302,9 @@ Restore fidelity and content reading are different problems, so they get differe
 
 | Ref | Built by | Job |
 |-----|----------|-----|
-| `refs/tabthrough/after/<id>` | temp-index snapshot (below) | **Read** the reviewed content. One flat tree containing tracked modifications *and* untracked files. Makes the working-tree entry read exactly like a commit entry |
-| `refs/tabthrough/backup/<id>` | the commit created by `git stash push -u` | **Restore.** Stash-shaped, so it preserves the staged/unstaged split and the untracked set, which a flat tree cannot |
+| `refs/tabthrough/after/<id>` | temp-index snapshot (below) | **Read** the reviewed content / apply intent. One flat tree containing tracked modifications *and* untracked files. Makes the working-tree entry read exactly like a commit entry |
+| `refs/tabthrough/backup/<id>` | the commit created by `git stash push -u` | **Restore pre-session.** Stash-shaped, so it preserves the staged/unstaged split and the untracked set, which a flat tree cannot |
+| `refs/tabthrough/applied/<id>` | commit-tree of WT after each successful apply/revert (apply mode only) | **Crash resume / Finish evidence.** Includes user mid-walk edits |
 
 The temp-index snapshot mutates nothing — not the index, not the working tree:
 
@@ -322,13 +324,13 @@ git update-ref refs/tabthrough/after/<id> $afterCommit
 
 Every entry point resolves to the same two immutable commits, which is what keeps the rest of the system simple:
 
-| Entry | base | after | Checkout |
-|-------|------|-------|----------|
-| Working tree | `HEAD` | `refs/tabthrough/after/<id>` | none (stash already left the tree at `HEAD`) |
-| Single commit `C` | `C^` (root commit → empty tree; merge → `--first-parent`) | `C` | detach at `C` |
-| Range `A..B` | `git merge-base A B` | `B` | detach at `B` |
+| Entry | base | after | Checkout (readonly) | Checkout (apply) |
+|-------|------|-------|---------------------|------------------|
+| Working tree | `HEAD` | `refs/tabthrough/after/<id>` | none (stash already left the tree at `HEAD`) | detach at `base` (`HEAD`) — clean apply zero |
+| Single commit `C` | `C^` (root commit → empty tree; merge → `--first-parent`) | `C` | detach at `C` (after) | detach at `C^` (base) |
+| Range `A..B` | `git merge-base A B` | `B` | detach at `B` | **out of v0.2 apply** (P1-12); readonly unchanged |
 
-Downstream, nothing knows which entry it came from: the diff is `base..after`, base blobs come from `git cat-file blob <base>:<path>`, and reveal is a fold over that. This is why the working-tree entry is stashed like every other entry rather than being special-cased — see [ADR 0002 D4](../decisions/0002-architecture.md).
+Downstream, nothing knows which entry it came from for *content*: the diff is `base..after`, base blobs come from `git cat-file blob <base>:<path>`. Read-only reveal is a fold over that. Apply mode uses the same fold as the **intended** tree after `k` steps, then writes real files (§7.3). This is why the working-tree entry is stashed like every other entry rather than being special-cased — see [ADR 0002 D4](../decisions/0002-architecture.md) and [ADR 0004](../decisions/0004-apply-mode.md).
 
 #### 3.5.3 The journal
 
@@ -338,9 +340,12 @@ export type IsolationStage =
   | 'captured'    // after-ref written; working tree still untouched
   | 'stashed'     // working tree cleaned
   | 'checkedout'  // detached HEAD at the target revision
-  | 'reviewing'   // steady state
-  | 'restoring'   // restore in flight
+  | 'reviewing'   // steady state (read-only reveal or apply walk)
+  | 'applying'    // apply mode: mid Tab/Previous write (journalled before mutate)
+  | 'finishing-keep' // apply mode Finish: carrying WT back to headBefore
+  | 'restoring'   // restore in flight (Cancel / read-only Finish / recovery)
   | 'done'        // restored and verified; token about to be deleted
+  | 'done-kept'   // apply Finish succeeded; tree kept; refs retained until cleanup
 
 export interface SessionToken {
   v: 1
@@ -349,8 +354,11 @@ export interface SessionToken {
   heartbeatAt: number | null        // refreshed by the owning window; see §10.2
   repoRoot: string
   stage: IsolationStage
+  mode: 'readonly' | 'apply'        // additive; readers treat missing as 'readonly'
+  appliedIndex: number              // last successful apply step; -1 = none; missing → -1
   afterRef: string                  // refs/tabthrough/after/<id>
   backupRef: string | null          // refs/tabthrough/backup/<id>, null when the tree was clean
+  appliedRef: string | null         // refs/tabthrough/applied/<id>, apply mode only
   stashMessage: string | null       // "tabthrough:<id>"
   headBefore: { kind: 'branch', name: string } | { kind: 'detached', sha: string }
   checkedOut: string | null
@@ -496,11 +504,15 @@ Past the last step, `next()` is a no-op that flips `isComplete`; the bridge show
 
 ### 4.3 Finish / Cancel / deactivate
 
-All three run the identical restore; they differ only in messaging.
+**Read-only:** Finish and Cancel run the identical restore; they differ only in messaging. Deactivate uses the same restore with a time budget.
+
+**Apply mode:** Cancel still restores pre-session (sacred path). Finish **keeps** the working tree and does **not** stash-apply the backup — see §7.3 and ADR 0004 D6.
 
 ```mermaid
 flowchart LR
-  F["finish"] --> R["restore(token)"]
+  F["finish"] --> M{mode}
+  M -->|readonly| R["restore(token)"]
+  M -->|apply| K["finishing-keep: carry WT to headBefore; keep refs; done-kept"]
   C["cancel"] --> R
   D["deactivate"] --> R
   R --> OK{verified?}
@@ -508,7 +520,7 @@ flowchart LR
   OK -->|no| W["status = blocked; keep everything; show merge guidance"]
 ```
 
-`deactivate` gets a bounded window: the restore promise raced against ~4 s. If the timeout wins, the journal is left at its current stage and the next activation offers recovery (plan R6).
+`deactivate` gets a bounded window: the restore promise raced against ~4 s. If the timeout wins, the journal is left at its current stage and the next activation offers recovery (plan R6). Apply mode mid-walk uses the same journal — a truncated deactivate is Resume-or-Restore, never silent half-state.
 
 ### 4.4 Crash recovery
 
@@ -530,6 +542,8 @@ flowchart TD
 
 Recovery never guesses. If the token says `stashed` but no matching stash entry exists, it falls back to the backup ref; if that is gone too, it falls back to the after-ref content; if nothing is left, it reports exactly what is missing rather than attempting a heuristic repair.
 
+**Apply mode tokens** additionally offer **Resume apply** when `mode === 'apply'` and an `applied` checkpoint / `appliedIndex` is coherent — reset WT to the checkpoint and continue — or **Restore pre-session** (same as Cancel). A journal stuck in `applying` without a matching applied-ref bump is treated as incomplete: show the mismatch; default recommendation is Restore or Resume-from-previous index, never a silent repair.
+
 ---
 
 ## 5. Process and trust boundaries
@@ -537,7 +551,7 @@ Recovery never guesses. If the token says `stashed` but no matching stash entry 
 | Boundary | Direction | Isolation |
 |----------|-----------|-----------|
 | Extension host ↔ `git` subprocess | out | `spawn` with `shell: false`, argv arrays only (never string concatenation), hardened env, per-call timeout, `{ signal }` on reads, streamed stdout for large patches |
-| Extension host ↔ workspace files | **read-only** | The extension never writes workspace files. Reveal happens in virtual documents; the only disk mutations are git's own (`stash`, `checkout`) |
+| Extension host ↔ workspace files | **read-only in `readonly` mode**; **journalled writes in `apply` mode** | Read-only sessions never write workspace files (virtual docs only). Apply mode writes only through the apply module (`src/git/apply.ts` + model actions), one step at a time, after journal `applying`, using intended states from `renderReveal`. No ad-hoc `fs.writeFile` from UI/commands |
 | Extension host ↔ `globalState` | both | Journal only: a small JSON token. No code content, ever |
 | Cross-window / cross-process | shared repo | A single lock ref, acquired by compare-and-swap (§10.2) |
 | Network | none in MVP | The P1 LLM path is opt-in per session behind the same guide-source interface |
@@ -564,7 +578,10 @@ export interface UiPort {
   confirm(request: PreflightRequest): Promise<boolean>
   notify(level: 'info' | 'warn' | 'error', message: string, actions?: string[]): Promise<string | undefined>
   openReview(target: ReviewDocTarget): Promise<void>
+  openSourceControl(): Promise<void>   // apply Finish / commitHandoff — v0.2
+  saveDocuments(paths: readonly string[]): Promise<{ ok: true } | { ok: false, path: string }>  // apply Tab
 }
+
 export interface ClockPort { now: () => number, sessionId: () => string }
 ```
 
@@ -580,13 +597,14 @@ Settings, extending the five the plan declares in Phase 0:
 |---------|------|---------|-------|
 | `tabthrough.keybinding.useTab` | boolean | `true` | 5 |
 | `tabthrough.showRationale` | boolean | `true` | 5 |
-| `tabthrough.reveal.mode` | `'progressive' \| 'dim'` | `'progressive'` | 5 |
+| `tabthrough.reveal.mode` | `'progressive' \| 'dim'` | `'progressive'` | 5 (readonly only) |
+| `tabthrough.session.mode` | `'ask' \| 'readonly' \| 'apply'` | `'ask'` | v0.2 apply |
 | `tabthrough.guideFile` | string | `.guide.json` | 3 |
 | `tabthrough.stash.includeUntracked` | boolean | `true` | 2 |
 | `tabthrough.maxLinesPerStep` | number | `24` | 3 |
 | `tabthrough.hideFormattingSteps` | boolean | `false` | 3 |
 
-Commands (plan P0-14): `tabthrough.start`, `.startFromCommit`, `.startFromRange`, `.next`, `.previous`, `.finish`, `.cancel`, `.restoreBackup`, plus `.cleanupBackups` and `.showStepDetail`. Every one carries an `enablement` clause driven by the context keys, so the palette never offers an action that will fail.
+Commands (plan P0-14 + apply): `tabthrough.start`, `.startFromCommit`, `.startFromRange`, `.next`, `.previous`, `.finish`, `.cancel`, `.restoreBackup`, plus `.cleanupBackups`, `.showStepDetail`, and v0.2 `.commitHandoff`. Every one carries an `enablement` clause driven by the context keys, so the palette never offers an action that will fail.
 
 ---
 
@@ -605,16 +623,17 @@ tabthrough://reveal/<sessionId>/<path>               — the "after so far" text
 
 The reveal document's content is `renderReveal(baseText, file, revealedGroups).text` — a pure fold over the groups revealed up to the cursor. The editor shows `vscode.diff(baseUri, revealUri)`. When the cursor moves, the provider fires `onDidChange(revealUri)`; VS Code re-reads and the native diff re-renders with real gutter markers, real syntax highlighting, real navigation. When the last step is revealed, the reveal document is byte-identical to the after blob.
 
-| | **Progressive** (chosen) | Dim (plan's fallback) | Staged apply to disk |
+| | **Progressive** (readonly) | Dim (readonly fallback) | **Apply** (ADR 0004) |
 |---|---|---|---|
-| Prior steps stay visible | free — append-only fold | manual range bookkeeping | free |
-| Unrevealed content hidden | genuinely absent | only dimmed — still selectable, copyable, readable | genuinely absent |
-| Native diff coloring | yes | fights the diff editor's own colors | yes |
-| Touches the working tree | no | no | **yes** — pollutes `git status`, breaks the stash contract, races the user's undo stack |
-| Read-only by construction | yes | yes | no |
-| Cost per Tab | one memoized string fold | decoration recompute | file write + FS event + editor reload |
+| Prior steps stay visible | free — append-only fold | manual range bookkeeping | free — on disk |
+| Unrevealed content hidden | genuinely absent | only dimmed — still selectable, copyable, readable | not yet applied to disk |
+| Native diff coloring | yes | fights the diff editor's own colors | ordinary editors + git status |
+| Touches the working tree | no | no | **yes** — intended; Cancel restores; Finish keeps |
+| Read-only by construction | yes | yes | no (user edits allowed) |
+| Cost per Tab | one memoized string fold | decoration recompute | save + 3-way merge + write + applied checkpoint |
 
-`tabthrough.reveal.mode` keeps the choice reversible, as the plan requires: `'dim'` renders the full after-text with unrevealed ranges dimmed, sharing the same provider, the same URIs, and the same `LineGroup` data. Only the fold differs. The spike the plan scheduled before Phase 5 therefore reduces to a one-file comparison rather than an architectural fork.
+`tabthrough.reveal.mode` keeps the readonly choice reversible: `'dim'` renders the full after-text with unrevealed ranges dimmed, sharing the same provider, the same URIs, and the same `LineGroup` data. Only the fold differs. Apply is **not** a reveal.mode value — it is `tabthrough.session.mode` / session `mode: 'apply'`.
+
 
 **Deletions** need no special case: a revealed deletion removes lines from the reveal document, and the native diff shows them as deleted on the base side. **Binary and generated files** produce stub steps whose reveal document is a one-line explanation, keeping ordering and `k/n` honest.
 
@@ -640,7 +659,51 @@ tabthrough.sessionActive
 
 `Alt+]` / `Alt+[` are registered unconditionally as the always-available chord, gated only on `tabthrough.sessionActive`.
 
----
+### 7.3 Apply-with-user mode (v0.2)
+
+Full decision record: [ADR 0004](../decisions/0004-apply-mode.md). Summary for implementers:
+
+**Contract.** Session mode `apply` coexists with read-only progressive/dim. Isolation still capture-first / journal-first, but checkout is **`base`**, and each Tab mutates real files. Dirty `git status` is expected and disclosed in pre-flight.
+
+**Tab / intended state.** For step `k`, per touched file:
+
+```
+intendedPrev = renderReveal(base, file, groups[0..k))
+intendedNext = renderReveal(base, file, groups[0..k])
+current      = on-disk (after save of dirty buffers for that path)
+```
+
+If `current === intendedPrev`, write `intendedNext`. Else 3-way merge (`intendedPrev`, `current`, `intendedNext`). Conflict → stop, do not advance, never silent overwrite.
+
+**Shift+Tab.** Symmetric revert toward `intendedPrev` for `k = appliedIndex`; same conflict rule. No multi-step `jumpTo` in v0.2.
+
+**Finish vs Cancel vs Commit.**
+
+| Action | Effect |
+|--------|--------|
+| Cancel | Restore pre-session (backup stash → verify → drop). Confirm if apply progressed. |
+| Finish | Keep WT; carry to `headBefore` without `-f`; journal `done-kept`; **do not** restore stash; offer SCM handoff |
+| Commit handoff | Focus Source Control / commit UI — never silent `git commit` |
+
+**Never lost:** after-ref, backup-ref, applied-ref, journal until verified Cancel restore or explicit cleanup after Finish.
+
+**Modules.** Add `src/git/apply.ts` (write file bytes, 3-way merge helper, applied checkpoint) and extend journal/token. Pure `renderReveal` gains no mode flag — apply is orchestration over the same fold. Schema v1 unchanged.
+
+**Keybinding note.** Apply mode uses ordinary file editors, so Tab cannot rely on `resourceScheme == 'tabthrough'`. v0.2: prefer the unconditional `Alt+]` / `Alt+[` chords while focused in workspace files during apply, and/or a narrowed when-clause (`tabthrough.sessionActive && tabthrough.sessionMode == 'apply' && editorTextFocus && resourceScheme == 'file' && …widget guards`). Exact clause is an Implementer detail under Planner’s phase; product pitch remains Tab-to-advance with chord fallback. Do not steal Tab globally.
+
+```mermaid
+flowchart TD
+  Start[Start apply] --> Cap[Capture after-ref]
+  Cap --> Stash[Stash WIP if dirty]
+  Stash --> Base[Checkout base]
+  Base --> Tab{Tab}
+  Tab -->|merge ok| Write[Write files + applied checkpoint]
+  Write --> Tab
+  Tab -->|conflict| Stop[Stop; keep index; show conflict]
+  Tab --> Finish[Finish: keep tree]
+  Tab --> Cancel[Cancel: restore pre-session]
+```
+
 
 ## 8. Cancellation policy
 
@@ -740,6 +803,7 @@ Frozen in [guide-schema.md](guide-schema.md), which is the blocking artifact for
 | Stale/partial sidecar merge semantics | P1-3 | v1 already carries `scope.diffDigest` for detection |
 | Peek-ahead dim decoration | P1 | The decoration layer already exists |
 | Compact mode for >3000-line diffs | P1 | `HeuristicOptions` has room reserved |
-| Drift detection during review | P1 | Impossible for content (reveal reads immutable refs); relevant only for warning the user their tree changed |
+| Drift detection during review | P1-8 | Critical earlier for apply; warn on external edits |
+| Apply mode — commit range | P1-12 | Single commit + working tree first (ADR 0004) |
 | Multi-root workspaces | P2 | First root only; `workspaceRoot` is the single choke point |
-| Resume without full restore | P2 | Would need a second journal stage set; explicitly out |
+| Resume without full restore | P2 | Apply mode already has Resume-from-checkpoint; full “continue readonly mid-reveal” still out |

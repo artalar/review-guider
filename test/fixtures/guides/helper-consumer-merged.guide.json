@@ -1,0 +1,13 @@
+{
+  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
+  "version": 1,
+  "scope": { "kind": "commit", "base": "1111111", "head": "2222222" },
+  "summary": "ANTI-PATTERN fixture for P0-G2 — schema-valid but pedagogically wrong: one panel for two thoughts.",
+  "steps": [
+    {
+      "id": "events",
+      "path": "src/jsx/events.ts",
+      "rationale": "Adds eventActionName and refactors jsxEvent to use it"
+    }
+  ]
+}

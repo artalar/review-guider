@@ -1,14 +1,15 @@
 import type { IsolationHandle } from '../../src/git/isolate'
 import type { SessionToken } from '../../src/git/journal'
 import type { GuideStep } from '../../src/guide/types'
+import type { SessionRuntime } from '../../src/model/steps'
 import { context } from '@reatom/core'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { memoryStore } from '../../src/model/ports'
 import { reatomSession } from '../../src/model/steps'
 
 /**
- * Cursor movement is pure state motion — no I/O, no `async` — which is what
- * makes Tab instant and Shift+Tab correct by construction. These tests exist to
- * keep it that way.
+ * Cursor movement is pure state motion in readonly mode — no I/O — which is
+ * what makes Tab instant and Shift+Tab correct by construction.
  */
 
 const TOKEN: SessionToken = {
@@ -29,6 +30,9 @@ const TOKEN: SessionToken = {
   backupCommit: null,
   stashMessage: null,
   checkedOut: null,
+  mode: 'readonly',
+  appliedIndex: -1,
+  appliedRef: null,
 }
 
 const HANDLE: IsolationHandle = {
@@ -37,6 +41,24 @@ const HANDLE: IsolationHandle = {
   baseRev: 'base',
   afterRev: 'after',
   token: TOKEN,
+}
+
+const RUNTIME: SessionRuntime = {
+  ports: () => ({
+    store: memoryStore(),
+    ui: {
+      confirm: async () => true,
+      chooseSessionMode: async () => 'readonly',
+      notify: async () => undefined,
+      openReview: async () => {},
+      openWorkspaceFile: async () => {},
+      openSourceControl: async () => {},
+      saveDocuments: async () => ({ ok: true }),
+    },
+    clock: { now: () => 0, sessionId: () => 's' },
+  }),
+  beginApply: () => false,
+  endApply: () => {},
 }
 
 function step(path: string): GuideStep {
@@ -58,9 +80,11 @@ function makeSession(paths: readonly string[]) {
     entry: { kind: 'workingTree' },
     baseRev: 'base',
     afterRev: 'after',
-    handle: HANDLE,
+    handle: { ...HANDLE, token: { ...TOKEN } },
     diff: { files: [], digest: 'sha256:test' },
     guide: { steps: paths.map(step), stale: false, diagnostics: [] },
+    mode: 'readonly',
+    runtime: RUNTIME,
   })
 }
 
@@ -105,7 +129,6 @@ describe('reatomSession cursor', () => {
 
       expect(model.next()).toBe(true)
       expect(model.isComplete()).toBe(true)
-      // Tab past the last step is a no-op, not an error and not a wrap-around.
       expect(model.next()).toBe(false)
       expect(model.cursor()).toBe(0)
     })

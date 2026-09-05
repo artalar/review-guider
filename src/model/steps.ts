@@ -1,8 +1,20 @@
 import type { Atom, Computed } from '@reatom/core'
 import type { IsolationHandle } from '../git/isolate'
-import type { ReviewTarget } from '../git/types'
+import type { ReviewTarget, SessionMode } from '../git/types'
 import type { DiffFile, Guide, GuideStep, LineGroup, LineRange, RevealRender, ReviewDiff } from '../guide/types'
-import { abortVar, action, atom, computed, withAsyncData, wrap } from '@reatom/core'
+import type { Ports } from './ports'
+import {
+  abortVar,
+  action,
+  atom,
+  computed,
+  isAbort,
+  withAbort,
+  withAsync,
+  withAsyncData,
+  wrap,
+} from '@reatom/core'
+import { applyGuideStep } from '../git/apply'
 import { showBlob } from '../git/diff'
 import { renderReveal } from '../guide/render'
 import { revealMode } from './config'
@@ -10,10 +22,15 @@ import { revealMode } from './config'
 /**
  * One session instance (architecture/reatom-model.md §5).
  *
- * The guide is frozen plain data; only the cursor is an atom. Advance and
- * retreat are therefore pure state movement — no I/O, no `async` — which is
- * what makes Tab feel instant and makes Shift+Tab correct by construction.
+ * Read-only: advance/retreat are pure state movement. Apply: next/prev are
+ * async mutations that write the working tree (ADR 0004).
  */
+
+export interface SessionRuntime {
+  readonly ports: () => Ports
+  readonly beginApply: () => boolean
+  readonly endApply: (next: 'active' | 'blocked') => void
+}
 
 export interface SessionInit {
   readonly id: string
@@ -24,6 +41,8 @@ export interface SessionInit {
   readonly handle: IsolationHandle
   readonly diff: ReviewDiff
   readonly guide: Guide
+  readonly mode: SessionMode
+  readonly runtime: SessionRuntime
 }
 
 export interface SessionProgress {
@@ -133,9 +152,12 @@ export type ReviewFile = ReturnType<typeof reatomReviewFile>
 export function reatomSession(init: SessionInit) {
   const name = `session#${init.id}`
   const steps = init.guide.steps
+  const mode = init.mode
+  const runtime = init.runtime
 
-  /** `-1` means "nothing revealed yet". */
+  /** `-1` means "nothing revealed / applied yet". */
   const cursor = atom(-1, `${name}.cursor`)
+  const appliedIndex = atom(init.handle.token.appliedIndex, `${name}.appliedIndex`)
 
   const currentStep = computed((): GuideStep | null => steps[cursor()] ?? null, `${name}.currentStep`)
   const nextStep = computed((): GuideStep | null => steps[cursor() + 1] ?? null, `${name}.nextStep`)
@@ -147,8 +169,6 @@ export function reatomSession(init: SessionInit) {
     `${name}.progress`,
   )
 
-  // One model per changed file. A plain array: the file set is fixed for the
-  // session, so there is nothing mutable here to atomize.
   const files: readonly ReviewFile[] = init.diff.files.map(file => reatomReviewFile(file, {
     name,
     cursor,
@@ -160,32 +180,17 @@ export function reatomSession(init: SessionInit) {
   const fileByPath = new Map(files.map(entry => [entry.path, entry]))
 
   const activeFile = computed((): ReviewFile | null => {
-    // Before the first Tab there is no current step, but there is still a
-    // document to show: the first step's file with nothing revealed, which is
-    // the base text. It is also where Shift+Tab off step 0 has to land.
     const step = currentStep() ?? nextStep()
     return step === null ? null : fileByPath.get(step.path) ?? null
   }, `${name}.activeFile`)
 
-  const next = action(() => {
-    if (!canAdvance())
-      return false
-    cursor.set(index => index + 1)
-    return true
-  }, `${name}.next`)
-
-  const prev = action(() => {
-    if (!canRetreat())
-      return false
-    cursor.set(index => index - 1)
-    return true
-  }, `${name}.prev`)
-
   const jumpTo = action((index: number) => {
+    if (mode === 'apply')
+      return
     cursor.set(Math.min(Math.max(index, -1), steps.length - 1))
   }, `${name}.jumpTo`)
 
-  return {
+  const base = {
     id: init.id,
     repoRoot: init.repoRoot,
     entry: init.entry,
@@ -194,9 +199,11 @@ export function reatomSession(init: SessionInit) {
     handle: init.handle,
     diff: init.diff,
     guide: init.guide,
+    mode,
     files,
     fileByPath,
     cursor,
+    appliedIndex,
     currentStep,
     nextStep,
     canAdvance,
@@ -204,10 +211,169 @@ export function reatomSession(init: SessionInit) {
     isComplete,
     progress,
     activeFile,
-    next,
-    prev,
     jumpTo,
   }
+
+  if (mode !== 'apply') {
+    const next = action((): boolean => {
+      if (!canAdvance())
+        return false
+      cursor.set(index => index + 1)
+      return true
+    }, `${name}.next`)
+
+    const prev = action((): boolean => {
+      if (!canRetreat())
+        return false
+      cursor.set(index => index - 1)
+      return true
+    }, `${name}.prev`)
+
+    const applyPending = computed((): boolean => false, `${name}.applyPending`)
+
+    return { ...base, applyPending, next, prev }
+  }
+
+  const next = action(async (): Promise<boolean> => {
+    if (!canAdvance())
+      return false
+
+    const k = cursor() + 1
+    const step = steps[k]
+    if (step === undefined)
+      return false
+
+    const ui = runtime.ports().ui
+    if (!runtime.beginApply())
+      return false
+
+    try {
+      const saved = await wrap(ui.saveDocuments(init.repoRoot, [step.path]))
+      if (!saved.ok) {
+        runtime.endApply('active')
+        await wrap(ui.notify('warn', `Save ${saved.path} before applying the next step.`))
+        return false
+      }
+      const outcome = await wrap(applyGuideStep({
+        repoRoot: init.repoRoot,
+        baseRev: init.baseRev,
+        stepIndex: k,
+        direction: 'forward',
+        steps,
+        files: init.diff.files,
+        store: runtime.ports().store,
+        token: init.handle.token,
+      }))
+
+      init.handle.token = outcome.token
+
+      if (outcome.kind === 'applied') {
+        cursor.set(k)
+        appliedIndex.set(k)
+        runtime.endApply('active')
+        if (outcome.stub)
+          await wrap(ui.notify('info', 'Skipped a stub step (no file write).'))
+        if (outcome.driftPaths.length > 0) {
+          await wrap(ui.notify(
+            'warn',
+            `Other files changed outside this step: ${outcome.driftPaths.slice(0, 3).join(', ')}${outcome.driftPaths.length > 3 ? '…' : ''}`,
+          ))
+        }
+        if (outcome.paths[0] !== undefined)
+          await wrap(ui.openWorkspaceFile(init.repoRoot, outcome.paths[0]))
+        return true
+      }
+
+      // Conflict/refuse stay `active` so Tab can retry after the user resolves
+      // markers (review 002 B3). `blocked` is reserved for restore failures.
+      runtime.endApply('active')
+      await wrap(ui.notify('warn', outcome.message))
+      if (outcome.kind === 'conflict')
+        await wrap(ui.openWorkspaceFile(init.repoRoot, outcome.path))
+      return false
+    }
+    catch (error) {
+      if (isAbort(error))
+        throw error
+      const message = error instanceof Error ? error.message : String(error)
+      await wrap(ui.notify('warn', `Apply failed: ${message}`))
+      return false
+    }
+    finally {
+      // Throws (e.g. index.lock) must not pin status at `applying` (B2).
+      runtime.endApply('blocked')
+    }
+  }, `${name}.next`).extend(withAsync({ status: true }), withAbort('first-in-win'))
+
+  const prev = action(async (): Promise<boolean> => {
+    if (!canRetreat())
+      return false
+
+    const k = appliedIndex()
+    if (k < 0)
+      return false
+
+    const step = steps[k]
+    if (step === undefined)
+      return false
+
+    const ui = runtime.ports().ui
+    if (!runtime.beginApply())
+      return false
+
+    try {
+      const saved = await wrap(ui.saveDocuments(init.repoRoot, [step.path]))
+      if (!saved.ok) {
+        runtime.endApply('active')
+        await wrap(ui.notify('warn', `Save ${saved.path} before reverting.`))
+        return false
+      }
+      const outcome = await wrap(applyGuideStep({
+        repoRoot: init.repoRoot,
+        baseRev: init.baseRev,
+        stepIndex: k,
+        direction: 'backward',
+        steps,
+        files: init.diff.files,
+        store: runtime.ports().store,
+        token: init.handle.token,
+      }))
+
+      init.handle.token = outcome.token
+
+      if (outcome.kind === 'applied') {
+        cursor.set(k - 1)
+        appliedIndex.set(k - 1)
+        runtime.endApply('active')
+        if (outcome.paths[0] !== undefined)
+          await wrap(ui.openWorkspaceFile(init.repoRoot, outcome.paths[0]))
+        return true
+      }
+
+      runtime.endApply('active')
+      await wrap(ui.notify('warn', outcome.message))
+      if (outcome.kind === 'conflict')
+        await wrap(ui.openWorkspaceFile(init.repoRoot, outcome.path))
+      return false
+    }
+    catch (error) {
+      if (isAbort(error))
+        throw error
+      const message = error instanceof Error ? error.message : String(error)
+      await wrap(ui.notify('warn', `Revert failed: ${message}`))
+      return false
+    }
+    finally {
+      runtime.endApply('blocked')
+    }
+  }, `${name}.prev`).extend(withAsync({ status: true }), withAbort('first-in-win'))
+
+  const applyPending = computed(
+    (): boolean => next.status().isPending || prev.status().isPending,
+    `${name}.applyPending`,
+  )
+
+  return { ...base, applyPending, next, prev }
 }
 
 export type Session = ReturnType<typeof reatomSession>
