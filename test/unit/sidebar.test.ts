@@ -60,6 +60,8 @@ describe('sidebar projection', () => {
       'tabthrough.pickRange',
       'tabthrough.setupBack',
     ])
+    expect(rows.find(row => row.id === 'working-tree')?.description).toContain('Uncommitted')
+    expect(rows.find(row => row.id === 'back')?.slot).toBe('nav')
   })
 
   it('lists commits with a ref input once history is loaded', () => {
@@ -79,8 +81,11 @@ describe('sidebar projection', () => {
       },
     }))
     expect(rows.find(row => row.id === 'commit-abc123def456')?.payload).toBe('abc123def456')
+    expect(rows.find(row => row.id === 'commit-abc123def456')?.description).toContain('abc123d')
     expect(rows.find(row => row.id === 'commit-ref')?.input?.placeholder).toBe('HEAD~1')
+    expect(rows.find(row => row.id === 'commit-ref')?.input?.submit).toBe('Go')
     expect(rows.find(row => row.id === 'commit-ref')?.enabled).toBe(true)
+    expect(rows.find(row => row.id === 'back')?.slot).toBe('nav')
   })
 
   it('surfaces a commit picker error and keeps Back', () => {
@@ -97,6 +102,8 @@ describe('sidebar projection', () => {
     }))
     expect(rows.find(row => row.id === 'pick-range')?.description).toContain('main..HEAD')
     expect(rows.find(row => row.id === 'range-input')?.input?.placeholder).toBe('main..HEAD')
+    expect(rows.find(row => row.id === 'range-input')?.input?.submit).toBe('Use')
+    expect(rows.find(row => row.id === 'back')?.slot).toBe('nav')
   })
 
   it('shows Start when a guide is focused at home', () => {
@@ -164,7 +171,11 @@ describe('sidebar projection', () => {
     expect(byId.get('summary')?.description).toContain('state model')
     expect(byId.get('rationale')?.description).toContain('contract')
     expect(byId.get('notes')?.description).toContain('remain visible')
+    expect(byId.get('previous')?.slot).toBe('nav')
+    expect(byId.get('previous')?.enabled).toBe(false)
     expect(byId.get('next')?.command).toBe('tabthrough.next')
+    expect(byId.get('next')?.slot).toBe('nav')
+    expect(byId.get('finish')?.slot).toBeUndefined()
     expect(byId.get('cancel')?.command).toBe('tabthrough.cancel')
   })
 
@@ -191,7 +202,7 @@ describe('sidebar projection', () => {
     const notes = 'A detailed explanation. '.repeat(70)
     const rows = sidebarItems(view({ status: 'active', mode: 'readonly', complete: true, currentStep: step({ notes }) }))
     expect(rows.find(row => row.id === 'notes')?.description).toBe(notes)
-    expect(rows.findIndex(row => row.id === 'notes')).toBeLessThan(rows.findIndex(row => row.id === 'finish'))
+    expect(rows.find(row => row.id === 'finish')?.slot).toBe('nav')
     expect(rows.some(row => row.id === 'next')).toBe(false)
   })
 

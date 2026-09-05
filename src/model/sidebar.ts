@@ -20,10 +20,11 @@ export interface SidebarItemData {
   readonly tooltip?: string
   readonly command?: string
   readonly payload?: string
-  readonly input?: { readonly placeholder: string }
+  readonly input?: { readonly placeholder: string, readonly submit?: string }
   readonly icon?: string
   readonly contextValue?: string
   readonly enabled?: boolean
+  readonly slot?: 'nav'
 }
 
 export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[] {
@@ -120,11 +121,45 @@ export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[]
   }
 
   if (!view.applyPending && view.status === 'active') {
-    if (view.canRetreat)
-      add({ id: 'previous', label: 'Previous step', command: Commands.previous, icon: 'arrow-left', contextValue: 'action', enabled: true })
-    if (view.canAdvance)
-      add({ id: 'next', label: 'Next step', command: Commands.next, icon: 'arrow-right', contextValue: 'action', enabled: true })
-    add({ id: 'finish', label: view.mode === 'apply' ? 'Finish and keep changes' : 'Finish and restore workspace', command: Commands.finish, icon: 'check', contextValue: 'action', enabled: true })
+    add({
+      id: 'previous',
+      label: 'Previous',
+      command: Commands.previous,
+      icon: 'arrow-left',
+      contextValue: 'action',
+      enabled: view.canRetreat,
+      slot: 'nav',
+    })
+    if (view.complete) {
+      add({
+        id: 'finish',
+        label: 'Finish',
+        command: Commands.finish,
+        icon: 'check',
+        contextValue: 'action',
+        enabled: true,
+        slot: 'nav',
+      })
+    }
+    else {
+      add({
+        id: 'next',
+        label: 'Next',
+        command: Commands.next,
+        icon: 'arrow-right',
+        contextValue: 'action',
+        enabled: view.canAdvance,
+        slot: 'nav',
+      })
+      add({
+        id: 'finish',
+        label: view.mode === 'apply' ? 'Finish and keep changes' : 'Finish and restore workspace',
+        command: Commands.finish,
+        icon: 'check',
+        contextValue: 'action',
+        enabled: true,
+      })
+    }
     add({ id: 'current-file', label: 'Go to current change', command: Commands.showStepDetail, contextValue: 'action', enabled: current !== null })
   }
   add({ id: 'cancel', label: 'Cancel and restore workspace', command: Commands.cancel, icon: 'close', contextValue: 'action', enabled: true })
@@ -136,10 +171,34 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
 
   if (phase.kind === 'targets') {
     add({ id: 'pick-target', label: 'What should we walk through?', description: 'Pick a target, then Simple or Agent writes the guide.' })
-    add({ id: 'working-tree', label: 'Working changes', command: Commands.pickWorkingTree, icon: 'diff', contextValue: 'action', enabled: view.canStart })
-    add({ id: 'commit', label: 'A commit', command: Commands.pickCommit, icon: 'git-commit', contextValue: 'action', enabled: view.canStart })
-    add({ id: 'range', label: 'A commit range', command: Commands.pickRange, icon: 'git-compare', contextValue: 'action', enabled: view.canStart })
-    add({ id: 'back', label: 'Back', command: Commands.setupBack, icon: 'arrow-left', contextValue: 'action' })
+    add({
+      id: 'working-tree',
+      label: 'Working changes',
+      description: 'Uncommitted files in this workspace',
+      command: Commands.pickWorkingTree,
+      icon: 'diff',
+      contextValue: 'action',
+      enabled: view.canStart,
+    })
+    add({
+      id: 'commit',
+      label: 'A commit',
+      description: 'One commit against its first parent',
+      command: Commands.pickCommit,
+      icon: 'git-commit',
+      contextValue: 'action',
+      enabled: view.canStart,
+    })
+    add({
+      id: 'range',
+      label: 'A commit range',
+      description: 'Compare two revisions',
+      command: Commands.pickRange,
+      icon: 'git-compare',
+      contextValue: 'action',
+      enabled: view.canStart,
+    })
+    add(navBack())
     return
   }
 
@@ -169,12 +228,12 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
         id: 'commit-ref',
         label: 'Enter a commit, tag, or ref',
         command: Commands.selectCommit,
-        input: { placeholder: 'HEAD~1' },
+        input: { placeholder: 'HEAD~1', submit: 'Go' },
         contextValue: 'input',
         enabled: view.canStart,
       })
     }
-    add({ id: 'back', label: 'Back', command: Commands.setupBack, icon: 'arrow-left', contextValue: 'action' })
+    add(navBack())
     return
   }
 
@@ -182,13 +241,13 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
     add({ id: 'pick-range', label: 'Commit range', description: phase.error ?? 'A..B reviews B against merge-base(A, B)' })
     add({
       id: 'range-input',
-      label: 'Use range',
+      label: 'Range',
       command: Commands.submitRange,
-      input: { placeholder: 'main..HEAD' },
+      input: { placeholder: 'main..HEAD', submit: 'Use' },
       contextValue: 'input',
       enabled: view.canStart,
     })
-    add({ id: 'back', label: 'Back', command: Commands.setupBack, icon: 'arrow-left', contextValue: 'action' })
+    add(navBack())
     return
   }
 
@@ -233,7 +292,7 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
         description: `Start uses ${view.guideFileName} for this pick.`,
       })
     }
-    add({ id: 'back', label: 'Back', command: Commands.setupBack, icon: 'arrow-left', contextValue: 'action' })
+    add(navBack())
     return
   }
 
@@ -264,5 +323,16 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
       icon: 'desktop-download',
       contextValue: 'action',
     })
+  }
+}
+
+function navBack(): SidebarItemData {
+  return {
+    id: 'back',
+    label: '← Back',
+    command: Commands.setupBack,
+    icon: 'arrow-left',
+    contextValue: 'action',
+    slot: 'nav',
   }
 }
