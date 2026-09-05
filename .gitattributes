@@ -2,3 +2,4 @@
 test/fixtures/** text eol=lf
 *.diff text eol=lf
 schema/** text eol=lf
+*.vsix filter=lfs diff=lfs merge=lfs -text
