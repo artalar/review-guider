@@ -75,7 +75,7 @@ If a repository (or the agent that wrote the change) ships a `.guide.json`, its 
 
 ```json
 {
-  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
+  "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
   "version": 1,
   "steps": [
     { "id": "types", "path": "src/types.ts", "rationale": "Types before callers" },

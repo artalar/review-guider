@@ -11,7 +11,7 @@ Write one whenever you hand a non-trivial change to a human. Skip it for a one-f
 
 ## Contract
 
-- **Schema:** `$schema` is `https://tabthrough.dev/schema/guide-v1.json` (the file is `schema/guide-v1.json` in the Tabthrough repository; the raw GitHub URL resolves today). `additionalProperties: false` — only the fields in the cheatsheet exist.
+- **Schema:** `$schema` is `https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json`. `additionalProperties: false` — only the fields in the cheatsheet exist.
 - **Location:** `.tabthrough-guide.json` at repo root (or `tabthrough.guideFile`). Legacy `.guide.json` is still read.
 - **Guarantee:** a broken guide never breaks a session — heuristic fallback + one warning. Nobody else will catch your merges or misplaced anchors; check them yourself.
 
@@ -108,7 +108,7 @@ Bug fix: retries treated 4xx as transient. The test leads (the heuristic would s
 
 ```json
 {
-  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
+  "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
   "version": 1,
   "scope": { "kind": "commit", "base": "9f2c1ab", "head": "4d81e30" },
   "summary": "Retries stop treating 4xx as transient. The failing case first, then the rule, then the client loop that adopts it. Lockfile churn is skipped.",

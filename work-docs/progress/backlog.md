@@ -155,7 +155,7 @@ Direction: [ADR 0005](../decisions/0005-git-first-sessions.md) (Accepted 2026-09
 
 | ID | Item | Notes |
 |----|------|-------|
-| P1-1 | **`.guide.json` schema v1 + docs** — portable contract for agents | Described in [architecture/guide-schema.md](../architecture/guide-schema.md) and published as [`schema/guide-v1.json`](../../schema/guide-v1.json), which the reader is now diffed against on every run. **Remaining:** serve it at its `$id`, `https://tabthrough.dev/schema/guide-v1.json` — a DNS and hosting task, not a code one. The raw GitHub URL resolves in the meantime |
+| P1-1 | **`.guide.json` schema v1 + docs** — portable contract for agents | Described in [architecture/guide-schema.md](../architecture/guide-schema.md) and published as [`schema/guide-v1.json`](../../schema/guide-v1.json), which the reader is now diffed against on every run. `$id` / `$schema` is the resolvable raw GitHub URL |
 | P1-2 | **Agent skill / prompt** — emit guide sidecar when producing PRs | Draft landed. **Pass criteria upgraded:** P0-G3 (granularity), not merely “a guide exists” |
 | P1-3 | **Stale guide merge** — partial sidecar + heuristic fill + one warning | Per-file interleaving of the heuristic remainder, which MVP appends wholesale; `scope.diffDigest` detection already exists |
 | P1-4 | **LLM guide generator (BYOK)** — opt-in per session; provider config | Product brief: [guides/llm-guide-generation.md](../guides/llm-guide-generation.md). Off by default, per-session consent, key in `SecretStorage`, output is `.guide.json` v1 through the same validator and merge — no second format. Sequenced **after** P1-1/P1-2 (PO note below) |

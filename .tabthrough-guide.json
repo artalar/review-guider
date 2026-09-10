@@ -1,136 +1,54 @@
 {
-  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
+  "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
   "version": 1,
-  "scope": { "kind": "workingTree" },
-  "summary": "The skill is rewritten around what the reviewer actually sees: title as headline, rationale as the link, notes as plain text, summary always on screen. Anchors come from git diff -U0 hunk headers. The Agent prompt, the /tabthrough command, and the work-docs restate the same contract. Two small fixes at the end make typecheck and lint pass again.",
+  "scope": { "kind": "workingTree", "base": "HEAD" },
+  "summary": "$schema now points at the raw GitHub schema so editors and agents fetch a real file instead of tabthrough.dev. One URL, stamped by serialize, declared as $id, taught by the skill. Copies and fixtures follow.",
   "files": {
     ".cursor/skills/tabthrough/SKILL.md": { "significance": "skip", "rationale": "Byte-for-byte copy of res/skill/tabthrough/SKILL.md" },
     ".agents/skills/tabthrough/SKILL.md": { "significance": "skip", "rationale": "Byte-for-byte copy of res/skill/tabthrough/SKILL.md" },
-    "tabthrough-0.0.0.vsix": { "significance": "skip", "rationale": "Rebuilt package" },
+    ".guide.json": { "significance": "skip", "rationale": "Legacy sidecar $schema only" },
+    "README.md": { "significance": "skip", "rationale": "Example $schema follows the same URL" },
+    "test/fixtures/guides/helper-consumer-merged.guide.json": { "significance": "skip", "rationale": "Fixture $schema follows the same URL" },
+    "test/fixtures/guides/helper-consumer.dogfood.guide.json": { "significance": "skip", "rationale": "Fixture $schema follows the same URL" },
+    "test/fixtures/guides/helper-consumer.guide.json": { "significance": "skip", "rationale": "Fixture $schema follows the same URL" },
+    "test/fixtures/guides/valid.guide.json": { "significance": "skip", "rationale": "Fixture $schema follows the same URL" },
+    "test/unit/published-schema.test.ts": { "significance": "skip", "rationale": "Assertion updated to the same URL" },
+    "work-docs/architecture/guide-schema.md": { "significance": "skip", "rationale": "Docs drop the unhosted tabthrough.dev $id" },
+    "work-docs/decisions/0003-rename-tabthrough.md": { "significance": "skip", "rationale": "ADR no longer plans a tabthrough.dev redirect" },
+    "work-docs/progress/backlog.md": { "significance": "skip", "rationale": "P1-1 hosting leftover removed" },
+    "work-docs/progress/iteration-log.md": { "significance": "skip", "rationale": "Historical note aligned to the resolvable URL" },
     ".tabthrough-guide.json": { "significance": "skip", "rationale": "The sidecar this walk is written into" }
   },
   "steps": [
     {
-      "id": "words",
+      "id": "stamp",
       "order": 10,
-      "path": "res/skill/tabthrough/SKILL.md",
-      "ranges": [{ "start": 14, "end": 62 }],
+      "path": "src/guide/serialize.ts",
+      "ranges": [{ "start": 4, "end": 4 }],
       "significance": "critical",
-      "title": "Writing for what the reviewer sees",
-      "rationale": "The premise of the rewrite and the four fields it dictates — everything below follows from this block",
-      "notes": "The sketch is checked against src/model/sidebar.ts and src/model/view.ts: title falls back to the path, notes are always shown as plain text, summary sits on every step. The old skill called notes markdown and on demand; the sidebar does neither.\n\nBelow the sketch, the two tables answer how to write the comments: title names the thought, rationale links it, notes carry only the why that is not in the code, and word count follows significance so normal and low steps stay fast."
+      "title": "Emitted guides stamp the raw URL",
+      "rationale": "This is the $schema agents and editors try to fetch",
+      "notes": "tabthrough.dev was never hosted. The raw GitHub path is the file that actually exists."
     },
     {
-      "id": "anchors",
+      "id": "schema-id",
       "order": 20,
-      "path": "res/skill/tabthrough/SKILL.md",
-      "ranges": [{ "start": 74, "end": 87 }],
+      "path": "schema/guide-v1.json",
+      "ranges": [{ "start": 3, "end": 3 }],
       "significance": "high",
-      "title": "Line numbers from -U0 hunk headers",
-      "rationale": "The recipe that stops ranges landing on the wrong lines, and the one limit ranges cannot cross",
-      "notes": "@@ -a,b +c,d @@ gives new-side lines c..c+d-1 directly; d = 0 marks a deletion that needs side old.\n\nA contiguous run of changed lines is atomic and a one-line gap still joins two runs, so the guide must not aim two steps at one run — this very walk hit that on the block above."
+      "title": "$id is that same URL",
+      "rationale": "The document the fetch should return identifies itself with the fetch URL",
+      "dependsOn": ["stamp"]
     },
     {
-      "id": "speed",
+      "id": "skill",
       "order": 30,
       "path": "res/skill/tabthrough/SKILL.md",
-      "ranges": [{ "start": 99, "end": 107 }],
-      "significance": "normal",
-      "title": "One screen per step, few file switches",
-      "rationale": "The pacing rules that follow from the surface sketch",
-      "dependsOn": ["words"]
-    },
-    {
-      "id": "example",
-      "order": 40,
-      "path": "res/skill/tabthrough/SKILL.md",
-      "ranges": [{ "start": 113, "end": 161 }],
-      "significance": "normal",
-      "title": "Worked example with titles as a table of contents",
-      "rationale": "The words contract shown once in full before the cheatsheet",
-      "dependsOn": ["words"]
-    },
-    {
-      "id": "skill-rest",
-      "order": 60,
-      "path": "res/skill/tabthrough/SKILL.md",
-      "significance": "low",
-      "title": "Cheatsheet, Never, and gates catch up",
-      "rationale": "The checklist restated for title, plain-text notes, and the mechanical anchor check"
-    },
-    {
-      "id": "prompt-anchors",
-      "order": 70,
-      "path": "src/model/setup.ts",
-      "ranges": [{ "start": 253, "end": 264 }],
+      "ranges": [{ "start": 14, "end": 14 }],
       "significance": "high",
-      "title": "Agent prompt ships the -U0 command",
-      "rationale": "The sidebar prompt hands over the same anchor recipe the skill teaches",
-      "dependsOn": ["anchors"]
-    },
-    {
-      "id": "prompt-words",
-      "order": 80,
-      "path": "src/model/setup.ts",
-      "ranges": [{ "start": 293, "end": 296 }],
-      "significance": "high",
-      "title": "Agent prompt states the words contract",
-      "rationale": "Title, rationale, notes, summary, and demotion in the bullets the agent reads first",
-      "dependsOn": ["words"]
-    },
-    {
-      "id": "command-body",
-      "order": 90,
-      "path": "src/model/setup.ts",
-      "ranges": [{ "start": 60, "end": 60 }],
-      "significance": "normal",
-      "title": "/tabthrough command says the same",
-      "rationale": "Third surface of the contract, for chats started without the sidebar",
-      "dependsOn": ["prompt-words"]
-    },
-    {
-      "id": "prompt-test",
-      "order": 100,
-      "path": "test/unit/serialize.test.ts",
-      "significance": "low",
-      "title": "Prompt test pins the new phrases",
-      "rationale": "Locks the -U0 command and the words bullets into the range prompt"
-    },
-    {
-      "id": "docs-authoring",
-      "order": 110,
-      "path": "work-docs/guides/agent-guide-authoring.md",
-      "significance": "low",
-      "title": "Authoring guide learns title and plain-text notes",
-      "rationale": "The long-form pedagogy now agrees with the skill on how notes and summary are shown",
-      "dependsOn": ["words"]
-    },
-    {
-      "id": "docs-schema",
-      "order": 120,
-      "path": "work-docs/architecture/guide-schema.md",
-      "significance": "low",
-      "title": "Schema prose matches the sidebar",
-      "rationale": "summary on every step, notes plain text and always shown — the facts the skill sketch relies on",
-      "dependsOn": ["words"]
-    },
-    {
-      "id": "fix-self-reference",
-      "order": 130,
-      "path": "src/model/setup.ts",
-      "ranges": [{ "start": 73, "end": 73 }],
-      "significance": "normal",
-      "title": "recentCommits gets an explicit return type",
-      "rationale": "Unrelated to the prompt: the computed peeks at itself, and only an annotation breaks the inference cycle"
-    },
-    {
-      "id": "fix-settle",
-      "order": 140,
-      "path": "src/model/setup.ts",
-      "ranges": [{ "start": 444, "end": 445 }],
-      "significance": "normal",
-      "title": "Non-abort history failures reach the guard",
-      "rationale": "The useless return became a rethrow, so a failed git log is logged as before and aborts stay silent"
+      "title": "The skill tells agents this URL",
+      "rationale": "Installed into other repos — this is what made the agent load tabthrough.dev",
+      "dependsOn": ["schema-id"]
     }
   ]
 }

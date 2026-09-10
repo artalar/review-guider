@@ -128,11 +128,10 @@ Purely informational. The reader must never branch on it.
 
 | Where | Value |
 |-------|-------|
-| Canonical `$id` | `https://tabthrough.dev/schema/guide-v1.json` |
-| Resolvable today | `https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json` |
+| Canonical `$id` | `https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json` |
 | In this repo | `schema/guide-v1.json` |
 
-The `$id` is frozen with the version and does not change when the hosting does. Until the domain serves it, an author who wants editor completion should point `$schema` at the raw URL or at a repo-relative path; the reader ignores the field either way (§3.1), so nothing about a session depends on which one is used.
+The `$id` is the URL editors and agents fetch. The reader ignores `$schema` (§3.1), so a session never depends on the fetch succeeding.
 
 Two properties are enforced by `test/unit/published-schema.test.ts` rather than by review:
 
@@ -291,7 +290,7 @@ A change that adds a `Guide` type, a builder that produces it, a caller, and a t
 
 ```json
 {
-  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
+  "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
   "version": 1,
   "createdAt": "2026-08-07T09:12:44Z",
   "generator": { "name": "cursor-agent", "version": "2.4.0", "model": "claude-sonnet-4.6" },

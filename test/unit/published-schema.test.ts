@@ -85,7 +85,7 @@ function accepts(input: unknown): boolean {
 
 describe('the published schema is where it says it is', () => {
   it('carries the frozen $id and declares draft 2020-12', () => {
-    expect(schema.$id).toBe('https://tabthrough.dev/schema/guide-v1.json')
+    expect(schema.$id).toBe('https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json')
     expect(schema.$schema).toBe('https://json-schema.org/draft/2020-12/schema')
   })
 

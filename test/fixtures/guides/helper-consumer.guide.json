@@ -1,5 +1,5 @@
 {
-  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
+  "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
   "version": 1,
   "scope": { "kind": "commit", "base": "1111111", "head": "2222222" },
   "summary": "Extract a shared action-name helper, then adopt it in jsxEvent. Two thoughts — do not read them as one flash.",

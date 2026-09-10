@@ -1,7 +1,7 @@
 import type { GuideDoc, GuideRangeDoc, GuideScopeDoc, GuideStepDoc } from './schema'
 import type { Guide, GuideStep, LineGroup } from './types'
 
-const SCHEMA_URL = 'https://tabthrough.dev/schema/guide-v1.json'
+const SCHEMA_URL = 'https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json'
 
 export interface SerializeGuideArgs {
   readonly guide: Guide

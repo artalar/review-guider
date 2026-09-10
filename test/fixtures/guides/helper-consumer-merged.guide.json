@@ -1,5 +1,5 @@
 {
-  "$schema": "https://tabthrough.dev/schema/guide-v1.json",
+  "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
   "version": 1,
   "scope": { "kind": "commit", "base": "1111111", "head": "2222222" },
   "summary": "ANTI-PATTERN fixture for P0-G2 — schema-valid but pedagogically wrong: one panel for two thoughts.",

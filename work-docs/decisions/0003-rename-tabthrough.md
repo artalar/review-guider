@@ -22,7 +22,7 @@ Adopt **Tabthrough** as the public brand before Marketplace publication:
 | Commands / settings / context keys | `tabthrough.*` |
 | Virtual document scheme | `tabthrough` |
 | Git ref namespace | `refs/tabthrough/**` |
-| Schema `$id` | `https://tabthrough.dev/schema/guide-v1.json` |
+| Schema `$id` | `https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json` |
 | Proposed GitHub repository | **`tabthrough`** (owner renames when ready; links already point there) |
 | Format name | **`.guide.json` unchanged** (frozen v1 contract) |
 
@@ -36,7 +36,7 @@ Categories: **Visualization**, **Other** (drop SCM Providers).
 
 - Pre-publication rename; no installed-base aliases required.
 - GitHub repo rename is a separate owner action; first-party URLs already use `https://github.com/artalar/tabthrough`.
-- Schema hosting at `tabthrough.dev` may need a redirect from any interim raw GitHub URL.
+- Schema `$id` is the resolvable raw GitHub URL; `tabthrough.dev` is not required for editor or agent fetches.
 - Historical docs/reviews may still mention the old name as prior identity.
 
 ## Related

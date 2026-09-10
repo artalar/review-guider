@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://tabthrough.dev/schema/guide-v1.json",
+  "$id": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
   "title": "Tabthrough guide document, version 1",
   "type": "object",
   "required": ["version", "steps"],
