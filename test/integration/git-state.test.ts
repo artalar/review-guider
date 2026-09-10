@@ -169,6 +169,16 @@ describe('readGitState', () => {
     expect((await readGitState(repo.root)).autostashes).toEqual([])
   })
 
+  it('ignores an autostash that is not the latest stash', async () => {
+    const repo = await makeTempRepo({ files: { 'wip.txt': 'clean\n', 'other.txt': 'clean\n' } })
+    await repo.write('wip.txt', 'older\n')
+    await repo.git('stash', 'push', '-m', 'autostash', '--', 'wip.txt')
+    await repo.write('other.txt', 'newer\n')
+    await repo.git('stash', 'push', '-m', 'wip', '--', 'other.txt')
+
+    expect((await readGitState(repo.root)).autostashes).toEqual([])
+  })
+
   it('reports a detached HEAD', async () => {
     const repo = await makeTempRepo()
     await repo.git('checkout', '-q', '--detach', 'HEAD')

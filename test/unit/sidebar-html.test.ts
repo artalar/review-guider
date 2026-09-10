@@ -1,4 +1,6 @@
+import type { CommitSummary } from '../../src/git/log'
 import type { GitState } from '../../src/git/state'
+import type { RangeSetupPhase } from '../../src/model/setup'
 import type { SidebarViewModel } from '../../src/model/view'
 import { describe, expect, it } from 'vitest'
 import { htmlAttr, htmlText, renderSidebarBody } from '../../src/ui/sidebar-html'
@@ -17,6 +19,28 @@ function gitState(overrides: Partial<GitState> = {}): GitState {
     autostashes: [],
     worktrees: [],
     snapshotRefCount: 0,
+    ...overrides,
+  }
+}
+
+function commitSummary(overrides: Partial<CommitSummary> & Pick<CommitSummary, 'sha' | 'subject'>): CommitSummary {
+  return {
+    shortSha: overrides.sha.slice(0, 7),
+    author: 'Ada',
+    relativeDate: '2 hours ago',
+    parentCount: 1,
+    ...overrides,
+  }
+}
+
+function rangeSetup(overrides: Partial<Omit<RangeSetupPhase, 'kind'>> = {}): RangeSetupPhase {
+  return {
+    kind: 'range',
+    commits: [],
+    loading: false,
+    error: null,
+    from: null,
+    to: null,
     ...overrides,
   }
 }
@@ -64,7 +88,7 @@ describe('sidebar text boundary', () => {
   })
 
   it('renders the range form with a data-command host can post', () => {
-    const html = renderSidebarBody(view({ setup: { kind: 'range', error: null } }))
+    const html = renderSidebarBody(view({ setup: rangeSetup() }))
     expect(html).toContain('data-command="tabthrough.submitRange"')
     expect(html).toContain('placeholder="main..HEAD"')
     expect(html).toContain('<form')
@@ -73,20 +97,44 @@ describe('sidebar text boundary', () => {
     expect(html).toContain('data-command="tabthrough.setupBack"')
   })
 
+  it('highlights the selected range ends and the commits between them', () => {
+    const newer = commitSummary({ sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', shortSha: 'aaaaaaa', subject: 'Tip' })
+    const middle = commitSummary({ sha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', shortSha: 'bbbbbbb', subject: 'Middle' })
+    const older = commitSummary({ sha: 'cccccccccccccccccccccccccccccccccccccccc', shortSha: 'ccccccc', subject: 'Base' })
+    const html = renderSidebarBody(view({
+      setup: rangeSetup({
+        commits: [newer, middle, older],
+        from: older.sha,
+        to: newer.sha,
+      }),
+    }))
+    expect(html).toContain('list-pick')
+    expect(html).toContain('range-start')
+    expect(html).toContain('range-end')
+    expect(html).toContain('range-between')
+    expect(html).toContain('aria-label="Start"')
+    expect(html).toContain('aria-label="End"')
+    expect(html).toContain('<svg')
+    expect(html).toContain('data-payload="cccccccccccccccccccccccccccccccccccccccc..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"')
+  })
+
+  it('places leftover autostash copy after the Review button', () => {
+    const html = renderSidebarBody(view({
+      gitState: gitState({
+        autostashes: [{ selector: 'stash@{0}', subject: 'On main: autostash' }],
+      }),
+    }))
+    expect(html.indexOf('data-command="tabthrough.review"')).toBeGreaterThan(-1)
+    expect(html.indexOf('data-command="tabthrough.review"')).toBeLessThan(html.indexOf('A rebase left your changes'))
+  })
+
   it('puts commit metadata on the choice button and Back in chrome', () => {
     const html = renderSidebarBody(view({
       setup: {
         kind: 'commits',
         loading: false,
         error: null,
-        commits: [{
-          sha: 'abc123def456',
-          shortSha: 'abc123d',
-          subject: 'Add types',
-          author: 'Ada',
-          relativeDate: '2 hours ago',
-          parentCount: 1,
-        }],
+        commits: [commitSummary({ sha: 'abc123def456', shortSha: 'abc123d', subject: 'Add types' })],
       },
     }))
     expect(html.indexOf('<header class="chrome">')).toBe(0)

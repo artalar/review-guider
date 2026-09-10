@@ -2,132 +2,111 @@
   "$schema": "https://tabthrough.dev/schema/guide-v1.json",
   "version": 1,
   "scope": { "kind": "workingTree" },
-  "summary": "Phase 12 deletes isolation and lands snapshot read-only plus a git-state sidebar. Read the new contract first, then the snapshot, then the session machine, then the UI that shows git's own state.",
+  "summary": "Leftover autostash drops under the Review actions. The range flow now loads the same commit list as the single-commit picker; two clicks become start and end, highlighted in the sidebar.",
   "files": {
-    "README.md": { "significance": "skip", "rationale": "Shipped-behaviour copy, not the protocol" },
-    "work-docs/architecture/overview.md": { "significance": "skip", "rationale": "Docs follow the code" },
-    "work-docs/architecture/reatom-model.md": { "significance": "skip", "rationale": "Docs follow the code" },
-    "work-docs/decisions/0005-git-first-sessions.md": { "significance": "skip", "rationale": "Already accepted; this slice implements it" },
-    "work-docs/process/README.md": { "significance": "skip", "rationale": "Process pointer" },
-    "work-docs/progress/backlog.md": { "significance": "skip", "rationale": "Status tick" },
-    "work-docs/progress/iteration-log.md": { "significance": "skip", "rationale": "Log entry" },
-    "work-docs/progress/plan.md": { "significance": "skip", "rationale": "Plan checkboxes" },
-    "work-docs/progress/test-matrix.md": { "significance": "skip", "rationale": "Matrix status" },
-    "work-docs/specs/product.md": { "significance": "skip", "rationale": "Spec already shifted with the ADR" },
-    "scripts/create-demo.mjs": { "significance": "skip", "rationale": "Demo notes only" },
-    "tabthrough-0.0.0.vsix": { "significance": "skip", "rationale": "Packaged binary of this same change" },
-    "src/git/apply.ts": { "significance": "skip", "rationale": "Isolation file the isolate step replaces" },
-    "src/git/journal.ts": { "significance": "skip", "rationale": "Isolation file the isolate step replaces" },
-    "src/git/stash.ts": { "significance": "skip", "rationale": "Isolation file the isolate step replaces" },
-    "src/ui/global-state-store.ts": { "significance": "skip", "rationale": "Journal store deleted with the protocol" },
-    "src/ui/recovery-prompt.ts": { "significance": "skip", "rationale": "Recovery copy deleted with the protocol" },
-    "test/helpers/protocol.ts": { "significance": "skip", "rationale": "Crash-matrix helper for the deleted protocol" },
-    "test/integration/apply-commit.test.ts": { "significance": "skip", "rationale": "Deleted with apply mode" },
-    "test/integration/crash-matrix.test.ts": { "significance": "skip", "rationale": "Deleted with isolation" },
-    "test/integration/launch-safety.test.ts": { "significance": "skip", "rationale": "Deleted with isolation" },
-    "test/integration/stash-roundtrip.test.ts": { "significance": "skip", "rationale": "Deleted with stash" },
-    "test/unit/apply-step.test.ts": { "significance": "skip", "rationale": "Deleted with apply mode" },
-    "test/unit/global-state-store.test.ts": { "significance": "skip", "rationale": "Deleted with the journal store" },
-    "test/unit/journal.test.ts": { "significance": "skip", "rationale": "Deleted with the journal" }
+    "src/commands/index.ts": { "significance": "skip", "rationale": "Await on pickRange after it became async" },
+    "test/unit/sidebar.test.ts": { "significance": "low", "rationale": "Projection cases for accents and autostash order" },
+    "test/unit/sidebar-html.test.ts": { "significance": "low", "rationale": "HTML classes for Start / End / between" },
+    "test/unit/setup.test.ts": { "significance": "low", "rationale": "Two-click order on a real repo" },
+    "test/integration/git-state.test.ts": { "significance": "low", "rationale": "Latest-stash-only autostash detection" }
   },
   "steps": [
     {
-      "id": "mode-contract",
+      "id": "autostash-below",
       "order": 10,
-      "path": "src/git/types.ts",
-      "significance": "critical",
-      "title": "Modes are git primitives",
-      "rationale": "The session contract before any start path"
+      "path": "src/model/sidebar.ts",
+      "ranges": [{ "side": "new", "start": 44, "end": 47 }],
+      "significance": "high",
+      "title": "Autostash after the actions",
+      "rationale": "The leftover-stash notice is no longer in the top banner"
     },
     {
-      "id": "slim-ports",
+      "id": "autostash-helper",
       "order": 20,
-      "path": "src/model/ports.ts",
-      "significance": "high",
-      "title": "No store, no clock.now",
-      "rationale": "What the model is allowed to ask the editor for",
-      "dependsOn": ["mode-contract"]
+      "path": "src/model/sidebar.ts",
+      "ranges": [{ "side": "new", "start": 223, "end": 236 }],
+      "significance": "normal",
+      "title": "Same Pop / Show rows",
+      "rationale": "What that moved call actually appends",
+      "dependsOn": ["autostash-below"]
     },
     {
-      "id": "snapshot-start",
-      "order": 30,
-      "path": "src/git/isolate.ts",
-      "significance": "critical",
-      "title": "Snapshot, do not isolate",
-      "rationale": "The only write on a working-tree start",
-      "dependsOn": ["mode-contract"]
-    },
-    {
-      "id": "git-state",
-      "order": 40,
+      "id": "latest-stash-only",
+      "order": 25,
       "path": "src/git/state.ts",
+      "ranges": [{ "side": "new", "start": 186, "end": 199 }],
+      "significance": "high",
+      "title": "Only stash@{0} counts",
+      "rationale": "Older autostash-named entries are ignored so the notice is not sticky",
+      "dependsOn": ["autostash-helper"]
+    },
+    {
+      "id": "range-shape",
+      "order": 30,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "side": "new", "start": 28, "end": 42 }],
       "significance": "critical",
-      "title": "Display git, do not wrap it",
-      "rationale": "Rebase and leftover stash are git's, shown as-is",
-      "dependsOn": ["snapshot-start"]
+      "title": "Range phase has history plus bounds",
+      "rationale": "The contract the picker and the click rules both need"
     },
     {
-      "id": "edit-here",
+      "id": "click-rules",
+      "order": 40,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "side": "new", "start": 413, "end": 445 }],
+      "significance": "critical",
+      "title": "Two clicks, older is start",
+      "rationale": "How from/to get their values from the list",
+      "dependsOn": ["range-shape"]
+    },
+    {
+      "id": "load-and-select",
       "order": 50,
-      "path": "src/guide/edit-here.ts",
+      "path": "src/model/setup.ts",
+      "ranges": [
+        { "side": "new", "start": 135, "end": 157 },
+        { "side": "new", "start": 390, "end": 411 }
+      ],
       "significance": "high",
-      "title": "Project the step onto disk",
-      "rationale": "The one escape hatch after the virtual reveal",
-      "dependsOn": ["snapshot-start"]
+      "title": "Range loads history; clicks stay on the picker",
+      "rationale": "The actions that fill the list and apply those click rules",
+      "dependsOn": ["click-rules"]
     },
     {
-      "id": "four-states",
+      "id": "accent-field",
       "order": 60,
-      "path": "src/model/session.ts",
+      "path": "src/model/sidebar.ts",
+      "ranges": [{ "side": "new", "start": 16, "end": 28 }],
       "significance": "high",
-      "title": "Four statuses, no recovery",
-      "rationale": "Lifecycle after the git layer is this small",
-      "dependsOn": ["slim-ports", "snapshot-start", "git-state"]
+      "title": "Rows can carry a range accent",
+      "rationale": "The visual token the list and the HTML both read",
+      "dependsOn": ["range-shape"]
     },
     {
-      "id": "sidebar-banner",
+      "id": "range-list",
       "order": 70,
       "path": "src/model/sidebar.ts",
-      "significance": "normal",
-      "title": "Banner is gitState plus Will run",
-      "rationale": "What the reader clicks after the atoms exist",
-      "dependsOn": ["four-states"]
+      "ranges": [
+        { "side": "new", "start": 407, "end": 441 },
+        { "side": "new", "start": 475, "end": 498 }
+      ],
+      "significance": "critical",
+      "title": "Same commit list, Start / End / between",
+      "rationale": "The range screen is the commit list plus a Use button",
+      "dependsOn": ["accent-field", "load-and-select"]
     },
     {
-      "id": "commands",
+      "id": "html-highlight",
       "order": 80,
-      "path": "package.json",
-      "significance": "normal",
-      "title": "Palette matches the banner",
-      "rationale": "Enablement is the last wiring for those buttons",
-      "dependsOn": ["sidebar-banner"]
-    },
-    {
-      "id": "snapshot-tests",
-      "order": 90,
-      "path": "test/integration/snapshot-ref.test.ts",
-      "significance": "normal",
-      "title": "Status identical, two after-refs",
-      "rationale": "The product promise for the snapshot",
-      "dependsOn": ["snapshot-start"]
-    },
-    {
-      "id": "state-tests",
-      "order": 100,
-      "path": "test/integration/git-state.test.ts",
-      "significance": "normal",
-      "title": "Detection matrix",
-      "rationale": "Prove the banner's inputs on real repos",
-      "dependsOn": ["git-state"]
-    },
-    {
-      "id": "edit-here-tests",
-      "order": 110,
-      "path": "test/unit/edit-here.test.ts",
-      "significance": "low",
-      "title": "Reverse steps and drift",
-      "rationale": "Projection cases after the helper",
-      "dependsOn": ["edit-here"]
+      "path": "src/ui/sidebar-html.ts",
+      "ranges": [
+        { "side": "new", "start": 65, "end": 74 },
+        { "side": "new", "start": 115, "end": 131 }
+      ],
+      "significance": "high",
+      "title": "List tokens, not button colors",
+      "rationale": "Range rows paint with list / badge / git decoration tokens",
+      "dependsOn": ["range-list"]
     }
   ]
 }

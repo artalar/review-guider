@@ -39,11 +39,11 @@ describe('setup machine', () => {
     setupBack()
     expect(peek(setupPhase).kind).toBe('home')
 
-    pickRange()
+    await pickRange()
     submitRange('main..HEAD')
     expect(peek(setupPhase)).toMatchObject({ kind: 'generate', target: { kind: 'range', from: 'main', to: 'HEAD' } })
     setupBack()
-    expect(peek(setupPhase).kind).toBe('range')
+    expect(peek(setupPhase)).toMatchObject({ kind: 'range', from: 'main', to: 'HEAD' })
   })
 
   it('rejects an empty or hostile commit ref without leaving the picker', async () => {
@@ -65,11 +65,36 @@ describe('setup machine', () => {
     const harness = await bootstrapModel(repo.root)
     dispose = harness.dispose
 
-    pickRange()
+    await pickRange()
     submitRange('')
     expect(peek(setupPhase)).toMatchObject({ kind: 'range', error: 'Enter a commit range, for example main..HEAD.' })
     submitRange('not-a-range')
     expect(peek(setupPhase).kind).toBe('range')
+  })
+
+  it('orders two clicked commits into start and end', async () => {
+    const repo = await makeTempRepo({ files: { 'README.md': '# fixture\n' } })
+    await repo.write('a.ts', 'a\n')
+    await repo.git('add', 'a.ts')
+    const older = await repo.commit('older')
+    await repo.write('b.ts', 'b\n')
+    await repo.git('add', 'b.ts')
+    const newer = await repo.commit('newer')
+    const harness = await bootstrapModel(repo.root)
+    dispose = harness.dispose
+
+    await pickRange()
+    const phase = peek(setupPhase)
+    expect(phase.kind).toBe('range')
+    expect(phase.kind === 'range' && phase.loading).toBe(false)
+    expect(phase.kind === 'range' && phase.commits.length).toBeGreaterThanOrEqual(2)
+
+    selectCommit(newer)
+    expect(peek(setupPhase)).toMatchObject({ kind: 'range', from: newer, to: null })
+    selectCommit(older)
+    expect(peek(setupPhase)).toMatchObject({ kind: 'range', from: older, to: newer })
+    selectCommit(older)
+    expect(peek(setupPhase)).toMatchObject({ kind: 'range', from: newer, to: null })
   })
 
   it('refuses Simple when there is nothing to review', async () => {

@@ -1,5 +1,7 @@
+import type { CommitSummary } from '../../src/git/log'
 import type { GitState } from '../../src/git/state'
 import type { GuideStep } from '../../src/guide/types'
+import type { RangeSetupPhase } from '../../src/model/setup'
 import type { SidebarViewModel } from '../../src/model/view'
 import { describe, expect, it } from 'vitest'
 import { safeSidebarText, sidebarItems } from '../../src/model/sidebar'
@@ -31,6 +33,28 @@ function gitState(overrides: Partial<GitState> = {}): GitState {
     autostashes: [],
     worktrees: [],
     snapshotRefCount: 0,
+    ...overrides,
+  }
+}
+
+function commitSummary(overrides: Partial<CommitSummary> & Pick<CommitSummary, 'sha' | 'subject'>): CommitSummary {
+  return {
+    shortSha: overrides.sha.slice(0, 7),
+    author: 'Ada',
+    relativeDate: '2 hours ago',
+    parentCount: 1,
+    ...overrides,
+  }
+}
+
+function rangeSetup(overrides: Partial<Omit<RangeSetupPhase, 'kind'>> = {}): RangeSetupPhase {
+  return {
+    kind: 'range',
+    commits: [],
+    loading: false,
+    error: null,
+    from: null,
+    to: null,
     ...overrides,
   }
 }
@@ -89,14 +113,7 @@ describe('sidebar projection', () => {
         kind: 'commits',
         loading: false,
         error: null,
-        commits: [{
-          sha: 'abc123def456',
-          shortSha: 'abc123d',
-          subject: 'Add types',
-          author: 'Ada',
-          relativeDate: '2 hours ago',
-          parentCount: 1,
-        }],
+        commits: [commitSummary({ sha: 'abc123def456', shortSha: 'abc123d', subject: 'Add types' })],
       },
     }))
     expect(rows.find(row => row.id === 'commit-abc123def456')?.payload).toBe('abc123def456')
@@ -117,12 +134,40 @@ describe('sidebar projection', () => {
 
   it('shows range error text on the form', () => {
     const rows = sidebarItems(view({
-      setup: { kind: 'range', error: 'Enter a commit range, for example main..HEAD.' },
+      setup: rangeSetup({ error: 'Enter a commit range, for example main..HEAD.' }),
     }))
     expect(rows.find(row => row.id === 'pick-range')?.description).toContain('main..HEAD')
     expect(rows.find(row => row.id === 'range-input')?.input?.placeholder).toBe('main..HEAD')
     expect(rows.find(row => row.id === 'range-input')?.input?.submit).toBe('Use')
     expect(rows.find(row => row.id === 'back')?.slot).toBe('nav')
+  })
+
+  it('lists range commits and marks the start, end, and in-between', () => {
+    const newer = commitSummary({ sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', shortSha: 'aaaaaaa', subject: 'Tip' })
+    const middle = commitSummary({ sha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', shortSha: 'bbbbbbb', subject: 'Middle' })
+    const older = commitSummary({ sha: 'cccccccccccccccccccccccccccccccccccccccc', shortSha: 'ccccccc', subject: 'Base' })
+    const rows = sidebarItems(view({
+      setup: rangeSetup({
+        commits: [newer, middle, older],
+        from: older.sha,
+        to: newer.sha,
+      }),
+    }))
+    expect(rows.find(row => row.id === `commit-${newer.sha}`)?.surface).toBe('list')
+    expect(rows.find(row => row.id === `commit-${newer.sha}`)?.accent).toBe('end')
+    expect(rows.find(row => row.id === `commit-${middle.sha}`)?.accent).toBe('between')
+    expect(rows.find(row => row.id === `commit-${older.sha}`)?.accent).toBe('start')
+    expect(rows.find(row => row.id === 'use-range')?.payload).toBe(`${older.sha}..${newer.sha}`)
+    expect(rows.find(row => row.id === 'use-range')?.label).toContain('ccccccc..aaaaaaa')
+  })
+
+  it('marks a single range bound as selected until the other end is picked', () => {
+    const newer = commitSummary({ sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', subject: 'Tip' })
+    const rows = sidebarItems(view({
+      setup: rangeSetup({ commits: [newer], from: newer.sha }),
+    }))
+    expect(rows.find(row => row.id === `commit-${newer.sha}`)?.accent).toBe('selected')
+    expect(rows.find(row => row.id === 'use-range')?.enabled).toBe(false)
   })
 
   it('shows Start when a guide is focused at home', () => {
@@ -273,11 +318,28 @@ describe('sidebar projection', () => {
         worktrees: [{ path: '/tmp/tabthrough/ours', head: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', dirty: false }],
       }),
     }))
+    const ids = rows.map(row => row.id)
+    expect(ids.indexOf('review')).toBeLessThan(ids.indexOf('autostash-stash@{0}'))
+    expect(ids.indexOf('review')).toBeLessThan(ids.indexOf('pop-stash@{0}'))
     expect(rows.some(row => row.command === 'tabthrough.popAutostash' && row.payload === 'stash@{0}')).toBe(true)
     expect(rows.some(row => row.command === 'tabthrough.showAutostash')).toBe(true)
     expect(rows.some(row => row.command === 'tabthrough.openWorktree')).toBe(true)
     expect(rows.some(row => row.command === 'tabthrough.removeWorktree')).toBe(true)
     expect(rows.some(row => row.command === 'tabthrough.pruneWorktrees')).toBe(true)
+  })
+
+  it('keeps leftover autostash under the walk actions', () => {
+    const rows = sidebarItems(view({
+      status: 'active',
+      mode: 'readonly',
+      currentStep: step(),
+      gitState: gitState({
+        autostashes: [{ selector: 'stash@{1}', subject: 'On main: autostash' }],
+      }),
+    }))
+    const ids = rows.map(row => row.id)
+    expect(ids.indexOf('cancel')).toBeLessThan(ids.indexOf('autostash-stash@{1}'))
+    expect(ids.indexOf('edit-here')).toBeLessThan(ids.indexOf('autostash-stash@{1}'))
   })
 
   it('opens a conflicted path from the banner', () => {

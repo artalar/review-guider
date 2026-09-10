@@ -25,16 +25,27 @@ import { resolveSafeSidecarPath } from '../guide/sidecar'
 import { guideFile, heuristicOptions } from './config'
 import { EmptyDiffError, gitCapability, ports, sessionStatus } from './session'
 
+export interface HistorySetupPhase {
+  readonly commits: readonly CommitSummary[]
+  readonly loading: boolean
+  readonly error: string | null
+}
+
+export interface CommitsSetupPhase extends HistorySetupPhase {
+  readonly kind: 'commits'
+}
+
+export interface RangeSetupPhase extends HistorySetupPhase {
+  readonly kind: 'range'
+  readonly from: string | null
+  readonly to: string | null
+}
+
 export type SetupPhase
   = | { readonly kind: 'home' }
     | { readonly kind: 'targets' }
-    | {
-      readonly kind: 'commits'
-      readonly commits: readonly CommitSummary[]
-      readonly loading: boolean
-      readonly error: string | null
-    }
-    | { readonly kind: 'range', readonly error: string | null }
+    | CommitsSetupPhase
+    | RangeSetupPhase
     | { readonly kind: 'generate', readonly target: ReviewTarget }
 
 export const SKILL_TARGETS = [
@@ -99,7 +110,7 @@ export const setupBack = action(() => {
       return
     }
     if (phase.target.kind === 'range') {
-      setupPhase.set({ kind: 'range', error: null })
+      setupPhase.set(idleRangePhase({ from: phase.target.from, to: phase.target.to }))
       return
     }
     setupPhase.set({ kind: 'targets' })
@@ -118,33 +129,33 @@ export const pickWorkingTree = action(() => {
 
 export const loadCommits = action(async (): Promise<void> => {
   setupPhase.set({ kind: 'commits', commits: peek(lastCommits), loading: true, error: null })
-  framePromise().catch(wrap(() => {
-    const phase = peek(setupPhase)
-    if (phase.kind === 'commits' && phase.loading)
-      setupPhase.set({ kind: 'commits', commits: peek(lastCommits), loading: false, error: 'Could not load recent history.' })
-  }))
-  const capability = await wrap(gitCapability())
-  if (capability === null || !capability.ok) {
-    setupPhase.set({ kind: 'commits', commits: [], loading: false, error: null })
-    return
-  }
-  const commits = await wrap(readRecentCommits(capability.repoRoot, {
-    limit: DEFAULT_COMMIT_LIMIT,
-    signal: abortVar.require().signal,
-  }))
-  lastCommits.set(commits)
-  if (peek(setupPhase).kind === 'commits')
-    setupPhase.set({ kind: 'commits', commits, loading: false, error: null })
+  await loadHistoryInto('commits')
 }, 'setup.loadCommits').extend(withAsync(), withAbort('first-in-win'))
 
-export const pickRange = action(() => {
-  setupPhase.set({ kind: 'range', error: null })
-}, 'setup.pickRange')
+export const pickRange = action(async (): Promise<void> => {
+  setupPhase.set({
+    kind: 'range',
+    commits: peek(lastCommits),
+    loading: true,
+    error: null,
+    from: null,
+    to: null,
+  })
+  await loadHistoryInto('range')
+}, 'setup.pickRange').extend(withAsync(), withAbort('first-in-win'))
 
 export const selectCommit = action((rev: string) => {
   const error = commitRevError(rev)
+  const phase = peek(setupPhase)
+  if (phase.kind === 'range') {
+    if (error !== null) {
+      setupPhase.set({ ...phase, error })
+      return
+    }
+    setupPhase.set(nextRangeSelection(phase, rev))
+    return
+  }
   if (error !== null) {
-    const phase = peek(setupPhase)
     if (phase.kind === 'commits')
       setupPhase.set({ ...phase, error })
     return
@@ -155,12 +166,12 @@ export const selectCommit = action((rev: string) => {
 export const submitRange = action((raw: string) => {
   const error = rangeInputError(raw)
   if (error !== null) {
-    setupPhase.set({ kind: 'range', error })
+    setRangeError(error)
     return
   }
   const range = parseRangeInput(raw)
   if (range === null) {
-    setupPhase.set({ kind: 'range', error: 'Expected two revisions separated by .. or ...' })
+    setRangeError('Expected two revisions separated by .. or ...')
     return
   }
   setupPhase.set({ kind: 'generate', target: { kind: 'range', from: range.from, to: range.to } })
@@ -353,4 +364,96 @@ export const installWorkspaceSkill = action(async (): Promise<void> => {
 
 export function describeSetupTarget(target: ReviewTarget): string {
   return describeTarget(target, { short: true })
+}
+
+function idleRangePhase(overrides: Partial<Omit<RangeSetupPhase, 'kind'>> = {}): RangeSetupPhase {
+  return {
+    kind: 'range',
+    commits: peek(lastCommits),
+    loading: false,
+    error: null,
+    from: null,
+    to: null,
+    ...overrides,
+  }
+}
+
+function setRangeError(error: string): void {
+  const phase = peek(setupPhase)
+  if (phase.kind === 'range') {
+    setupPhase.set({ ...phase, error })
+    return
+  }
+  setupPhase.set(idleRangePhase({ error }))
+}
+
+async function loadHistoryInto(expected: 'commits' | 'range'): Promise<void> {
+  framePromise().catch(wrap(() => {
+    const phase = peek(setupPhase)
+    if (phase.kind === expected && phase.loading)
+      setupPhase.set({ ...phase, loading: false, error: 'Could not load recent history.' })
+  }))
+  const capability = await wrap(gitCapability())
+  if (capability === null || !capability.ok) {
+    const phase = peek(setupPhase)
+    if (phase.kind === expected)
+      setupPhase.set({ ...phase, commits: [], loading: false, error: null })
+    return
+  }
+  const commits = await wrap(readRecentCommits(capability.repoRoot, {
+    limit: DEFAULT_COMMIT_LIMIT,
+    signal: abortVar.require().signal,
+  }))
+  lastCommits.set(commits)
+  const phase = peek(setupPhase)
+  if (phase.kind === expected)
+    setupPhase.set({ ...phase, commits, loading: false, error: null })
+}
+
+function nextRangeSelection(phase: RangeSetupPhase, rev: string): RangeSetupPhase {
+  const trimmed = rev.trim()
+  if (phase.from === null && phase.to === null)
+    return { ...phase, from: trimmed, to: null, error: null }
+
+  if (phase.to === null) {
+    if (phase.from === null || sameCommitRev(phase.from, trimmed, phase.commits))
+      return { ...phase, from: null, error: null }
+    const ordered = orderRangeBounds(phase.from, trimmed, phase.commits)
+    return { ...phase, from: ordered.from, to: ordered.to, error: null }
+  }
+
+  if (sameCommitRev(phase.from, trimmed, phase.commits))
+    return { ...phase, from: phase.to, to: null, error: null }
+  if (sameCommitRev(phase.to, trimmed, phase.commits))
+    return { ...phase, to: null, error: null }
+  return { ...phase, from: trimmed, to: null, error: null }
+}
+
+function orderRangeBounds(
+  first: string,
+  second: string,
+  commits: readonly CommitSummary[],
+): { from: string, to: string } {
+  const firstIndex = commits.findIndex(commit => matchesRev(commit, first))
+  const secondIndex = commits.findIndex(commit => matchesRev(commit, second))
+  if (firstIndex >= 0 && secondIndex >= 0 && firstIndex !== secondIndex) {
+    return firstIndex < secondIndex
+      ? { from: second, to: first }
+      : { from: first, to: second }
+  }
+  return { from: first, to: second }
+}
+
+function sameCommitRev(left: string | null, right: string, commits: readonly CommitSummary[]): boolean {
+  if (left === null)
+    return false
+  if (left === right)
+    return true
+  const leftCommit = commits.find(commit => matchesRev(commit, left))
+  const rightCommit = commits.find(commit => matchesRev(commit, right))
+  return leftCommit !== undefined && leftCommit === rightCommit
+}
+
+function matchesRev(commit: CommitSummary, rev: string): boolean {
+  return commit.sha === rev || commit.shortSha === rev
 }

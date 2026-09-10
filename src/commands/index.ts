@@ -138,7 +138,7 @@ async function beginRangePicker(): Promise<void> {
   if (!await refuseIfBlocked())
     return
   await wrap(VscodeCommands.executeCommand('tabthrough.sidebar.focus'))
-  pickRange()
+  await wrap(pickRange())
 }
 
 async function advance(): Promise<void> {

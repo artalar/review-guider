@@ -184,18 +184,18 @@ async function readOperation(repoRoot: string, options: GitOptions): Promise<InP
 }
 
 async function readAutostashes(repoRoot: string, options: GitOptions): Promise<readonly AutostashEntry[]> {
-  const result = await tryGit(repoRoot, ['stash', 'list', '--format=%gd%x09%s'], options)
+  const result = await tryGit(repoRoot, ['stash', 'list', '-n', '1', '--format=%gd%x09%s'], options)
   if (result.code !== 0)
     return []
-  const entries: AutostashEntry[] = []
-  for (const line of splitLines(result.stdout)) {
-    const tab = line.indexOf('\t')
-    const selector = tab === -1 ? line : line.slice(0, tab)
-    const subject = tab === -1 ? '' : line.slice(tab + 1)
-    if (subject.endsWith('autostash') || subject.endsWith('autostash)'))
-      entries.push({ selector, subject })
-  }
-  return entries
+  const line = splitLines(result.stdout)[0]
+  if (line === undefined || line === '')
+    return []
+  const tab = line.indexOf('\t')
+  const selector = tab === -1 ? line : line.slice(0, tab)
+  const subject = tab === -1 ? '' : line.slice(tab + 1)
+  if (!(subject.endsWith('autostash') || subject.endsWith('autostash)')))
+    return []
+  return [{ selector, subject }]
 }
 
 async function readTabthroughWorktrees(

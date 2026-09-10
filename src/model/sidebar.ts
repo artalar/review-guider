@@ -1,4 +1,6 @@
+import type { CommitSummary } from '../git/log'
 import type { GitState } from '../git/state'
+import type { RangeSetupPhase } from './setup'
 import type { SidebarViewModel } from './view'
 import { commands as Commands } from '../generated/meta'
 import { describeSetupTarget } from './setup'
@@ -23,6 +25,8 @@ export interface SidebarItemData {
   readonly contextValue?: string
   readonly enabled?: boolean
   readonly slot?: 'nav'
+  readonly surface?: 'list'
+  readonly accent?: 'start' | 'end' | 'between' | 'selected'
 }
 
 export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[] {
@@ -40,17 +44,20 @@ export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[]
 
   if (view.status === 'idle') {
     addIdleItems(view, add)
+    addAutostashNotice(view.gitState, add)
     return items
   }
 
   if (view.status === 'starting') {
     add({ id: 'starting', label: 'Starting review…', description: `Will run: ${view.willRun}`, icon: 'sync~spin' })
     add({ id: 'cancel-starting', label: 'Cancel', command: Commands.cancel, icon: 'close', contextValue: 'action' })
+    addAutostashNotice(view.gitState, add)
     return items
   }
 
   if (view.status === 'finishing') {
     add({ id: 'finishing', label: 'Closing review…', icon: 'sync~spin' })
+    addAutostashNotice(view.gitState, add)
     return items
   }
 
@@ -140,6 +147,7 @@ export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[]
     })
   }
   add({ id: 'cancel', label: 'Cancel review', command: Commands.cancel, icon: 'close', contextValue: 'action', enabled: true })
+  addAutostashNotice(view.gitState, add)
   return items
 }
 
@@ -182,17 +190,6 @@ function addGitBanner(state: GitState | null, add: (item: SidebarItemData) => vo
   if (state.conflicts.length > 0 && state.rebase !== null)
     add({ id: 'continue-conflicts', label: 'Continue', command: Commands.continueRebase, contextValue: 'action' })
 
-  for (const stash of state.autostashes) {
-    add({
-      id: `autostash-${stash.selector}`,
-      label: `A rebase left your changes in ${stash.selector}`,
-      description: stash.subject,
-      icon: 'archive',
-    })
-    add({ id: `pop-${stash.selector}`, label: 'Pop', command: Commands.popAutostash, payload: stash.selector, contextValue: 'action' })
-    add({ id: `show-${stash.selector}`, label: 'Show', command: Commands.showAutostash, payload: stash.selector, contextValue: 'action' })
-  }
-
   for (const worktree of state.worktrees) {
     add({
       id: `worktree-${worktree.path}`,
@@ -221,6 +218,21 @@ function addGitBanner(state: GitState | null, add: (item: SidebarItemData) => vo
       label: state.snapshotRefCount === 1 ? '1 snapshot ref' : `${state.snapshotRefCount} snapshot refs`,
       description: 'Swept after 24 hours',
     })
+  }
+}
+
+function addAutostashNotice(state: GitState | null, add: (item: SidebarItemData) => void): void {
+  if (state === null)
+    return
+  for (const stash of state.autostashes) {
+    add({
+      id: `autostash-${stash.selector}`,
+      label: `A rebase left your changes in ${stash.selector}`,
+      description: stash.subject,
+      icon: 'archive',
+    })
+    add({ id: `pop-${stash.selector}`, label: 'Pop', command: Commands.popAutostash, payload: stash.selector, contextValue: 'action' })
+    add({ id: `show-${stash.selector}`, label: 'Show', command: Commands.showAutostash, payload: stash.selector, contextValue: 'action' })
   }
 }
 
@@ -282,19 +294,7 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
         : (phase.error ?? 'Reviewed against its first parent'),
     })
     if (!phase.loading) {
-      for (const commit of phase.commits) {
-        const merge = commit.parentCount > 1 ? ' · merge' : ''
-        add({
-          id: `commit-${commit.sha}`,
-          label: commit.subject === '' ? commit.shortSha : commit.subject,
-          description: `${commit.shortSha} · ${commit.author} · ${commit.relativeDate}${merge}`,
-          command: Commands.selectCommit,
-          payload: commit.sha,
-          icon: 'git-commit',
-          contextValue: 'action',
-          enabled: view.canStart,
-        })
-      }
+      addCommitChoices(phase.commits, add, view.canStart)
       add({
         id: 'commit-ref',
         label: 'Enter a commit, tag, or ref',
@@ -309,16 +309,7 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
   }
 
   if (phase.kind === 'range') {
-    add({ id: 'pick-range', label: 'Commit range', description: phase.error ?? 'A..B reviews B against merge-base(A, B)' })
-    add({
-      id: 'range-input',
-      label: 'Range',
-      command: Commands.submitRange,
-      input: { placeholder: 'main..HEAD', submit: 'Use' },
-      contextValue: 'input',
-      enabled: view.canStart,
-    })
-    add(navBack())
+    addRangePicker(phase, view, add)
     return
   }
 
@@ -412,4 +403,103 @@ function navBack(): SidebarItemData {
     contextValue: 'action',
     slot: 'nav',
   }
+}
+
+function addRangePicker(
+  phase: RangeSetupPhase,
+  view: SidebarViewModel,
+  add: (item: SidebarItemData) => void,
+): void {
+  add({
+    id: 'pick-range',
+    label: 'Commit range',
+    description: phase.loading
+      ? 'Loading recent history…'
+      : (phase.error ?? 'Click a start and an end, or type A..B.'),
+  })
+  const rangeReady = phase.from !== null && phase.to !== null
+  add({
+    id: 'use-range',
+    label: rangeReady
+      ? `Use ${displayRev(phase.from, phase.commits)}..${displayRev(phase.to, phase.commits)}`
+      : 'Use range',
+    description: 'Review the end against merge-base with the start',
+    command: Commands.submitRange,
+    payload: rangeReady ? `${phase.from}..${phase.to}` : '',
+    contextValue: 'action',
+    enabled: view.canStart && rangeReady,
+  })
+  if (!phase.loading) {
+    addCommitChoices(phase.commits, add, view.canStart, (_commit, index) => rangeAccent(phase, index))
+    add({
+      id: 'range-input',
+      label: 'Range',
+      command: Commands.submitRange,
+      input: { placeholder: 'main..HEAD', submit: 'Use' },
+      contextValue: 'input',
+      enabled: view.canStart,
+    })
+  }
+  add(navBack())
+}
+
+function addCommitChoices(
+  commits: readonly CommitSummary[],
+  add: (item: SidebarItemData) => void,
+  enabled: boolean,
+  accentOf?: (commit: CommitSummary, index: number) => SidebarItemData['accent'],
+): void {
+  for (const [index, commit] of commits.entries()) {
+    const merge = commit.parentCount > 1 ? ' · merge' : ''
+    const accent = accentOf?.(commit, index)
+    add({
+      id: `commit-${commit.sha}`,
+      label: commit.subject === '' ? commit.shortSha : commit.subject,
+      description: `${commit.shortSha} · ${commit.author} · ${commit.relativeDate}${merge}`,
+      command: Commands.selectCommit,
+      payload: commit.sha,
+      icon: 'git-commit',
+      contextValue: 'action',
+      enabled,
+      surface: 'list',
+      ...(accent === undefined ? {} : { accent }),
+    })
+  }
+}
+
+function rangeAccent(
+  phase: RangeSetupPhase,
+  index: number,
+): SidebarItemData['accent'] {
+  const fromIndex = indexOfRev(phase.commits, phase.from)
+  const toIndex = indexOfRev(phase.commits, phase.to)
+  if (fromIndex >= 0 && toIndex >= 0) {
+    if (index === fromIndex)
+      return 'start'
+    if (index === toIndex)
+      return 'end'
+    const low = Math.min(fromIndex, toIndex)
+    const high = Math.max(fromIndex, toIndex)
+    if (index > low && index < high)
+      return 'between'
+    return undefined
+  }
+  if (fromIndex >= 0 && index === fromIndex)
+    return 'selected'
+  if (toIndex >= 0 && index === toIndex)
+    return 'selected'
+  return undefined
+}
+
+function indexOfRev(commits: readonly CommitSummary[], rev: string | null): number {
+  if (rev === null)
+    return -1
+  return commits.findIndex(commit => commit.sha === rev || commit.shortSha === rev)
+}
+
+function displayRev(rev: string, commits: readonly CommitSummary[]): string {
+  const found = commits.find(commit => commit.sha === rev || commit.shortSha === rev)
+  if (found !== undefined)
+    return found.shortSha
+  return rev.length > 12 ? rev.slice(0, 12) : rev
 }

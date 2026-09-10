@@ -28,26 +28,57 @@ function isPrimary(row: SidebarItemData): boolean {
     || command.endsWith('.startFromGuide')
     || command.endsWith('.review')
     || command.endsWith('.continueRebase')
+    || command.endsWith('.submitRange')
 }
 
 function commandButton(row: SidebarItemData, extraClass = ''): string {
   const command = row.command ?? ''
   const enabled = row.enabled !== false
   const payload = row.payload === undefined ? '' : ` data-payload="${htmlAttr(row.payload, 200)}"`
-  const kind = isPrimary(row) ? 'primary' : 'secondary'
+  const kind = row.surface === 'list' ? 'list-pick' : isPrimary(row) ? 'primary' : 'secondary'
   const classes = [kind, extraClass].filter(part => part !== '').join(' ')
   return `<button class="${classes}" type="button" data-command="${htmlAttr(command, 100)}"${payload}${enabled ? '' : ' disabled'}>${buttonInner(row)}</button>`
 }
 
+function boundMark(accent: SidebarItemData['accent']): { readonly label: string, readonly svg: string } | null {
+  if (accent === 'start')
+    return { label: 'Start', svg: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5.2 3.4v9.2L13 8z"/></svg>' }
+  if (accent === 'end')
+    return { label: 'End', svg: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1" fill="currentColor"/></svg>' }
+  if (accent === 'selected')
+    return { label: 'Select', svg: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>' }
+  return null
+}
+
+function accentClass(accent: SidebarItemData['accent']): string {
+  if (accent === 'start')
+    return 'range-start'
+  if (accent === 'end')
+    return 'range-end'
+  if (accent === 'between')
+    return 'range-between'
+  if (accent === 'selected')
+    return 'range-selected'
+  return ''
+}
+
 function buttonInner(row: SidebarItemData): string {
   const label = htmlText(row.label, 200)
-  if (row.slot === 'nav' || row.description === undefined)
+  if (row.slot === 'nav')
     return label
-  return `<span class="label">${label}</span><span class="hint">${htmlText(row.description, 400)}</span>`
+  const mark = boundMark(row.accent)
+  const badge = row.surface === 'list'
+    ? (mark === null ? '<span class="bound"></span>' : `<span class="bound" title="${mark.label}" aria-label="${mark.label}">${mark.svg}</span>`)
+    : (mark === null ? '' : `<span class="bound" title="${mark.label}" aria-label="${mark.label}">${mark.svg}</span>`)
+  if (row.description === undefined)
+    return `${badge}${label}`
+  return `<span class="head">${badge}<span class="label">${label}</span></span><span class="hint">${htmlText(row.description, 400)}</span>`
 }
 
 function button(row: SidebarItemData): string {
-  const extra = row.description === undefined ? '' : 'choice'
+  const extra = [row.description === undefined ? '' : 'choice', accentClass(row.accent)]
+    .filter(part => part !== '')
+    .join(' ')
   return commandButton(row, extra)
 }
 
@@ -81,14 +112,30 @@ function bodyRow(row: SidebarItemData): string {
   return `<section class="row ${htmlAttr(row.id, 100)}"><strong>${htmlText(row.label)}</strong>${row.description === undefined ? '' : `<span>${htmlText(row.description, 4000)}</span>`}</section>`
 }
 
-const SIDEBAR_STYLE = 'body{margin:0;background:var(--vscode-sideBar-background);font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);color:var(--vscode-foreground);padding:12px 16px 20px}.row{padding:12px 0;border-bottom:1px solid var(--vscode-panel-border)}.row strong{display:block;font-weight:600}.row span{display:block;color:var(--vscode-descriptionForeground);white-space:pre-wrap;overflow-wrap:anywhere;margin-top:3px;line-height:1.35}button{display:block;width:100%;text-align:left;margin:7px 0;padding:5px 8px;min-height:32px;border-radius:3px;border:1px solid var(--vscode-button-border,transparent);color:var(--vscode-button-foreground);background:var(--vscode-button-background);cursor:pointer}button:hover{background:var(--vscode-button-hoverBackground)}button:disabled{opacity:.45;cursor:default}button:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}button.secondary{background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}button.secondary:hover{background:var(--vscode-button-secondaryHoverBackground)}button.choice{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px}button.choice .hint{color:var(--vscode-descriptionForeground);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}header.chrome{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:8px;margin:-12px -16px 8px;padding:10px 16px 8px;background:var(--vscode-sideBar-background);border-bottom:1px solid var(--vscode-panel-border)}header.chrome button{width:auto;margin:0;text-align:center}header.chrome button.ghost{background:transparent;color:var(--vscode-textLink-foreground);border-color:transparent;text-align:left;padding:4px 0;min-height:0}header.chrome button.ghost:hover{background:var(--vscode-toolbar-hoverBackground,transparent);color:var(--vscode-textLink-activeForeground,var(--vscode-textLink-foreground))}header.chrome.walk button.retreat,header.chrome.walk button.advance{flex:1 1 0}header.chrome .progress{flex:0 0 auto;color:var(--vscode-descriptionForeground);font-variant-numeric:tabular-nums}.session strong{font-size:11px;text-transform:uppercase;letter-spacing:.08em}.session span{font-size:22px;color:var(--vscode-foreground)}.current strong{font-size:16px;line-height:1.4}.notes span{color:var(--vscode-foreground);line-height:1.6}.complete{margin:12px 0;color:var(--vscode-testing-iconPassed)}.rationale span{color:var(--vscode-foreground)}.next-step{font-size:12px}.summary{margin-bottom:8px}form.input-row{margin:10px 0}form.input-row label{display:block;font-weight:600;margin-bottom:6px}form.input-row .fields{display:flex;gap:6px;align-items:stretch}form.input-row .fields input{flex:1 1 auto;width:auto;box-sizing:border-box;padding:6px 8px;border:1px solid var(--vscode-input-border,transparent);background:var(--vscode-input-background);color:var(--vscode-input-foreground)}form.input-row .fields button{width:auto;margin:0;text-align:center}'
+const SIDEBAR_STYLE = 'body{margin:0;background:var(--vscode-sideBar-background);font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);color:var(--vscode-foreground);padding:12px 16px 20px}.row{padding:12px 0;border-bottom:1px solid var(--vscode-panel-border)}.row strong{display:block;font-weight:600}.row span{display:block;color:var(--vscode-descriptionForeground);white-space:pre-wrap;overflow-wrap:anywhere;margin-top:3px;line-height:1.35}button{display:block;width:100%;text-align:left;margin:7px 0;padding:5px 8px;min-height:32px;border-radius:3px;border:1px solid var(--vscode-button-border,transparent);color:var(--vscode-button-foreground);background:var(--vscode-button-background);cursor:pointer}button:hover{background:var(--vscode-button-hoverBackground)}button:disabled{opacity:.45;cursor:default}button:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}button.secondary{background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}button.secondary:hover{background:var(--vscode-button-secondaryHoverBackground)}button.choice{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px}button.choice .head{display:flex;align-items:center;gap:6px;min-width:0}button.choice .label{font-weight:600}button.choice .hint{color:color-mix(in srgb,currentColor 70%,transparent);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}header.chrome{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:8px;margin:-12px -16px 8px;padding:10px 16px 8px;background:var(--vscode-sideBar-background);border-bottom:1px solid var(--vscode-panel-border)}header.chrome button{width:auto;margin:0;text-align:center}header.chrome button.ghost{background:transparent;color:var(--vscode-textLink-foreground);border-color:transparent;text-align:left;padding:4px 0;min-height:0}header.chrome button.ghost:hover{background:var(--vscode-toolbar-hoverBackground,transparent);color:var(--vscode-textLink-activeForeground,var(--vscode-textLink-foreground))}header.chrome.walk button.retreat,header.chrome.walk button.advance{flex:1 1 0}header.chrome .progress{flex:0 0 auto;color:var(--vscode-descriptionForeground);font-variant-numeric:tabular-nums}.session strong{font-size:11px;text-transform:uppercase;letter-spacing:.08em}.session span{font-size:22px;color:var(--vscode-foreground)}.current strong{font-size:16px;line-height:1.4}.notes span{color:var(--vscode-foreground);line-height:1.6}.complete{margin:12px 0;color:var(--vscode-testing-iconPassed)}.rationale span{color:var(--vscode-foreground)}.next-step{font-size:12px}.summary{margin-bottom:8px}form.input-row{margin:10px 0}form.input-row label{display:block;font-weight:600;margin-bottom:6px}form.input-row .fields{display:flex;gap:6px;align-items:stretch}form.input-row .fields input{flex:1 1 auto;width:auto;box-sizing:border-box;padding:6px 8px;border:1px solid var(--vscode-input-border,transparent);background:var(--vscode-input-background);color:var(--vscode-input-foreground)}form.input-row .fields button{width:auto;margin:0;text-align:center}'
 
-const SIDEBAR_SCRIPT = `const api=acquireVsCodeApi();const post=(command,payload)=>{if(!command)return;api.postMessage(payload===undefined||payload===null||payload===''?{command}:{command,payload})};const wire=()=>{for(const button of document.querySelectorAll('button[data-command]'))button.addEventListener('click',()=>post(button.getAttribute('data-command'),button.getAttribute('data-payload')));for(const form of document.querySelectorAll('form[data-command]'))form.addEventListener('submit',event=>{event.preventDefault();const input=form.querySelector('input');post(form.getAttribute('data-command'),input?input.value:'')})};wire();window.addEventListener('message',event=>{if(event.data?.type!=='update')return;const active=document.activeElement;const command=active?.getAttribute('data-command');const top=document.documentElement.scrollTop;document.body.innerHTML=event.data.body;wire();if(command){for(const next of document.querySelectorAll('[data-command]'))if(next.getAttribute('data-command')===command){next.focus();break}}document.documentElement.scrollTop=top});`
+const LIST_PICK_STYLE = [
+  'button.list-pick{margin:2px 0;padding:7px 10px;background:transparent;color:var(--vscode-foreground);border-color:transparent;border-radius:4px}',
+  'button.list-pick:hover{background:var(--vscode-list-hoverBackground);color:var(--vscode-list-hoverForeground,var(--vscode-foreground))}',
+  'button.list-pick .hint{color:var(--vscode-descriptionForeground)}',
+  'button.list-pick .bound{flex:0 0 18px;width:18px;height:18px;justify-content:center;display:inline-flex;align-items:center;padding:0;border-radius:999px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}',
+  'button.list-pick .bound svg{width:12px;height:12px;display:block}',
+  'button.list-pick .bound:empty{visibility:hidden}',
+  'button.list-pick.range-selected,button.list-pick.range-start,button.list-pick.range-end{background:var(--vscode-list-inactiveSelectionBackground);color:var(--vscode-list-inactiveSelectionForeground,var(--vscode-foreground))}',
+  'button.list-pick.range-selected{box-shadow:inset 3px 0 0 var(--vscode-focusBorder)}',
+  'button.list-pick.range-start{box-shadow:inset 3px 0 0 var(--vscode-gitDecoration-addedResourceForeground)}',
+  'button.list-pick.range-end{box-shadow:inset 3px 0 0 var(--vscode-gitDecoration-modifiedResourceForeground)}',
+  'button.list-pick.range-between{background:var(--vscode-editor-inactiveSelectionBackground,var(--vscode-list-inactiveSelectionBackground));color:var(--vscode-foreground)}',
+  'button.list-pick.range-selected:hover,button.list-pick.range-start:hover,button.list-pick.range-end:hover,button.list-pick.range-between:hover{background:var(--vscode-list-hoverBackground);color:var(--vscode-list-hoverForeground,var(--vscode-foreground))}',
+  'button.list-pick.range-selected .hint,button.list-pick.range-start .hint,button.list-pick.range-end .hint,button.list-pick.range-between .hint{color:var(--vscode-descriptionForeground)}',
+].join('')
+
+const SIDEBAR_SCRIPT = `const api=acquireVsCodeApi();const post=(command,payload)=>{if(!command)return;api.postMessage(payload===undefined||payload===null||payload===''?{command}:{command,payload})};const wire=()=>{for(const button of document.querySelectorAll('button[data-command]'))button.addEventListener('click',()=>post(button.getAttribute('data-command'),button.getAttribute('data-payload')));for(const form of document.querySelectorAll('form[data-command]'))form.addEventListener('submit',event=>{event.preventDefault();const input=form.querySelector('input');post(form.getAttribute('data-command'),input?input.value:'')})};wire();window.addEventListener('message',event=>{if(event.data?.type!=='update')return;const active=document.activeElement;const command=active?.getAttribute('data-command');const payload=active?.getAttribute('data-payload')??'';const top=document.documentElement.scrollTop;document.body.innerHTML=event.data.body;wire();if(command){for(const next of document.querySelectorAll('[data-command]')){if(next.getAttribute('data-command')!==command)continue;if((next.getAttribute('data-payload')??'')!==payload)continue;next.focus({preventScroll:true});break}}document.documentElement.scrollTop=top});`
 
 /** Secure plain HTML: escaped guide text, no remote resources, fixed commands. */
 export function renderSidebarHtml(view: SidebarViewModel): string {
   const nonce = randomUUID().replace(/[^a-z0-9]/gi, '')
-  return `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'"><style>${SIDEBAR_STYLE}</style></head><body>${renderSidebarBody(view)}<script nonce="${nonce}">${SIDEBAR_SCRIPT}</script></body></html>`
+  return `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'"><style>${SIDEBAR_STYLE}${LIST_PICK_STYLE}</style></head><body>${renderSidebarBody(view)}<script nonce="${nonce}">${SIDEBAR_SCRIPT}</script></body></html>`
 }
 
 export function renderSidebarBody(view: SidebarViewModel): string {
