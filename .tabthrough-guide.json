@@ -2,93 +2,135 @@
   "$schema": "https://tabthrough.dev/schema/guide-v1.json",
   "version": 1,
   "scope": { "kind": "workingTree" },
-  "summary": "History loading is a computed query keyed on picker kind, not two first-in-win actions. setupPhase is a projection. Range clicks go through selectRangeRev, which no-ops off that screen.",
+  "summary": "The skill is rewritten around what the reviewer actually sees: title as headline, rationale as the link, notes as plain text, summary always on screen. Anchors come from git diff -U0 hunk headers. The Agent prompt, the /tabthrough command, and the work-docs restate the same contract. Two small fixes at the end make typecheck and lint pass again.",
   "files": {
-    "test/helpers/model.ts": { "significance": "low", "rationale": "Keeps the history computed subscribed like the sidebar" },
-    "test/unit/setup.test.ts": { "significance": "low", "rationale": "Back-during-load, abort, and off-phase no-ops" }
+    ".cursor/skills/tabthrough/SKILL.md": { "significance": "skip", "rationale": "Byte-for-byte copy of res/skill/tabthrough/SKILL.md" },
+    ".agents/skills/tabthrough/SKILL.md": { "significance": "skip", "rationale": "Byte-for-byte copy of res/skill/tabthrough/SKILL.md" },
+    "tabthrough-0.0.0.vsix": { "significance": "skip", "rationale": "Rebuilt package" },
+    ".tabthrough-guide.json": { "significance": "skip", "rationale": "The sidecar this walk is written into" }
   },
   "steps": [
     {
-      "id": "split-atoms",
+      "id": "words",
       "order": 10,
-      "path": "src/model/setup.ts",
-      "ranges": [{ "side": "new", "start": 63, "end": 71 }],
+      "path": "res/skill/tabthrough/SKILL.md",
+      "ranges": [{ "start": 14, "end": 62 }],
       "significance": "critical",
-      "title": "Kind is not the list",
-      "rationale": "The query key must not include from/to or the fetched commits"
+      "title": "Writing for what the reviewer sees",
+      "rationale": "The premise of the rewrite and the four fields it dictates — everything below follows from this block",
+      "notes": "The sketch is checked against src/model/sidebar.ts and src/model/view.ts: title falls back to the path, notes are always shown as plain text, summary sits on every step. The old skill called notes markdown and on demand; the sidebar does neither.\n\nBelow the sketch, the two tables answer how to write the comments: title names the thought, rationale links it, notes carry only the why that is not in the code, and word count follows significance so normal and low steps stay fast."
     },
     {
-      "id": "history-query",
+      "id": "anchors",
       "order": 20,
-      "path": "src/model/setup.ts",
-      "ranges": [{ "side": "new", "start": 73, "end": 86 }],
-      "significance": "critical",
-      "title": "History is a computed",
-      "rationale": "Leaving commits/range aborts the log; re-entry starts a new one",
-      "dependsOn": ["split-atoms"]
+      "path": "res/skill/tabthrough/SKILL.md",
+      "ranges": [{ "start": 74, "end": 87 }],
+      "significance": "high",
+      "title": "Line numbers from -U0 hunk headers",
+      "rationale": "The recipe that stops ranges landing on the wrong lines, and the one limit ranges cannot cross",
+      "notes": "@@ -a,b +c,d @@ gives new-side lines c..c+d-1 directly; d = 0 marks a deletion that needs side old.\n\nA contiguous run of changed lines is atomic and a one-line gap still joins two runs, so the guide must not aim two steps at one run — this very walk hit that on the block above."
     },
     {
-      "id": "phase-projection",
+      "id": "speed",
       "order": 30,
-      "path": "src/model/setup.ts",
-      "ranges": [{ "side": "new", "start": 88, "end": 107 }],
-      "significance": "high",
-      "title": "setupPhase is derived",
-      "rationale": "The sidebar still reads one tagged union; loading and error come from the query",
-      "dependsOn": ["history-query"]
-    },
-    {
-      "id": "open-picker",
-      "order": 40,
-      "path": "src/model/setup.ts",
-      "ranges": [
-        { "side": "new", "start": 186, "end": 198 },
-        { "side": "new", "start": 439, "end": 447 }
-      ],
-      "significance": "high",
-      "title": "Open is set-kind plus settle",
-      "rationale": "No first-in-win on the command; abort is not a picker error",
-      "dependsOn": ["history-query"]
-    },
-    {
-      "id": "select-range-rev",
-      "order": 50,
-      "path": "src/model/setup.ts",
-      "ranges": [{ "side": "new", "start": 212, "end": 226 }],
-      "significance": "critical",
-      "title": "Range clicks are their own action",
-      "rationale": "Bounds stay on the picker; a stale command cannot invent a range phase",
-      "dependsOn": ["split-atoms"]
-    },
-    {
-      "id": "select-commit",
-      "order": 60,
-      "path": "src/model/setup.ts",
-      "ranges": [{ "side": "new", "start": 200, "end": 210 }],
+      "path": "res/skill/tabthrough/SKILL.md",
+      "ranges": [{ "start": 99, "end": 107 }],
       "significance": "normal",
-      "title": "selectCommit only generates",
-      "rationale": "The commit picker no longer shares an action with range bounds",
-      "dependsOn": ["select-range-rev"]
+      "title": "One screen per step, few file switches",
+      "rationale": "The pacing rules that follow from the surface sketch",
+      "dependsOn": ["words"]
     },
     {
-      "id": "submit-range-guard",
+      "id": "example",
+      "order": 40,
+      "path": "res/skill/tabthrough/SKILL.md",
+      "ranges": [{ "start": 113, "end": 161 }],
+      "significance": "normal",
+      "title": "Worked example with titles as a table of contents",
+      "rationale": "The words contract shown once in full before the cheatsheet",
+      "dependsOn": ["words"]
+    },
+    {
+      "id": "skill-rest",
+      "order": 60,
+      "path": "res/skill/tabthrough/SKILL.md",
+      "significance": "low",
+      "title": "Cheatsheet, Never, and gates catch up",
+      "rationale": "The checklist restated for title, plain-text notes, and the mechanical anchor check"
+    },
+    {
+      "id": "prompt-anchors",
       "order": 70,
       "path": "src/model/setup.ts",
-      "ranges": [{ "side": "new", "start": 227, "end": 229 }],
-      "significance": "normal",
-      "title": "submitRange stays on range",
-      "rationale": "A stale Use post cannot jump the machine into the picker",
-      "dependsOn": ["select-range-rev"]
+      "ranges": [{ "start": 253, "end": 264 }],
+      "significance": "high",
+      "title": "Agent prompt ships the -U0 command",
+      "rationale": "The sidebar prompt hands over the same anchor recipe the skill teaches",
+      "dependsOn": ["anchors"]
     },
     {
-      "id": "command-route",
+      "id": "prompt-words",
       "order": 80,
-      "path": "src/commands/index.ts",
-      "ranges": [{ "side": "new", "start": 59, "end": 67 }],
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 293, "end": 296 }],
       "significance": "high",
-      "title": "One palette command, two actions",
-      "rationale": "The webview still posts selectCommit; the host dispatches by phase",
-      "dependsOn": ["select-commit"]
+      "title": "Agent prompt states the words contract",
+      "rationale": "Title, rationale, notes, summary, and demotion in the bullets the agent reads first",
+      "dependsOn": ["words"]
+    },
+    {
+      "id": "command-body",
+      "order": 90,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 60, "end": 60 }],
+      "significance": "normal",
+      "title": "/tabthrough command says the same",
+      "rationale": "Third surface of the contract, for chats started without the sidebar",
+      "dependsOn": ["prompt-words"]
+    },
+    {
+      "id": "prompt-test",
+      "order": 100,
+      "path": "test/unit/serialize.test.ts",
+      "significance": "low",
+      "title": "Prompt test pins the new phrases",
+      "rationale": "Locks the -U0 command and the words bullets into the range prompt"
+    },
+    {
+      "id": "docs-authoring",
+      "order": 110,
+      "path": "work-docs/guides/agent-guide-authoring.md",
+      "significance": "low",
+      "title": "Authoring guide learns title and plain-text notes",
+      "rationale": "The long-form pedagogy now agrees with the skill on how notes and summary are shown",
+      "dependsOn": ["words"]
+    },
+    {
+      "id": "docs-schema",
+      "order": 120,
+      "path": "work-docs/architecture/guide-schema.md",
+      "significance": "low",
+      "title": "Schema prose matches the sidebar",
+      "rationale": "summary on every step, notes plain text and always shown — the facts the skill sketch relies on",
+      "dependsOn": ["words"]
+    },
+    {
+      "id": "fix-self-reference",
+      "order": 130,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 73, "end": 73 }],
+      "significance": "normal",
+      "title": "recentCommits gets an explicit return type",
+      "rationale": "Unrelated to the prompt: the computed peeks at itself, and only an annotation breaks the inference cycle"
+    },
+    {
+      "id": "fix-settle",
+      "order": 140,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 444, "end": 445 }],
+      "significance": "normal",
+      "title": "Non-abort history failures reach the guard",
+      "rationale": "The useless return became a rethrow, so a failed git log is logged as before and aborts stay silent"
     }
   ]
 }

@@ -92,7 +92,9 @@ The reader is looking at the code while they read your line. A rationale that de
 
 Notice what the right-hand column does: each line positions the step relative to *other steps*. "Every later change", "you just saw", "the previous step", "every change below". Position is inherently relational, and relational language is the tell that you got it right.
 
-There is one respectable exception. When the code is genuinely non-obvious — a subtle concurrency argument, a workaround for an upstream bug — the *why it is like that* belongs in `notes`, not `rationale`. Keep the one-liner about order; put the explanation one keystroke away.
+There is one respectable exception. When the code is genuinely non-obvious — a subtle concurrency argument, a workaround for an upstream bug — the *why it is like that* belongs in `notes`, not `rationale`. Keep the one-liner about order; put the explanation in `notes`, which the sidebar shows right under it as plain text. Every sentence there is read on every visit to the step, so write notes only where the code cannot explain itself, and skip markdown — it is rendered literally.
+
+Give every step a `title`. It is the sidebar headline and the "Next" preview; without it the reader sees the file path twice. A title names the thought in the reader's vocabulary — `Only stash@{0} counts`, `The bug, as a test` — not the file or the verb (`Update setup.ts`). Read the titles top to bottom and you should have the table of contents of the change.
 
 ### 2.4 Spend attention like it is finite, because it is
 
@@ -119,7 +121,7 @@ You have the whole change loaded. They have step one. Everything you write must 
 - Do not reference a symbol before the step that introduces it. If step 5 says "the new `RetryPolicy`", `RetryPolicy` had better appear at or before step 5.
 - Do not open with the most subtle thing. Open with the thing that makes the subtle thing legible.
 - Do not use the codenames you invented while working. "The v2 path", "the new orchestrator" — the reader was not in the room.
-- `summary` is the one place to set up context before step one. Use it for the *shape* of the change, in a few sentences, not a bullet list of what you did.
+- `summary` is the one place to set up context before step one, and it stays visible on every step. Use it as a map — the *shape* of the change and the strands in walk order, in two or three sentences — not a bullet list of what you did.
 
 ### 2.6 No exams, no grading, no gates
 
@@ -283,7 +285,7 @@ Every rationale restates its hunk, and the order is whatever the diff was in. Th
 
 Over the 120-character limit, so it is rejected or truncated, and it was doing `notes`' job anyway.
 
-**Fix:** rationale is the one-line reason for position. `"The retry rule the rest of this change follows from"`. The reasoning goes in `notes`, which the reader opens when they want it.
+**Fix:** rationale is the one-line reason for position. `"The retry rule the rest of this change follows from"`. The reasoning goes in `notes`, shown under it in the sidebar.
 
 ### Everything is critical
 
@@ -384,6 +386,7 @@ Valid, and worth almost nothing. It is tier order with the tiers spelled out, ev
       "order": 30,
       "path": "src/model/recovery.ts",
       "significance": "high",
+      "title": "Read side keyed like the write side",
       "rationale": "The read side, now keyed the same way the write side always was",
       "dependsOn": ["probe-root"]
     },
@@ -392,6 +395,7 @@ Valid, and worth almost nothing. It is tier order with the tiers spelled out, ev
       "order": 40,
       "path": "README.md",
       "significance": "low",
+      "title": "Known-gap note retired",
       "rationale": "Known-gap note this fix retires"
     }
   ]
@@ -401,7 +405,7 @@ Valid, and worth almost nothing. It is tier order with the tiers spelled out, ev
 Four steps for four files again, but the guide now carries information the diff does not:
 
 - **The test leads.** The heuristic would have put it last. It goes first because the bug is the only thing that makes a one-line key change interesting, and the rationale says so in the reader's terms rather than announcing an override.
-- **The reason lives in `notes`.** The mechanism — two keys, coinciding only in the common case, which is why tests passed — is exactly the sort of thing that does not survive in a commit message and is invisible in the diff. It is one keystroke away, not in the reader's face.
+- **The reason lives in `notes`.** The mechanism — two keys, coinciding only in the common case, which is why tests passed — is exactly the sort of thing that does not survive in a commit message and is invisible in the diff. It sits under the rationale, not inside it.
 - **`summary` sets up the shape** before step one: what broke, why it hid, and how big the fix is. The reader knows to expect small.
 - **Significance is ranked, not sprayed.** One `critical`, two `high`, one `low`. The README genuinely is a footnote and is labelled as one.
 - **`dependsOn` encodes the argument**, so if a future tool reorders on `order` alone the chain still holds.

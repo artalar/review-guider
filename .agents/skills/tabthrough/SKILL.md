@@ -5,16 +5,61 @@ description: Emits a Tabthrough `.tabthrough-guide.json` v1 sidecar alongside a 
 
 # Tabthrough sidecar
 
-A `.tabthrough-guide.json` tells Tabthrough **the order in which your change should be read, and one line per step explaining why it comes there**. The reader presses Tab to unfold **one thought at a time**. It is not a review, a summary, or a quiz.
+`.tabthrough-guide.json` is the script for a guided diff walk. The reviewer presses Tab; each press reveals **one thought** of your change in a diff editor and shows your words for it in a sidebar. You decide two things: **the order** and **the words for each step**. It is not a review, a changelog, or a quiz.
 
 Write one whenever you hand a non-trivial change to a human. Skip it for a one-file, one-hunk, one-thought change — there is no order to convey.
 
 ## Contract
 
-- **Schema (normative):** `schema/guide-v1.json` — validate against it. Prose + merge: `work-docs/architecture/guide-schema.md`. `$schema`: `https://tabthrough.dev/schema/guide-v1.json` (raw GitHub URL resolves today).
-- **Pedagogy and long examples:** `work-docs/guides/agent-guide-authoring.md`.
+- **Schema:** `$schema` is `https://tabthrough.dev/schema/guide-v1.json` (the file is `schema/guide-v1.json` in the Tabthrough repository; the raw GitHub URL resolves today). `additionalProperties: false` — only the fields in the cheatsheet exist.
 - **Location:** `.tabthrough-guide.json` at repo root (or `tabthrough.guideFile`). Legacy `.guide.json` is still read.
-- **Guarantee:** a broken guide never breaks a session — heuristic fallback + one warning. Validate yourself; nobody else will catch your merges.
+- **Guarantee:** a broken guide never breaks a session — heuristic fallback + one warning. Nobody else will catch your merges or misplaced anchors; check them yourself.
+
+## What the reviewer sees
+
+Write for this surface. Nothing else exists.
+
+```
+Editor    Diff: before ⟷ file-so-far. Only the current step's lines are highlighted
+          and scrolled into view; lines from later steps are not on screen yet.
+Sidebar   k of n        ◀ Previous   Next ▶
+          Guide summary  ← summary (visible on every step)
+          TITLE          ← title (falls back to the path — a bad headline)
+          path
+          Why here       ← rationale
+          Notes          ← notes, plain text (shown whenever present)
+          Next: title · rationale
+Status    k of n · file · rationale
+```
+
+Consequences:
+
+- The reviewer is looking at the code. Never describe what the lines do; say what they **mean for the change** and **where they sit in the story**.
+- Anything about unrevealed code is noise. Nothing may refer to a later step.
+- `title` is the headline and the "Next" preview. Every step gets one.
+- `notes` are always shown, as plain text. Markdown shows as raw characters. Every sentence costs the reviewer time.
+- `summary` is always visible. It is a map the reviewer glances back at, not an introduction.
+
+## Words: title, rationale, notes, summary
+
+| Field | Job | Shape | Good | Bad |
+|---|---|---|---|---|
+| `title` ≤ 60 | Names the thought — the table-of-contents entry | Noun phrase or short claim in the reviewer's vocabulary | `Only stash@{0} counts` · `The bug, as a test` · `Range phase carries bounds` | `Update setup.ts` · `Changes` · `Fix` |
+| `rationale` ≤ 120 | Why this step is **here**: what the highlighted lines establish and how they link to neighbours | One sentence, relational: "the contract the next two steps fill", "first consumer of the field above" | `The failure the rest of the diff answers` · `Back in setup.ts now that the accent exists` | `Adds a null check` · `Updates the picker` |
+| `notes` ≤ 2000 | The why that is not in the code: invariant, trade-off, edge case, what would break otherwise, where to look in the highlighted lines | 1–3 short sentences, plain text, blank line between points; identifiers in backticks are fine | `Older autostash-named entries belong to finished rebases; counting them made the notice sticky.` | Restating the diff · a paragraph on every step · headers, bold, tables, links |
+| `summary` ≤ 600, aim ≤ 350 | The map: what the change does, the strands in walk order, what is demoted to the end | 2–3 sentences | `Leftover autostash moves under the actions. The range flow reuses the commit list; two clicks become start and end. Tests are low at the end.` | A bullet list of everything you did |
+
+**Speed is title + rationale in three seconds.** Spend words by significance:
+
+| Significance | Words | When |
+|---|---|---|
+| `critical` (≤ 3) | title + rationale + notes | The one or two steps that make the rest legible |
+| `high` | title + rationale, notes if non-obvious | Contracts, first consumers, the fix |
+| `normal` | title + rationale | Everything the reviewer should still look at |
+| `low` | title + short rationale; may bundle mechanical rest | Fallout, remaining call sites, docs |
+| `skip` via `files` | rationale that says **why** it can be skipped | Lockfiles, generated, snapshots, formatting |
+
+Voice: a colleague at a whiteboard — matter-of-fact, direct, occasionally opinionated about their own code. Never testing the reader.
 
 ## Procedure (gates — do not skip)
 
@@ -22,14 +67,24 @@ Write one whenever you hand a non-trivial change to a human. Skip it for a one-f
 2. **Study the real patch** before writing any step. Never emit from your plan or memory of the edit:
 
    ```bash
+   git status --porcelain=v1 --untracked-files=all
    git -c core.quotepath=false diff --no-color --no-ext-diff -M -U3 --patch <base> <after>
    ```
 
+   For a working-tree review, include untracked files — Start captures with `git add -A`. **Omit `scope.diffDigest`** on working-tree guides: the sidecar is written into the tree it describes, so also list it in `files` as `skip` or the walk will step through the guide itself.
 3. List the **whiteboard thoughts** in the patch (helper vs consumer, type vs caller, failure vs fix, contract vs wiring). Distinct thoughts → distinct steps.
-4. Decide order: *what would I draw first at a whiteboard?* Prefer more, smaller steps when a hunk mixes thoughts.
-5. Write `.tabthrough-guide.json`. Use **`ranges` whenever one file has more than one thought** — a whole-file claim is only correct when the whole file is one thought.
-6. Optionally set `scope.diffDigest` (recipe in guide-schema.md §7).
-7. Validate against `schema/guide-v1.json` and run **Before you emit**.
+4. Decide order: *what would I draw first at a whiteboard?* Use the recipes below.
+5. **Anchor with new-file line numbers.** `-U0` hunk headers give them directly:
+
+   ```bash
+   git -c core.quotepath=false diff --no-color --no-ext-diff -M -U0 <base> <after> | grep -E '^(\+\+\+ |@@ )'
+   ```
+
+   `@@ -a,b +c,d @@` → the changed new-side lines are `c..c+d-1` (a missing count means 1). `d = 0` is a pure deletion: anchor it with `"side": "old"` on `a..a+b-1`. Ranges **intersect** changed lines, so the enclosing function's span is enough — the hunk header is your check that the range hits something.
+
+   A contiguous run of changed lines is **atomic**: a range cannot split it, and two runs separated by a single unchanged line count as one run. Two steps aimed at one run → the second is dropped as `range-overlap`. When two thoughts share a run, write one step: the title names the block, `notes` names the second thought.
+6. Write `.tabthrough-guide.json`. Use **`ranges` whenever one file has more than one thought**; a whole-file claim is only correct when the whole file is one thought.
+7. Run **Before you emit**.
 
 ## One thought per Tab
 
@@ -41,103 +96,88 @@ A step is one unit of understanding the reader can absorb, then press Tab. **If 
 | Type / invariant, then first caller | Long uniform table or similar edits (`grouping: "split"`) |
 | Failing test / bug statement, then the fix | Import reordering + lockfile (`skip` via `files`) |
 
-**Canonical anti-pattern:** bundling introduction of `eventActionName` **and** a `jsxEvent` refactor into one flashy panel. Those are two thoughts → **two steps** (helper first, then consumer), even in one file or one hunk. Use separate `ranges` + `order` / `dependsOn`. Full worked JSON: `work-docs/guides/agent-guide-authoring.md` §5.1. Golden dogfood fixture: `test/fixtures/diffs/helper-consumer-refactor.diff` + `test/fixtures/guides/helper-consumer.guide.json` (see `test/fixtures/README.md`).
+Canonical anti-pattern: a helper and its consumer in one panel. Two thoughts → two steps, even in one file or one hunk, whenever they are separate runs of changed lines — separate `ranges`, helper first, `dependsOn`.
 
-Never optimize for an impressive single panel. Optimize for Tab navigation that builds a mental model. Coarse multi-thought steps are a **defect**, not author preference.
+**One screen per step.** The highlighted lines should fit one editor screen (~40 lines). Larger → it is two thoughts, or a uniform region that wants `grouping: "split"`.
 
-## Minimal valid document
+**File switches cost attention.** Keep consecutive steps in one file when the story allows. When you must return to a file, say so in the rationale.
 
-```json
-{
-  "version": 1,
-  "steps": [
-    { "id": "a", "path": "src/types.ts", "rationale": "Types before callers" },
-    { "id": "b", "path": "src/service.ts", "rationale": "The first consumer of those types" }
-  ]
-}
-```
+## Worked example
 
-No `ranges` → claims every unclaimed change in that file. Reach for this only when the file is one thought.
-
-## Typical document (multi-thought file uses ranges)
+Bug fix: retries treated 4xx as transient. The test leads (the heuristic would sort it last), the rule follows, then its consumer; docs are a footnote.
 
 ```json
 {
   "$schema": "https://tabthrough.dev/schema/guide-v1.json",
   "version": 1,
   "scope": { "kind": "commit", "base": "9f2c1ab", "head": "4d81e30" },
-  "summary": "One paragraph on the shape of the change, read once before step one.",
+  "summary": "Retries stop treating 4xx as transient. The failing case first, then the rule, then the client loop that adopts it. Lockfile churn is skipped.",
   "files": {
     "pnpm-lock.yaml": { "significance": "skip", "rationale": "Lockfile churn from the same install" }
   },
   "steps": [
     {
-      "id": "the-contract",
+      "id": "the-bug",
       "order": 10,
-      "path": "src/guide/types.ts",
-      "ranges": [{ "side": "new", "start": 18, "end": 27 }],
+      "path": "test/http/retry.test.ts",
+      "ranges": [{ "start": 41, "end": 58 }],
       "significance": "critical",
-      "title": "New weight field",
-      "rationale": "The field every later step is about",
-      "notes": "Longer explanation, markdown, shown on demand."
+      "title": "429 then 404 must not retry",
+      "rationale": "The failure the rest of the diff answers — read it before the fix",
+      "notes": "On the old code this test loops three times and passes by timeout. Client errors cannot succeed on repeat, so retrying them only hid rate-limit bugs behind slow attempts."
     },
     {
-      "id": "producer",
+      "id": "retry-rule",
       "order": 20,
-      "path": "src/guide/heuristic.ts",
-      "ranges": [{ "side": "new", "start": 64, "end": 118 }],
+      "path": "src/http/retry.ts",
+      "ranges": [{ "start": 12, "end": 24 }],
       "significance": "high",
-      "rationale": "Where that field gets its value",
-      "dependsOn": ["the-contract"]
+      "title": "Transient means 5xx or network",
+      "rationale": "The single rule every caller below consults",
+      "dependsOn": ["the-bug"]
     },
     {
-      "id": "consumer",
+      "id": "client-adopts",
       "order": 30,
-      "path": "src/ui/status-bar.ts",
-      "rationale": "First consumer — what the reader will actually see",
-      "dependsOn": ["producer"]
+      "path": "src/http/client.ts",
+      "ranges": [{ "start": 88, "end": 101 }],
+      "significance": "high",
+      "title": "Retry loop asks the rule",
+      "rationale": "First consumer — the loop that used to retry everything",
+      "dependsOn": ["retry-rule"]
+    },
+    {
+      "id": "readme",
+      "order": 40,
+      "path": "README.md",
+      "significance": "low",
+      "title": "Retry note in the docs",
+      "rationale": "Footnote — the behaviour you just read, stated for users"
     }
   ]
 }
 ```
+
+Read the titles top to bottom: a table of contents. Read the rationales: a story. One `critical`, notes only where the code could not explain itself.
 
 ## Field cheatsheet
 
 | Field | Notes |
 |---|---|
 | `version` | Must be `1`. Anything else → whole document ignored |
+| `summary` | ≤ 600 chars, aim ≤ 350. Always visible |
+| `files` | path → `{ significance, rationale }`. Lockfiles, generated, snapshots → `"skip"` |
 | `steps[].id` | Unique, `^[A-Za-z0-9._:-]{1,64}$` |
 | `steps[].path` | Repo-relative POSIX, post-image. Must exist in the patch |
+| `steps[].title` | ≤ 60 chars. Names the thought. Every step |
 | `steps[].rationale` | Required, ≤ 120 chars, one line, about **position** |
+| `steps[].notes` | ≤ 2000 chars, plain text, only where needed |
 | `steps[].order` | Sparse: 10, 20, 30 |
-| `steps[].ranges` | File line numbers (not hunk offsets). Intersect changed groups; coarse is fine. `"side": "old"` for pure deletions. **Required when one file has multiple thoughts** |
+| `steps[].ranges` | New-file line numbers (not hunk offsets). Intersect changed lines; coarse is fine; a contiguous run cannot be split. `"side": "old"` for pure deletions. **Required when one file has multiple thoughts** |
 | `steps[].significance` | `critical` / `high` / `normal` / `low` / `skip` |
 | `steps[].grouping` | `atomic` (default) / `split` (long *uniform* region) / `mergeWithNext` (genuinely inseparable adjacent hunks — never to glue two thoughts) |
-| `steps[].notes` | Markdown ≤ 2000 chars, on demand |
-| `steps[].dependsOn` | Earlier step ids; refines `order`; cycle drops all edges |
-| `files` | Lockfiles, generated, snapshots → `significance: "skip"` |
-| `scope` | `workingTree` / `commit` / `range`; add `diffDigest` for staleness |
-
-## Rules
-
-- **Study the patch first.** Steps come from the diff you just read, not the plan.
-- **One step is one thought.** Split helper vs consumer, type vs caller, failure vs fix, contract vs wiring.
-- **`ranges` for multi-thought files.** Whole-file claims hide splits.
-- **Rationale explains position, not content.** "Types before callers" — good. "Adds a significance field" — the reader is looking at it.
-- **8–25 steps** typical. Above 40 → demote with `significance` / `files`, never hide. Prefer more small steps over one multi-thought panel.
-- **At most ~3 `critical`.**
-- **Order across files** is the main value vs the path-tier heuristic.
-- **Nothing may reference a later step.**
-- **Anchor coarsely.** Point at the enclosing function.
-
-## Never
-
-- **No exam.** No questions, "make sure you understand", scores, difficulty, reading-time, or gates.
-- **No restating the diff.**
-- **No multi-thought panels** (helper+consumer in one step is the named anti-pattern).
-- **No steps for files not in the patch.**
-- **No secrets, tokens, or absolute paths.**
-- **No session-private codenames.**
+| `steps[].dependsOn` | Earlier step ids; refines `order`; a cycle drops all edges |
+| `scope` | `workingTree` / `commit` / `range` with `base` / `head`. Omit `diffDigest` for working-tree guides |
 
 ## Order recipes
 
@@ -153,13 +193,41 @@ No `ranges` → claims every unclaimed change in that file. Reach for this only 
 | Codemod / rename | pattern step → `low` rest | Hand-fixes hiding in noise |
 | Config / CI | behaviour change → file expressing it | Assuming small = unimportant |
 
+## Never
+
+- **No exam.** No questions, "make sure you understand", scores, difficulty, reading-time, or gates.
+- **No restating the diff.** The reviewer sees the code.
+- **No multi-thought panels.** Helper + consumer in one step is the named defect.
+- **No forward references.** Nothing mentions a symbol or step not yet revealed.
+- **No markdown in `notes`.** Plain sentences; backticks around identifiers only.
+- **No steps for files not in the patch.**
+- **No secrets, tokens, absolute paths, or session-private codenames.**
+
 ## Before you emit
 
-- Studied the real patch; steps match it, not the plan.
-- **Did I merge two whiteboard thoughts into one step?** If yes, split (ranges + order).
-- Rationales read as a story; none references a later step; each would be false if moved.
-- Multi-thought files use `ranges`; `mergeWithNext` is not used to glue distinct thoughts.
-- 8–25 steps; ≤3 `critical`; generated demoted.
-- Paths in the patch; ids unique; order sparse; `dependsOn` acyclic.
-- Validates against `schema/guide-v1.json`.
-- **Real test:** could someone who read only this guide explain the change correctly without scrolling the diff — **one thought per Tab**?
+**Patch gate**
+
+- Studied the real patch; every step matches it, not the plan. Working-tree walks include untracked files.
+
+**Words gate**
+
+- Titles read top to bottom as a table of contents; rationales read as a story.
+- Every rationale is about position and would be false if the step moved.
+- No rationale or note mentions something a later step introduces.
+- Notes only where the code cannot explain itself; plain text.
+- `summary` names the strands in walk order and what is demoted.
+
+**Granularity gate**
+
+- No step merges two whiteboard thoughts; multi-thought files use `ranges`; `mergeWithNext` glues nothing distinct.
+- Each step fits one screen or is `split`.
+- ≤ 3 `critical`; noise demoted via `files`, never hidden.
+
+**Mechanical gate**
+
+- Every `path` is in `git diff --name-status`.
+- Every range intersects a `-U0` hunk on its side; no two steps aim at one contiguous run; deletions use `"side": "old"`.
+- Ids unique; `order` sparse; `dependsOn` acyclic and pointing backwards.
+- Only schema fields; valid JSON; working-tree scope has no `diffDigest`.
+
+**Real test:** could someone who read only this guide explain the change correctly without scrolling the diff — **one thought per Tab**?

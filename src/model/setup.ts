@@ -57,7 +57,7 @@ export const COMMAND_TARGET = '.cursor/commands/tabthrough.md'
 
 export const COMMAND_BODY = `Follow the Tabthrough skill and write \`.tabthrough-guide.json\` for the review target in this chat.
 
-Study the real git patch first. One thought per Tab step. Use ranges when a file has more than one thought. Rationales explain position, not content. No quizzes.
+Study the real git patch first. One thought per Tab step; \`ranges\` when a file has more than one thought, anchored with new-file line numbers from \`git diff -U0\` hunk headers. Every step gets a \`title\` that names the thought, a \`rationale\` that says why it comes here, and \`notes\` only where the code cannot explain itself (plain text). No quizzes, no restating the diff.
 `
 
 type SetupKind = SetupPhase['kind']
@@ -70,7 +70,7 @@ const rangeFrom = atom<string | null>(null, 'setup.rangeFrom')
 const rangeTo = atom<string | null>(null, 'setup.rangeTo')
 const generateTarget = atom<ReviewTarget | null>(null, 'setup.generateTarget')
 
-export const recentCommits = computed(async () => {
+export const recentCommits = computed(async (): Promise<readonly CommitSummary[]> => {
   const kind = setupKind()
   if (kind !== 'commits' && kind !== 'range')
     return peek(recentCommits.data)
@@ -250,14 +250,18 @@ function scopeFor(target: ReviewTarget, baseRev: string, afterRev: string | null
 }
 
 function gitDiffHint(target: ReviewTarget, baseRev: string, afterRev: string | null): string {
-  const quoted = 'git -c core.quotepath=false diff --no-color --no-ext-diff -M -U3 --patch'
+  const quoted = 'git -c core.quotepath=false diff --no-color --no-ext-diff -M'
+  const revs = afterRev === null ? baseRev : `${baseRev} ${afterRev}`
+  const patch = `${quoted} -U3 --patch ${revs}`
+  const anchors = `${quoted} -U0 ${revs} | grep -E '^(\\+\\+\\+ |@@ )'`
   if (afterRev === null) {
     return [
       'git status --porcelain=v1 --untracked-files=all',
-      `${quoted} ${baseRev}`,
+      patch,
+      anchors,
     ].join('\n')
   }
-  return `${quoted} ${baseRev} ${afterRev}`
+  return [patch, anchors].join('\n')
 }
 
 export function agentPromptFor(target: ReviewTarget, sidecarPath: string, baseRev: string, afterRev: string | null): string {
@@ -286,8 +290,10 @@ export function agentPromptFor(target: ReviewTarget, sidecarPath: string, baseRe
     target.kind === 'commit' ? `- scope.head: ${afterRev ?? target.rev}` : '',
     target.kind === 'range' ? `- scope.base / scope.head: ${target.from} .. ${target.to}` : '',
     '- one thought per step; split helper vs consumer, type vs caller, failure vs fix',
-    '- use ranges whenever one file has more than one thought',
-    '- rationale is about position (why this step is here), one line, ≤ 120 chars',
+    '- use ranges whenever one file has more than one thought; anchor with new-file line numbers from `git diff -U0` hunk headers',
+    '- every step: `title` names the thought (≤ 60 chars); `rationale` says why it comes here (one line, ≤ 120 chars); `notes` only for the why that is not in the code (plain text)',
+    '- `summary`: 2–3 sentences — the map the reviewer sees on every step',
+    '- demote lockfiles, generated files, and mechanical fallout via `files` (`skip` / `low`) with a rationale that says why',
     '- no quizzes, scores, or restating the diff',
     '',
     `When the file is written, leave it focused so the reviewer can press Start.`,
@@ -435,8 +441,8 @@ async function settleRecentCommits(): Promise<void> {
     await wrap(recentCommits())
   }
   catch (error) {
-    if (isAbort(error))
-      return
+    if (!isAbort(error))
+      throw error
   }
 }
 

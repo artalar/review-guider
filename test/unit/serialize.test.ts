@@ -156,4 +156,18 @@ describe('agentPromptFor', () => {
     expect(prompt).toContain('.tabthrough-guide.json')
     expect(prompt).toContain('abc123')
   })
+
+  it('spells out the words contract and the -U0 anchor recipe', () => {
+    const prompt = agentPromptFor(
+      { kind: 'range', from: 'main', to: 'HEAD' },
+      '.tabthrough-guide.json',
+      'base',
+      'HEAD',
+    )
+    expect(prompt).toContain('-U0 base HEAD')
+    expect(prompt).toContain('`title` names the thought')
+    expect(prompt).toContain('`notes` only for the why that is not in the code')
+    expect(prompt).toContain('`summary`')
+    expect(prompt).toContain('main .. HEAD')
+  })
 })

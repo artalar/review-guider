@@ -51,7 +51,7 @@ MVP reads a single document. Multi-document layouts (`.guide/*.json` keyed by re
 | `version` | integer | **yes** | — | Must be `1` |
 | `steps` | array of Step | **yes** | — | May be empty (a document that only carries `files` overrides is legal) |
 | `scope` | Scope | no | — | What diff this guide was written for. Used for staleness detection |
-| `summary` | string | no | — | One paragraph of narrative, shown once at session start. ≤ 600 chars |
+| `summary` | string | no | — | One paragraph of narrative, shown in the sidebar on every step. ≤ 600 chars |
 | `defaults` | Defaults | no | `{}` | Document-wide knobs |
 | `files` | object, path → FileOverride | no | `{}` | Per-file defaults applied to heuristic steps |
 | `generator` | Generator | no | — | Provenance. Never affects behaviour |
@@ -87,7 +87,7 @@ MVP reads a single document. Multi-document layouts (`.guide/*.json` keyed by re
 | `significance` | `"critical" \| "high" \| "normal" \| "low" \| "skip"` | no | `"normal"` | §6.1 |
 | `grouping` | `"atomic" \| "split" \| "mergeWithNext"` | no | `"atomic"` | §6.2 |
 | `title` | string | no | — | Short label, ≤ 60 chars |
-| `notes` | string | no | — | Longer explanation, markdown, shown on demand. ≤ 2000 chars |
+| `notes` | string | no | — | Longer explanation, plain text, shown in the sidebar whenever present. ≤ 2000 chars |
 | `dependsOn` | array of string | no | `[]` | Step ids that must come earlier. Refines `order`, never contradicts it silently (§5.3) |
 | `tags` | array of string | no | `[]` | Free-form labels. Reserved for future filtering; ignored in v1 |
 
@@ -203,7 +203,7 @@ Significance is a **teaching weight**, not a severity. It answers "how much of t
 
 | Value | Reveal behaviour | Presentation |
 |-------|------------------|--------------|
-| `critical` | Never merged with a neighbouring step; never coalesced by compact mode (P1) | Status bar emphasis; `notes` shown by default if present |
+| `critical` | Never merged with a neighbouring step; never coalesced by compact mode (P1) | Status bar emphasis |
 | `high` | Never merged; `split` produces one group per step | Status bar emphasis |
 | `normal` | Default. `split` respects `maxLinesPerStep` | Plain |
 | `low` | May be coalesced with adjacent `low` steps in the same file up to `maxLinesPerStep` | Plain |
