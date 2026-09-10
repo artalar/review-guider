@@ -30,7 +30,9 @@ import {
   pickWorkingTree,
   resetSetup,
   selectCommit,
+  selectRangeRev,
   setupBack,
+  setupPhase,
   skillInstalled,
   submitRange,
 } from '../model/setup'
@@ -54,9 +56,13 @@ export function useGuideCommands(): void {
     [Commands.installSkill]: wrap(() => guard('installSkill', () => installWorkspaceSkill())),
     [Commands.pickWorkingTree]: wrap(() => guard('pickWorkingTree', async () => pickWorkingTree())),
     [Commands.pickCommit]: wrap(() => guard('pickCommit', () => loadCommits())),
-    [Commands.pickRange]: wrap(() => guard('pickRange', async () => pickRange())),
+    [Commands.pickRange]: wrap(() => guard('pickRange', () => pickRange())),
     [Commands.selectCommit]: wrap((rev?: unknown) => guard('selectCommit', async () => {
-      if (typeof rev === 'string')
+      if (typeof rev !== 'string')
+        return
+      if (peek(setupPhase).kind === 'range')
+        selectRangeRev(rev)
+      else
         selectCommit(rev)
     })),
     [Commands.submitRange]: wrap((raw?: unknown) => guard('submitRange', async () => {

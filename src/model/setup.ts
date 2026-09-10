@@ -6,7 +6,7 @@ import {
   action,
   atom,
   computed,
-  framePromise,
+  isAbort,
   peek,
   withAbort,
   withAsync,
@@ -60,8 +60,52 @@ export const COMMAND_BODY = `Follow the Tabthrough skill and write \`.tabthrough
 Study the real git patch first. One thought per Tab step. Use ranges when a file has more than one thought. Rationales explain position, not content. No quizzes.
 `
 
-export const setupPhase = atom<SetupPhase>({ kind: 'home' }, 'setup.phase')
-export const lastCommits = atom<readonly CommitSummary[]>([], 'setup.lastCommits')
+type SetupKind = SetupPhase['kind']
+
+const EMPTY_COMMITS: readonly CommitSummary[] = []
+
+const setupKind = atom<SetupKind>('home', 'setup.kind')
+const setupError = atom<string | null>(null, 'setup.error')
+const rangeFrom = atom<string | null>(null, 'setup.rangeFrom')
+const rangeTo = atom<string | null>(null, 'setup.rangeTo')
+const generateTarget = atom<ReviewTarget | null>(null, 'setup.generateTarget')
+
+export const recentCommits = computed(async () => {
+  const kind = setupKind()
+  if (kind !== 'commits' && kind !== 'range')
+    return peek(recentCommits.data)
+
+  const capability = await wrap(gitCapability())
+  if (capability === null || !capability.ok)
+    return EMPTY_COMMITS
+
+  return await wrap(readRecentCommits(capability.repoRoot, {
+    limit: DEFAULT_COMMIT_LIMIT,
+    signal: abortVar.require().signal,
+  }))
+}, 'setup.recentCommits').extend(withAsyncData({ initState: EMPTY_COMMITS }))
+
+export const setupPhase = computed((): SetupPhase => {
+  const kind = setupKind()
+  const commits = recentCommits.data()
+  const loading = recentCommits.pending() > 0 && commits.length === 0
+  const fetchFailed: unknown = recentCommits.error()
+  const error = setupError() ?? (fetchFailed == null ? null : 'Could not load recent history.')
+
+  if (kind === 'commits')
+    return { kind: 'commits', commits, loading, error }
+  if (kind === 'range')
+    return { kind: 'range', commits, loading, error, from: rangeFrom(), to: rangeTo() }
+  if (kind === 'generate') {
+    const target = generateTarget()
+    if (target !== null)
+      return { kind: 'generate', target }
+  }
+  if (kind === 'targets')
+    return { kind: 'targets' }
+  return { kind: 'home' }
+}, 'setup.phase')
+
 export const skillEpoch = atom(0, 'setup.skillEpoch')
 export const sidecarEpoch = atom(0, 'setup.sidecarEpoch')
 export const focusedGuidePath = atom<string | null>(null, 'setup.focusedGuide')
@@ -93,88 +137,108 @@ export const sidecarExists = computed(async () => {
 }, 'setup.sidecarExists').extend(withAsyncData({ initState: false }))
 
 export const resetSetup = action(() => {
-  setupPhase.set({ kind: 'home' })
+  setupError.set(null)
+  rangeFrom.set(null)
+  rangeTo.set(null)
+  generateTarget.set(null)
+  setupKind.set('home')
 }, 'setup.reset')
 
 export const openTargetPicker = action(() => {
   if (peek(sessionStatus) !== 'idle')
     return
-  setupPhase.set({ kind: 'targets' })
+  setupError.set(null)
+  setupKind.set('targets')
 }, 'setup.openTargets')
 
 export const setupBack = action(() => {
-  const phase = peek(setupPhase)
-  if (phase.kind === 'generate') {
-    if (phase.target.kind === 'commit') {
-      setupPhase.set({ kind: 'commits', commits: peek(lastCommits), loading: false, error: null })
+  const kind = peek(setupKind)
+  const target = peek(generateTarget)
+  if (kind === 'generate' && target !== null) {
+    setupError.set(null)
+    if (target.kind === 'commit') {
+      setupKind.set('commits')
       return
     }
-    if (phase.target.kind === 'range') {
-      setupPhase.set(idleRangePhase({ from: phase.target.from, to: phase.target.to }))
+    if (target.kind === 'range') {
+      rangeFrom.set(target.from)
+      rangeTo.set(target.to)
+      setupKind.set('range')
       return
     }
-    setupPhase.set({ kind: 'targets' })
+    setupKind.set('targets')
     return
   }
-  if (phase.kind === 'commits' || phase.kind === 'range') {
-    setupPhase.set({ kind: 'targets' })
+  setupError.set(null)
+  if (kind === 'commits' || kind === 'range' || kind === 'generate') {
+    setupKind.set('targets')
     return
   }
-  setupPhase.set({ kind: 'home' })
+  setupKind.set('home')
 }, 'setup.back')
 
 export const pickWorkingTree = action(() => {
-  setupPhase.set({ kind: 'generate', target: { kind: 'workingTree' } })
+  setupError.set(null)
+  generateTarget.set({ kind: 'workingTree' })
+  setupKind.set('generate')
 }, 'setup.pickWorkingTree')
 
 export const loadCommits = action(async (): Promise<void> => {
-  setupPhase.set({ kind: 'commits', commits: peek(lastCommits), loading: true, error: null })
-  await loadHistoryInto('commits')
-}, 'setup.loadCommits').extend(withAsync(), withAbort('first-in-win'))
+  setupError.set(null)
+  setupKind.set('commits')
+  await settleRecentCommits()
+}, 'setup.loadCommits')
 
 export const pickRange = action(async (): Promise<void> => {
-  setupPhase.set({
-    kind: 'range',
-    commits: peek(lastCommits),
-    loading: true,
-    error: null,
-    from: null,
-    to: null,
-  })
-  await loadHistoryInto('range')
-}, 'setup.pickRange').extend(withAsync(), withAbort('first-in-win'))
+  setupError.set(null)
+  rangeFrom.set(null)
+  rangeTo.set(null)
+  setupKind.set('range')
+  await settleRecentCommits()
+}, 'setup.pickRange')
 
 export const selectCommit = action((rev: string) => {
   const error = commitRevError(rev)
-  const phase = peek(setupPhase)
-  if (phase.kind === 'range') {
-    if (error !== null) {
-      setupPhase.set({ ...phase, error })
-      return
-    }
-    setupPhase.set(nextRangeSelection(phase, rev))
-    return
-  }
   if (error !== null) {
-    if (phase.kind === 'commits')
-      setupPhase.set({ ...phase, error })
+    if (peek(setupKind) === 'commits')
+      setupError.set(error)
     return
   }
-  setupPhase.set({ kind: 'generate', target: { kind: 'commit', rev: rev.trim() } })
+  setupError.set(null)
+  generateTarget.set({ kind: 'commit', rev: rev.trim() })
+  setupKind.set('generate')
 }, 'setup.selectCommit')
 
+export const selectRangeRev = action((rev: string) => {
+  if (peek(setupKind) !== 'range')
+    return
+  const error = commitRevError(rev)
+  if (error !== null) {
+    setupError.set(error)
+    return
+  }
+  const next = nextRangeSelection(peek(rangeFrom), peek(rangeTo), rev, peek(recentCommits.data))
+  rangeFrom.set(next.from)
+  rangeTo.set(next.to)
+  setupError.set(null)
+}, 'setup.selectRangeRev')
+
 export const submitRange = action((raw: string) => {
+  if (peek(setupKind) !== 'range')
+    return
   const error = rangeInputError(raw)
   if (error !== null) {
-    setRangeError(error)
+    setupError.set(error)
     return
   }
   const range = parseRangeInput(raw)
   if (range === null) {
-    setRangeError('Expected two revisions separated by .. or ...')
+    setupError.set('Expected two revisions separated by .. or ...')
     return
   }
-  setupPhase.set({ kind: 'generate', target: { kind: 'range', from: range.from, to: range.to } })
+  setupError.set(null)
+  generateTarget.set({ kind: 'range', from: range.from, to: range.to })
+  setupKind.set('generate')
 }, 'setup.submitRange')
 
 function scopeFor(target: ReviewTarget, baseRev: string, afterRev: string | null): GuideScopeDoc {
@@ -366,67 +430,37 @@ export function describeSetupTarget(target: ReviewTarget): string {
   return describeTarget(target, { short: true })
 }
 
-function idleRangePhase(overrides: Partial<Omit<RangeSetupPhase, 'kind'>> = {}): RangeSetupPhase {
-  return {
-    kind: 'range',
-    commits: peek(lastCommits),
-    loading: false,
-    error: null,
-    from: null,
-    to: null,
-    ...overrides,
+async function settleRecentCommits(): Promise<void> {
+  try {
+    await wrap(recentCommits())
+  }
+  catch (error) {
+    if (isAbort(error))
+      return
   }
 }
 
-function setRangeError(error: string): void {
-  const phase = peek(setupPhase)
-  if (phase.kind === 'range') {
-    setupPhase.set({ ...phase, error })
-    return
-  }
-  setupPhase.set(idleRangePhase({ error }))
-}
-
-async function loadHistoryInto(expected: 'commits' | 'range'): Promise<void> {
-  framePromise().catch(wrap(() => {
-    const phase = peek(setupPhase)
-    if (phase.kind === expected && phase.loading)
-      setupPhase.set({ ...phase, loading: false, error: 'Could not load recent history.' })
-  }))
-  const capability = await wrap(gitCapability())
-  if (capability === null || !capability.ok) {
-    const phase = peek(setupPhase)
-    if (phase.kind === expected)
-      setupPhase.set({ ...phase, commits: [], loading: false, error: null })
-    return
-  }
-  const commits = await wrap(readRecentCommits(capability.repoRoot, {
-    limit: DEFAULT_COMMIT_LIMIT,
-    signal: abortVar.require().signal,
-  }))
-  lastCommits.set(commits)
-  const phase = peek(setupPhase)
-  if (phase.kind === expected)
-    setupPhase.set({ ...phase, commits, loading: false, error: null })
-}
-
-function nextRangeSelection(phase: RangeSetupPhase, rev: string): RangeSetupPhase {
+function nextRangeSelection(
+  from: string | null,
+  to: string | null,
+  rev: string,
+  commits: readonly CommitSummary[],
+): { from: string | null, to: string | null } {
   const trimmed = rev.trim()
-  if (phase.from === null && phase.to === null)
-    return { ...phase, from: trimmed, to: null, error: null }
+  if (from === null && to === null)
+    return { from: trimmed, to: null }
 
-  if (phase.to === null) {
-    if (phase.from === null || sameCommitRev(phase.from, trimmed, phase.commits))
-      return { ...phase, from: null, error: null }
-    const ordered = orderRangeBounds(phase.from, trimmed, phase.commits)
-    return { ...phase, from: ordered.from, to: ordered.to, error: null }
+  if (to === null) {
+    if (from === null || sameCommitRev(from, trimmed, commits))
+      return { from: null, to: null }
+    return orderRangeBounds(from, trimmed, commits)
   }
 
-  if (sameCommitRev(phase.from, trimmed, phase.commits))
-    return { ...phase, from: phase.to, to: null, error: null }
-  if (sameCommitRev(phase.to, trimmed, phase.commits))
-    return { ...phase, to: null, error: null }
-  return { ...phase, from: trimmed, to: null, error: null }
+  if (sameCommitRev(from, trimmed, commits))
+    return { from: to, to: null }
+  if (sameCommitRev(to, trimmed, commits))
+    return { from, to: null }
+  return { from: trimmed, to: null }
 }
 
 function orderRangeBounds(

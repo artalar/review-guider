@@ -1,5 +1,6 @@
 import { context, peek } from '@reatom/core'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { workspaceRoot } from '../../src/model/session'
 import {
   generateAgentGuide,
   generateSimpleGuide,
@@ -7,7 +8,9 @@ import {
   loadCommits,
   pickRange,
   pickWorkingTree,
+  recentCommits,
   selectCommit,
+  selectRangeRev,
   setupBack,
   setupPhase,
   submitRange,
@@ -89,12 +92,54 @@ describe('setup machine', () => {
     expect(phase.kind === 'range' && phase.loading).toBe(false)
     expect(phase.kind === 'range' && phase.commits.length).toBeGreaterThanOrEqual(2)
 
-    selectCommit(newer)
+    selectRangeRev(newer)
     expect(peek(setupPhase)).toMatchObject({ kind: 'range', from: newer, to: null })
-    selectCommit(older)
+    selectRangeRev(older)
     expect(peek(setupPhase)).toMatchObject({ kind: 'range', from: older, to: newer })
-    selectCommit(older)
+    selectRangeRev(older)
     expect(peek(setupPhase)).toMatchObject({ kind: 'range', from: newer, to: null })
+  })
+
+  it('reopens the range picker after Back during an in-flight history load', async () => {
+    const repo = await makeTempRepo({ files: { 'README.md': '# fixture\n' } })
+    const harness = await bootstrapModel(repo.root)
+    dispose = harness.dispose
+
+    const first = pickRange()
+    setupBack()
+    await pickRange()
+    const reopened = peek(setupPhase)
+    expect(reopened.kind).toBe('range')
+    expect(reopened.kind === 'range' && reopened.loading).toBe(false)
+    await first
+    expect(peek(setupPhase).kind).toBe('range')
+  })
+
+  it('does not treat an aborted history load as a picker error', async () => {
+    const repo = await makeTempRepo({ files: { 'README.md': '# fixture\n' } })
+    const harness = await bootstrapModel(repo.root)
+    dispose = harness.dispose
+
+    const pending = pickRange()
+    recentCommits.abort()
+    await pending
+    expect(peek(setupPhase)).toMatchObject({ kind: 'range', error: null })
+  })
+
+  it('shows an empty history list when git is unavailable', async () => {
+    const repo = await makeTempRepo({ files: { 'README.md': '# fixture\n' } })
+    const harness = await bootstrapModel(repo.root)
+    dispose = harness.dispose
+
+    workspaceRoot.set(null)
+    await pickRange()
+    expect(peek(setupPhase)).toMatchObject({ kind: 'range', commits: [], loading: false, error: null })
+  })
+
+  it('ignores submitRange and selectRangeRev when not on the range picker', () => {
+    submitRange('main..HEAD')
+    selectRangeRev('abc')
+    expect(peek(setupPhase).kind).toBe('home')
   })
 
   it('refuses Simple when there is nothing to review', async () => {

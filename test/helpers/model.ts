@@ -6,7 +6,7 @@ import type { Session } from '../../src/model/steps'
 import { access, mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { canStart, gitCapability, gitState, ports, startSession, workspaceRoot } from '../../src/model/session'
-import { sidecarExists, skillInstalled } from '../../src/model/setup'
+import { setupPhase, sidecarExists, skillInstalled } from '../../src/model/setup'
 import { reviewViewModel } from '../../src/model/view'
 
 /**
@@ -125,6 +125,7 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
     gitState.subscribe(() => {}),
     skillInstalled.subscribe(() => {}),
     sidecarExists.subscribe(() => {}),
+    setupPhase.subscribe(() => {}),
   )
   if (options.withReview === true)
     unsubscribes.push(reviewViewModel.subscribe(() => {}))
