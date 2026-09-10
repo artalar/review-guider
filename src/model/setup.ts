@@ -22,7 +22,7 @@ import { buildHeuristicGuide } from '../guide/heuristic'
 import { parseUnifiedDiff } from '../guide/parse-diff'
 import { formatGuideJson, serializeGuide } from '../guide/serialize'
 import { resolveSafeSidecarPath } from '../guide/sidecar'
-import { guideFile, heuristicOptions, stashIncludeUntracked } from './config'
+import { guideFile, heuristicOptions } from './config'
 import { EmptyDiffError, gitCapability, ports, sessionStatus } from './session'
 
 export type SetupPhase
@@ -254,10 +254,10 @@ export const generateSimpleGuide = action(async (): Promise<void> => {
   const signal = abortVar.require().signal
   const plan = await wrap(planIsolation(
     repoRoot,
-    { entry: phase.target, includeUntracked: peek(stashIncludeUntracked), sessionMode: 'readonly' },
+    { entry: phase.target },
     { signal },
   ))
-  if (await refuseEmptyPlan(phase.target, plan.preflight.changedLineCount, plan.substantiveLineCount))
+  if (await refuseEmptyPlan(phase.target, plan.changedLineCount, plan.substantiveLineCount))
     return
 
   const raw = plan.afterRev === null
@@ -271,7 +271,7 @@ export const generateSimpleGuide = action(async (): Promise<void> => {
     guide: heuristic,
     scope: phase.target.kind === 'workingTree' ? scope : { ...scope, diffDigest: diff.digest },
     sidecarPath,
-    createdAt: new Date(peek(ports).clock.now()).toISOString(),
+    createdAt: new Date().toISOString(),
   })
   await wrap(peek(ports).ui.writeTextFile(repoRoot, sidecarPath, formatGuideJson(doc)))
   sidecarEpoch.set(value => value + 1)
@@ -300,10 +300,10 @@ export const generateAgentGuide = action(async (): Promise<void> => {
   const signal = abortVar.require().signal
   const plan = await wrap(planIsolation(
     capability.repoRoot,
-    { entry: phase.target, includeUntracked: peek(stashIncludeUntracked), sessionMode: 'readonly' },
+    { entry: phase.target },
     { signal },
   ))
-  if (await refuseEmptyPlan(phase.target, plan.preflight.changedLineCount, plan.substantiveLineCount))
+  if (await refuseEmptyPlan(phase.target, plan.changedLineCount, plan.substantiveLineCount))
     return
   const prompt = agentPromptFor(phase.target, sidecarPath, plan.baseRev, plan.afterRev)
   await wrap(peek(ports).ui.openAgentChat(prompt))

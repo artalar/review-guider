@@ -1,12 +1,12 @@
 # Tabthrough — Reatom Session Model
 
-**Version:** 1.1 (v0.1 + apply-mode surface)
+**Version:** 1.2 (ADR 0005 git-first)
 **Owner:** Architect
-**Status:** Proposed for implementation (apply atoms: design accepted, code not started)
+**Status:** Phase 12 landed — four-state machine, `gitState`, no recovery atoms
 **Target:** `@reatom/core@1001`
-**Last updated:** 2026-08-07
-**Companions:** [overview.md](overview.md) · [guide-schema.md](guide-schema.md) · [ADR 0002](../decisions/0002-architecture.md) · [ADR 0004](../decisions/0004-apply-mode.md)
-**Unblocks:** plan P0-8; apply Implementer work after Planner P0-A2
+**Last updated:** 2026-09-10
+**Companions:** [overview.md](overview.md) · [guide-schema.md](guide-schema.md) · [ADR 0002](../decisions/0002-architecture.md) · [ADR 0005](../decisions/0005-git-first-sessions.md)
+**Unblocks:** Phases 13–14
 
 > Read `.agents/skills/reatom/SKILL.md` and `.agents/skills/reatom-async/SKILL.md` before touching this model. Everything below follows those defaults; where this document is more specific, the reason is stated.
 
@@ -22,8 +22,8 @@
 | Factories use the `reatom*` prefix | `reatomSession`, `reatomReviewFile` |
 | Reads are zero-arg calls, writes are `.set(...)` | `cursor()` / `cursor.set(3)` |
 | No identity actions | The bridge writes `gitWatchToken.set(v => v + 1)` directly — there is no `bumpWatchToken` action |
-| Queries are `computed` + `withAsyncData` | `git.capability`, `git.repoStatus`, `…baseText`, `recovery.token` |
-| Mutations are `action` + `withAsync` | `session.start`, `session.finish`, `session.cancel`, `recovery.restore` |
+| Queries are `computed` + `withAsyncData` | `git.capability`, `git.repoStatus`, `git.state`, `…baseText` |
+| Mutations are `action` + `withAsync` | `session.start`, `session.finish`, `session.cancel`, git-state buttons |
 | Every async boundary uses `wrap` | §8 |
 | Immutable data stays plain | `Guide`, `GuideStep`, `DiffFile`, `LineGroup` are frozen values; only live state is atoms |
 
@@ -36,76 +36,44 @@
 ```
 workspaceRoot                atom<string | null>
 ports                        atom<Ports>                         installed once at activation
-config.showRationale         atom<boolean>                       mirrored from VS Code settings
+config.showRationale         atom<boolean>
 config.heuristicOptions      atom<HeuristicOptions>
 config.guideFile             atom<string>
-config.revealMode            atom<'progressive' | 'dim'>         readonly sessions only
-config.sessionMode           atom<'ask' | 'readonly' | 'apply'>  default ask; chooser at start
+config.revealMode            atom<'progressive' | 'dim'>
+config.sessionMode           atom<'ask' | 'readonly' | 'rebase' | 'worktree'>
+config.worktreeDir           atom<string>
 
-git.watchToken               atom<number>                        bumped by the bridge's FS watcher
-git.capability               computed + withAsyncData            repo? git? shallow? mid-rebase?
-git.repoStatus               computed + withAsyncData            porcelain=v2, refreshed by watchToken
+git.watchToken               atom<number>
+git.capability               computed + withAsyncData
+git.repoStatus               computed + withAsyncData
+git.state                    computed + withAsyncData            rebase / operation / conflicts / autostash / worktrees
 
-recovery.epoch               atom<number>
-recovery.token               computed + withAsyncData            persisted SessionToken via StorePort
-recovery.pending             computed<boolean>
-recovery.liveElsewhere       computed<boolean>                   fresh heartbeat = another window is reviewing
-recovery.lockOwner           computed + withAsyncData            refs/tabthrough/lock owner, or null
-recovery.staleLock           computed<boolean>                   lock with no recoverable/matching token
-recovery.orphanRefs          computed + withAsyncData            refs/tabthrough/** with no token
-recovery.clearStaleLock      action + withAsync + withAbort('first-in-win')
-recovery.restore             action + withAsync({status}) + withAbort('first-in-win')
-recovery.resumeApply         action + withAsync({status}) + withAbort('first-in-win')  // ADR 0004
-recovery.discard             action + withAsync
-session.heartbeat            action + withAsync                  stamps heartbeatAt while active
-
-preflight.request            atom<PreflightRequest | null>
-preflight.answer             action<(approved: boolean) => boolean>
-
-session.status               atom<SessionStatus>                 the single state machine
-session.status.to            action                              the ONLY writer; validates transitions
+session.status               atom<SessionStatus>                 idle | starting | active | finishing
+session.status.to            action
 session                      atom<Session | null>
-session.isolation            atom<IsolationHandle | null>        survives a failed start, for unwind
+session.isolation            atom<IsolationHandle | null>        after-ref handle
 session.diagnostics          atom<readonly GuideDiagnostic[]>
-session.isActive             computed<boolean>
+session.willRun              computed<string>                    "nothing" in Phase 12
+session.editedPaths          computed + withAsyncData
+session.editHereEnabled      computed<boolean>
 session.start                action + withAsync({status}) + withAbort('first-in-win')
-session.finish               action + withAsync({status}) + withAbort('first-in-win')  // mode-dependent
-session.cancel               action + withAsync({status}) + withAbort('first-in-win')  // always restore
-session.commitHandoff        action + withAsync                  apply: SCM focus; never silent commit
-session.teardown             action + withAsync                  internal; never aborted mid-git
-session.failed               action + withAsync                  internal; unwinds isolation
+session.finish / cancel      action + withAsync({status}) + withAbort('first-in-win')
+session.editHere             action + withAsync + withAbort('first-in-win')
+session.*Rebase / *Autostash / *Worktree / openConflict
+session.sweepOnActivate      action + withAsync
 
-ui.gitUsable                 computed<boolean>
-ui.canStart                  computed<boolean>
-ui.statusText                computed<string | null>
-ui.statusTooltip             computed<string | null>
-ui.reviewViewModel           computed<ReviewViewModel | null>    readonly bridge subscription
-ui.applyViewModel            computed<ApplyViewModel | null>     apply: active path + pending flag
+ui.gitUsable / canStart / rebaseInProgress / hasAutostash / …
+ui.reviewViewModel           computed<ReviewViewModel | null>
+ui.sidebarViewModel          computed<SidebarViewModel>
 
-— per session instance (reatomSession) —
-session#<id>.mode            plain 'readonly' | 'apply'          frozen at start
-session#<id>.cursor          atom<number>                        -1 = nothing revealed/applied
-session#<id>.appliedIndex    atom<number>                        apply: last successful write; tracks cursor after settle
-session#<id>.applyPending    computed<boolean>                   true while next/prev async in flight
-session#<id>.currentStep     computed<GuideStep | null>
-session#<id>.nextStep        computed<GuideStep | null>
-session#<id>.progress        computed<{ index, total }>
-session#<id>.canAdvance      computed<boolean>
-session#<id>.canRetreat      computed<boolean>
-session#<id>.isComplete      computed<boolean>
-session#<id>.activeFile      computed<ReviewFile | null>
-session#<id>.next            action  // readonly: sync; apply: + withAsync, no git signal
-session#<id>.prev            action  // readonly: sync; apply: + withAsync, no git signal
-session#<id>.jumpTo          action  // readonly only in v0.2; apply: disabled / walks
-session#<id>.trace           effect                              inside withConnectHook; dev tracing
-
-— per file (reatomReviewFile) — readonly path —
-…file#<path>.baseText        computed + withAsyncData            git cat-file blob <base>:<path>
-…file#<path>.revealedGroups  computed<readonly LineGroup[]>
-…file#<path>.render          computed<RevealRender | null>       pure fold: base + revealed groups
-…file#<path>.revealText      computed<string | null>
-…file#<path>.currentRanges   computed<readonly LineRange[]>      for decorations
+session#<id>.mode            plain SessionMode                   Phase 12 always 'readonly'
+session#<id>.cursor          atom<number>
+session#<id>.next / prev / jumpTo   sync actions
 ```
+
+Removed: recovery.*, preflight.*, applyPending, StorePort, heartbeat.
+
+> Sections 5–7 below still contain historical apply / recovery snippets. Treat §2 and §4 as normative for Phase 12.
 
 ---
 
@@ -168,24 +136,16 @@ The plan requires that status transitions be centralised in one action and that 
 ```ts
 // src/model/session.ts
 export type SessionStatus =
-  | 'idle'        // no session; commands available
-  | 'preflight'   // summary shown, waiting for the user; nothing touched yet
-  | 'stashing'    // isolation in progress; the tree may be mid-change
-  | 'active'      // reviewing (readonly) or apply walk (idle between Tabs)
-  | 'applying'    // apply mode: Tab/Previous write in flight
-  | 'restoring'   // restore in flight (Cancel / readonly Finish / recovery)
-  | 'blocked'     // restore could not be verified; everything preserved, user must act
-  | 'error'       // start failed and was unwound
+  | 'idle'
+  | 'starting'
+  | 'active'
+  | 'finishing'
 
 const LEGAL: Readonly<Record<SessionStatus, readonly SessionStatus[]>> = {
-  idle: ['preflight'],
-  preflight: ['stashing', 'idle', 'error'],
-  stashing: ['active', 'restoring', 'idle', 'error'],  // idle: isolate unwound itself
-  active: ['applying', 'restoring'],
-  applying: ['active', 'blocked', 'error'],            // blocked: conflict left tree needing user
-  restoring: ['idle', 'blocked', 'error'],
-  blocked: ['restoring', 'idle', 'active'],            // active: resume apply after conflict resolve
-  error: ['idle'],
+  idle: ['starting'],
+  starting: ['active', 'idle'],
+  active: ['finishing', 'idle'],
+  finishing: ['idle'],
 }
 
 export const sessionStatus = atom<SessionStatus>('idle', 'session.status').extend(target => ({

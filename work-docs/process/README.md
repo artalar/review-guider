@@ -41,4 +41,6 @@ flowchart TD
 
 **v0.1 MVP (closing)** — stash-safe Tab reveal + heuristic/sidecar; manual drills remain (see `specs/product.md`, ADR 0001).
 
-**Next (v0.2)** — apply-with-user / commit-oriented walkthrough + finer guide steps; ADR 0004 accepted; Planner P0-A2 **Done**; Implementer P0-A3 (Phase 7) **reopened** and P0-A5 (Phase 9) **landed but unreviewed** — see [review 002](../progress/reviews/002.md): 3 blockers on the apply Cancel/conflict paths and a red `test:ci`. **Next: P0-A3-F1…F4**, which gate P0-A4 (see `progress/backlog.md`).
+**v0.2 (stopped)** — apply-with-user track (P0-A3…A6) superseded before ship; guide-quality track (P0-G1–G3) **Done**.
+
+**Next (v0.3 — git-first)** — [ADR 0005](../decisions/0005-git-first-sessions.md) accepted. Phase 12 (P0-N2) **landed**: snapshot read-only, git-state sidebar, isolation deleted. **Next: Implementer P0-N3 (Phase 13, rebase mode).**

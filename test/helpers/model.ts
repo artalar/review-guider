@@ -1,35 +1,18 @@
 import type { ReviewTarget } from '../../src/git/types'
-import type { NotifyLevel, Ports, StorePort } from '../../src/model/ports'
+import type { LineRange } from '../../src/guide/types'
+import type { NotifyLevel, Ports } from '../../src/model/ports'
 import type { StartRequest } from '../../src/model/session'
 import type { Session } from '../../src/model/steps'
 import { access, mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { peek } from '@reatom/core'
-import { vi } from 'vitest'
-import { memoryStore } from '../../src/model/ports'
-import {
-  canStart,
-  gitCapability,
-  ports,
-  preflightAnswer,
-  preflightRequest,
-  recoveryPending,
-  recoveryToken,
-  repoLockOwner,
-  staleLock,
-  startSession,
-  workspaceRoot,
-} from '../../src/model/session'
+import { canStart, gitCapability, gitState, ports, startSession, workspaceRoot } from '../../src/model/session'
 import { sidecarExists, skillInstalled } from '../../src/model/setup'
 import { reviewViewModel } from '../../src/model/view'
 
 /**
- * Drives the Reatom model the way the bridge does: in-memory ports, the
- * gating computeds connected, and the pre-flight answered by hand.
- *
- * The bridge's own subscriptions are not decoration here — the async
- * computeds only refresh while something is listening, so a harness that
- * skipped them would assert against a never-updated cache.
+ * Drives the Reatom model the way the bridge does: in-memory ports and the
+ * gating computeds connected. Async computeds only refresh while something is
+ * listening, so a harness that skipped them would assert against a stale cache.
  */
 
 export interface Notification {
@@ -37,41 +20,48 @@ export interface Notification {
   readonly message: string
 }
 
+export interface OpenedAt {
+  readonly path: string
+  readonly line: number
+  readonly ranges: readonly LineRange[]
+}
+
 export interface ModelHarness {
-  readonly store: StorePort
   readonly notifications: Notification[]
   readonly writes: Array<{ readonly path: string, readonly text: string }>
   readonly agentPrompts: string[]
   readonly openedFiles: string[]
-  /** How the scripted `UiPort` answers the pre-flight. */
-  approve: boolean
+  readonly openedAt: OpenedAt[]
+  readonly gitLogs: Array<{ readonly command: string, readonly code: number }>
   /** Which action button a notification comes back with, if any. */
   answer: string | undefined
   /** How many times the SCM handoff port was opened. */
   scmOpened: number
+  saveDocumentsResult: { readonly ok: true } | { readonly ok: false, readonly path: string }
+  readonly saveDocumentsCalls: Array<{ readonly repoRoot: string, readonly paths: readonly string[] }>
   readonly dispose: () => void
 }
 
 export interface BootstrapOptions {
-  readonly store?: StorePort
-  /** Also connect `reviewViewModel`, which is what starts the base-blob reads. */
   readonly withReview?: boolean
+  readonly sessionId?: string
 }
 
 export async function bootstrapModel(root: string, options: BootstrapOptions = {}): Promise<ModelHarness> {
-  const store = options.store ?? memoryStore()
   const notifications: Notification[] = []
   const unsubscribes: Array<() => void> = []
 
   const harness: ModelHarness = {
-    store,
     notifications,
     writes: [],
     agentPrompts: [],
     openedFiles: [],
-    approve: true,
+    openedAt: [],
+    gitLogs: [],
     answer: undefined,
     scmOpened: 0,
+    saveDocumentsResult: { ok: true },
+    saveDocumentsCalls: [],
     dispose: () => {
       while (unsubscribes.length > 0)
         unsubscribes.pop()?.()
@@ -79,10 +69,7 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
   }
 
   const installed: Ports = {
-    store,
     ui: {
-      confirm: async () => harness.approve,
-      chooseSessionMode: async () => 'readonly',
       notify: async (level, message) => {
         notifications.push({ level, message })
         return harness.answer
@@ -91,10 +78,17 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
       openWorkspaceFile: async (_repoRoot, path) => {
         harness.openedFiles.push(path)
       },
+      openFileAt: async (_repoRoot, path, line, ranges) => {
+        harness.openedAt.push({ path, line, ranges })
+      },
       openSourceControl: async () => {
         harness.scmOpened += 1
       },
-      saveDocuments: async () => ({ ok: true }),
+      openFolder: async () => {},
+      saveDocuments: async (repoRoot, paths) => {
+        harness.saveDocumentsCalls.push({ repoRoot, paths })
+        return harness.saveDocumentsResult
+      },
       writeTextFile: async (repoRoot, path, text) => {
         const absolute = join(repoRoot, path)
         await mkdir(dirname(absolute), { recursive: true })
@@ -114,10 +108,12 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
       openAgentChat: async (prompt) => {
         harness.agentPrompts.push(prompt)
       },
+      logGit: (result) => {
+        harness.gitLogs.push({ command: result.command, code: result.code })
+      },
     },
     clock: {
-      now: () => 1_000,
-      sessionId: () => 'entry-session',
+      sessionId: () => options.sessionId ?? 'entry-session',
     },
   }
 
@@ -126,8 +122,7 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
 
   unsubscribes.push(
     canStart.subscribe(() => {}),
-    recoveryPending.subscribe(() => {}),
-    staleLock.subscribe(() => {}),
+    gitState.subscribe(() => {}),
     skillInstalled.subscribe(() => {}),
     sidecarExists.subscribe(() => {}),
   )
@@ -135,8 +130,6 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
     unsubscribes.push(reviewViewModel.subscribe(() => {}))
 
   await gitCapability()
-  await recoveryToken()
-  await repoLockOwner()
   await skillInstalled()
   await sidecarExists()
   return harness
@@ -146,24 +139,10 @@ function isStartRequest(request: ReviewTarget | StartRequest): request is StartR
   return 'entry' in request
 }
 
-/** Starts a session and plays the bridge's part in the pre-flight handshake. */
 export async function startReview(
   harness: ModelHarness,
   request: ReviewTarget | StartRequest,
 ): Promise<Session> {
-  const running = startSession(isStartRequest(request) ? request : { entry: request })
-  const settled = running.then(() => undefined, () => undefined)
-
-  await Promise.race([
-    settled,
-    vi.waitFor(() => {
-      if (peek(preflightRequest) === null)
-        throw new Error('pre-flight not published yet')
-    }, { timeout: 5_000, interval: 5 }),
-  ])
-
-  if (peek(preflightRequest) !== null)
-    preflightAnswer(harness.approve)
-
-  return await running
+  void harness
+  return await startSession(isStartRequest(request) ? request : { entry: request })
 }

@@ -20,7 +20,7 @@ write('.guide.json', `${JSON.stringify({
   steps: [
     { id: 'order', order: 10, path: 'src/order.ts', title: 'An order has named fields', rationale: 'The shared contract comes before the functions that consume it', notes: 'Positional numbers are easy to swap. The Order type gives price and quantity names, so each later call explains itself.' },
     { id: 'pricing', order: 20, path: 'src/pricing.ts', title: 'Pricing consumes the contract', rationale: 'The calculation establishes behavior before checkout calls it', notes: 'The multiplication stays the same. Only the function boundary changes: callers now supply an Order instead of two unrelated numbers.', dependsOn: ['order'] },
-    { id: 'checkout', order: 30, path: 'src/checkout.ts', title: 'Checkout names its inputs', rationale: 'The final caller makes sense after the contract and calculation', notes: 'This is the last step. Its notes remain visible while you decide what to do next.\n\nRead-only: Finish restores the original workspace.\nApply with me: Finish keeps the walked changes for you to commit.', dependsOn: ['pricing'] },
+    { id: 'checkout', order: 30, path: 'src/checkout.ts', title: 'Checkout names its inputs', rationale: 'The final caller makes sense after the contract and calculation', notes: 'This is the last step. Its notes remain visible while you decide what to do next.\n\nFinish or Cancel closes the walkthrough. The working tree stays as you left it.', dependsOn: ['pricing'] },
   ],
 }, null, 2)}\n`)
 git('init', '--quiet', '--initial-branch=main')

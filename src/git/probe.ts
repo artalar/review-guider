@@ -1,8 +1,6 @@
 import type { GitOptions } from './exec'
-import { access } from 'node:fs/promises'
-import { isAbsolute, resolve } from 'node:path'
 import { GitMissingError, splitLines, splitNul, tryGit } from './exec'
-import { canonicalizeRepoRoot } from './journal'
+import { canonicalizeRepoRoot } from './paths'
 
 /**
  * The capability probe (plan P0-1). Returns a discriminated result — never a
@@ -10,8 +8,8 @@ import { canonicalizeRepoRoot } from './journal'
  */
 
 /**
- * `--porcelain=v2`, `stash push`, `--is-shallow-repository` and ref
- * transactions are all present from 2.20, which every supported platform ships.
+ * `--porcelain=v2`, `--is-shallow-repository` and ref transactions are all
+ * present from 2.20, which every supported platform ships.
  */
 export const MIN_GIT_VERSION: readonly [number, number, number] = [2, 20, 0]
 
@@ -22,7 +20,6 @@ export type GitCapabilityReason
     | 'not-a-repo'
     | 'bare-repo'
     | 'unborn-head'
-    | 'rebase-or-merge-in-progress'
     | 'shallow-missing-objects'
 
 export interface GitCapabilityOk {
@@ -42,31 +39,13 @@ export interface GitCapabilityFail {
   readonly reason: GitCapabilityReason
   readonly message: string
   readonly hint?: string
-  /**
-   * Set whenever the repository was located before the probe refused it. A
-   * refusal is not a reason to forget a pending restore, and the journal is
-   * keyed on this path — without it, recovery for a repository that is mid
-   * rebase silently never fires.
-   */
+  /** Set whenever the repository was located before the probe refused it. */
   readonly repoRoot?: string
 }
 
 export type GitCapability = GitCapabilityOk | GitCapabilityFail
 
-export interface ProbeOptions extends GitOptions {
-  /** Injectable for tests; defaults to `node:fs/promises` access. */
-  readonly exists?: (path: string) => Promise<boolean>
-}
-
-async function defaultExists(path: string): Promise<boolean> {
-  try {
-    await access(path)
-    return true
-  }
-  catch {
-    return false
-  }
-}
+export type ProbeOptions = GitOptions
 
 /** `git version 2.43.0` → `[2, 43, 0]`. Extra suffixes (`.windows.1`) are ignored. */
 export function parseGitVersion(raw: string): [number, number, number] | null {
@@ -90,22 +69,10 @@ const BARE_REPO: GitCapabilityFail = {
   ok: false,
   reason: 'bare-repo',
   message: 'Tabthrough needs a repository with a working tree.',
-  hint: 'Bare repositories have nothing to isolate or restore.',
-}
-
-const IN_PROGRESS_PATHS = ['rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'] as const
-
-const IN_PROGRESS_LABEL: Readonly<Record<string, string>> = {
-  'rebase-merge': 'a rebase',
-  'rebase-apply': 'a rebase',
-  'MERGE_HEAD': 'a merge',
-  'CHERRY_PICK_HEAD': 'a cherry-pick',
-  'REVERT_HEAD': 'a revert',
+  hint: 'Bare repositories have no working tree to review.',
 }
 
 export async function probeGit(root: string, options: ProbeOptions = {}): Promise<GitCapability> {
-  const exists = options.exists ?? defaultExists
-
   let version: string
   try {
     const versionResult = await tryGit(root, ['version'], options)
@@ -169,20 +136,7 @@ export async function probeGit(root: string, options: ProbeOptions = {}): Promis
   if (isBare === 'true' || insideWorkTree !== 'true')
     return BARE_REPO
 
-  // Same spelling the journal uses, so a workspace opened via a symlink (macOS
-  // `/var` → `/private/var`) still finds its recovery token.
   const repoRoot = canonicalizeRepoRoot(topLevel ?? root)
-
-  const inProgress = await findOperationInProgress(repoRoot, exists, options)
-  if (inProgress) {
-    return {
-      ok: false,
-      reason: 'rebase-or-merge-in-progress',
-      message: `Finish or abort ${IN_PROGRESS_LABEL[inProgress] ?? 'the operation'} in progress first.`,
-      hint: 'Tabthrough refuses to stash on top of an unfinished git operation.',
-      repoRoot,
-    }
-  }
 
   const head = await tryGit(repoRoot, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], options)
   const headSha = head.stdout.trim()
@@ -191,7 +145,7 @@ export async function probeGit(root: string, options: ProbeOptions = {}): Promis
       ok: false,
       reason: 'unborn-head',
       message: 'This repository has no commits yet.',
-      hint: 'Make a first commit — Tabthrough anchors every backup to HEAD.',
+      hint: 'Make a first commit — Tabthrough reviews changes against HEAD.',
       repoRoot,
     }
   }
@@ -212,28 +166,6 @@ export async function probeGit(root: string, options: ProbeOptions = {}): Promis
     dirty: !status.clean,
     gitVersion: version,
   }
-}
-
-async function findOperationInProgress(
-  repoRoot: string,
-  exists: (path: string) => Promise<boolean>,
-  options: GitOptions,
-): Promise<string | null> {
-  const args = ['rev-parse', ...IN_PROGRESS_PATHS.flatMap(name => ['--git-path', name])]
-  const result = await tryGit(repoRoot, args, options)
-  if (result.code !== 0)
-    return null
-
-  const paths = splitLines(result.stdout)
-  for (let index = 0; index < IN_PROGRESS_PATHS.length; index++) {
-    const candidate = paths[index]
-    if (candidate === undefined)
-      continue
-    const absolute = isAbsolute(candidate) ? candidate : resolve(repoRoot, candidate)
-    if (await exists(absolute))
-      return IN_PROGRESS_PATHS[index]
-  }
-  return null
 }
 
 export interface RepoStatusEntry {
@@ -259,8 +191,7 @@ export interface RepoStatus {
 
 /**
  * `--untracked-files=all` matters: the default collapses an untracked directory
- * to a single `? dir/` record, which would make the restore digest blind to
- * which* files inside it came back.
+ * to a single `? dir/` record, which would hide files inside it from dirty counts.
  */
 const STATUS_ARGS = [
   '--no-optional-locks',

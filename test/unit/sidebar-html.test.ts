@@ -1,6 +1,25 @@
+import type { GitState } from '../../src/git/state'
 import type { SidebarViewModel } from '../../src/model/view'
 import { describe, expect, it } from 'vitest'
 import { htmlAttr, htmlText, renderSidebarBody } from '../../src/ui/sidebar-html'
+
+function gitState(overrides: Partial<GitState> = {}): GitState {
+  return {
+    rebase: null,
+    operation: null,
+    conflicts: [],
+    staged: 0,
+    unstaged: 0,
+    untracked: 0,
+    detached: false,
+    branch: 'main',
+    headSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    autostashes: [],
+    worktrees: [],
+    snapshotRefCount: 0,
+    ...overrides,
+  }
+}
 
 function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
   return {
@@ -13,14 +32,8 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     currentStep: null,
     nextStep: null,
     complete: false,
-    applyPending: false,
     canAdvance: false,
     canRetreat: false,
-    preflight: null,
-    recoveryPending: false,
-    staleLock: false,
-    lockOwner: null,
-    blockedMessage: null,
     idleReason: null,
     setup: { kind: 'home' },
     skillInstalled: true,
@@ -28,6 +41,10 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     sidecarReady: false,
     focusedGuideMismatch: false,
     guideFileName: '.tabthrough-guide.json',
+    gitState: null,
+    willRun: 'nothing',
+    editHereEnabled: false,
+    editedPaths: [],
     ...overrides,
   }
 }
@@ -102,13 +119,24 @@ describe('sidebar text boundary', () => {
     expect(html.indexOf('data-command="tabthrough.next"')).toBeLessThan(html.indexOf('State contract'))
   })
 
-  it('makes Clear leftover lock the primary sidebar action', () => {
-    const html = renderSidebarBody(view({ staleLock: true, canStart: false }))
-    expect(html).toContain('Leftover review lock')
-    expect(html).toContain('cannot see a live session')
-    expect(html).toContain('data-command="tabthrough.clearStaleLock"')
-    expect(html).toContain('class="primary choice"')
-    expect(html).not.toContain('data-command="tabthrough.review"')
+  it('makes Continue rebase the primary sidebar action', () => {
+    const html = renderSidebarBody(view({
+      gitState: gitState({
+        rebase: {
+          branch: 'topic',
+          onto: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          stoppedSha: 'cccccccccccccccccccccccccccccccccccccccc',
+          origHead: 'dddddddddddddddddddddddddddddddddddddddd',
+          done: 2,
+          total: 4,
+          autostashSha: null,
+        },
+      }),
+    }))
+    expect(html).toContain('Rebasing topic')
+    expect(html).toContain('data-command="tabthrough.continueRebase"')
+    expect(html).toContain('class="primary"')
+    expect(html).toContain('data-command="tabthrough.abortRebase"')
   })
 
   it('promotes Finish into chrome when the walk is complete', () => {

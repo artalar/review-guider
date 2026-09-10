@@ -6,6 +6,7 @@ import { planIsolation } from '../../src/git/isolate'
 import { readRecentCommits } from '../../src/git/log'
 import { parseRangeInput, rangeInputError } from '../../src/git/types'
 import { cancelSession, EmptyDiffError, guideDiagnostics, session, sessionStatus } from '../../src/model/session'
+import { isForbiddenIsolationGit, isMutatingGit, recordGitExec } from '../helpers/git-spy'
 import { bootstrapModel, startReview } from '../helpers/model'
 import { cleanupTempRepos, makeTempRepo } from '../helpers/tmp-repo'
 
@@ -82,15 +83,14 @@ describe('entry point: working tree', () => {
     expect(stepPaths()[0]).toBe('src/types.ts')
   })
 
-  it('reads the diff from the capture commit, not from the stashed disk', async () => {
+  it('reads the diff from the snapshot commit while leaving the working tree in place', async () => {
     const repo = await linearRepo()
     await repo.write('src/app.ts', 'export const rewritten = true\n')
 
     const harness = await bootstrap(repo)
     await startReview(harness, { kind: 'workingTree' })
 
-    // The tree on disk is back at HEAD, yet the review still sees the edit.
-    expect(await repo.read('src/app.ts')).not.toContain('rewritten')
+    expect(await repo.read('src/app.ts')).toContain('rewritten')
     expect(paths()).toEqual(['src/app.ts'])
     expect(peek(session)?.guide.steps.some(step => step.groups.length > 0)).toBe(true)
   })
@@ -180,8 +180,6 @@ describe('entry point: commit range', () => {
 
     const plan = await planIsolation(repo.root, {
       entry: { kind: 'range', from: 'main', to: 'feature' },
-      includeUntracked: true,
-      sessionMode: 'readonly',
     })
     const base = (await repo.git('merge-base', 'main', 'feature')).trim()
 
@@ -347,6 +345,35 @@ describe('the commit picker source', () => {
   it('honours the limit so a deep history does not stall the picker', async () => {
     const repo = await linearRepo()
     expect(await readRecentCommits(repo.root, { limit: 1 })).toHaveLength(1)
+  })
+})
+
+describe('start never isolates', () => {
+  it('does not stash, checkout, or take a lock while starting a working-tree review', async () => {
+    const repo = await linearRepo()
+    await repo.write('src/app.ts', 'export const rewritten = true\n')
+    const harness = await bootstrap(repo)
+    const spy = recordGitExec()
+    try {
+      await startReview(harness, { kind: 'workingTree' })
+      expect(spy.calls.filter(isForbiddenIsolationGit)).toEqual([])
+    }
+    finally {
+      spy.restore()
+    }
+  })
+
+  it('runs no mutating git for a commit review', async () => {
+    const repo = await linearRepo()
+    const harness = await bootstrap(repo)
+    const spy = recordGitExec()
+    try {
+      await startReview(harness, { kind: 'commit', rev: 'HEAD' })
+      expect(spy.calls.filter(isMutatingGit)).toEqual([])
+    }
+    finally {
+      spy.restore()
+    }
   })
 })
 

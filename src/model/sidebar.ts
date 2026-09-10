@@ -1,9 +1,8 @@
+import type { GitState } from '../git/state'
 import type { SidebarViewModel } from './view'
 import { commands as Commands } from '../generated/meta'
-import { describeTarget } from '../git/types'
 import { describeSetupTarget } from './setup'
 
-/** Keep hostile or accidentally huge guide text from taking over the view. */
 export function safeSidebarText(value: string, max = 500): string {
   const clean = [...value].filter((character) => {
     const code = character.charCodeAt(0)
@@ -12,7 +11,6 @@ export function safeSidebarText(value: string, max = 500): string {
   return clean.length <= max ? clean : `${clean.slice(0, max - 1)}…`
 }
 
-/** Data-only sidebar rows; the extension host turns these into TreeItems. */
 export interface SidebarItemData {
   readonly id: string
   readonly label: string
@@ -38,116 +36,59 @@ export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[]
     })
   }
 
-  if (view.status === 'idle') {
-    if (view.liveElsewhere) {
-      add({ id: 'live', label: 'Review active in another window', description: 'Finish that walkthrough before starting here.' })
-      return items
-    }
-    if (view.recoveryPending) {
-      add({ id: 'recovery', label: 'A previous review needs recovery', description: 'Restore before starting', icon: 'warning', contextValue: 'recovery' })
-      add({ id: 'restore', label: 'Restore backup', command: Commands.restoreBackup, icon: 'history', contextValue: 'action' })
-      add({ id: 'dismiss', label: 'Dismiss reminder', command: Commands.discardRecovery, icon: 'close', contextValue: 'action' })
-      return items
-    }
-    if (view.staleLock) {
-      const owner = view.lockOwner
-      add({
-        id: 'stale-lock',
-        label: owner === null ? 'Leftover review lock' : `Leftover review lock (${owner})`,
-        description: 'Tabthrough cannot see a live session for this lock in this editor. If another editor or profile is reviewing this repository, keep the lock. Clearing removes only the lock. Your files stay as they are.',
-        icon: 'warning',
-        contextValue: 'recovery',
-      })
-      add({
-        id: 'clear-lock',
-        label: 'Clear leftover lock',
-        description: 'Removes only the lock. Leftover refs stay until you run Clean Up Backups.',
-        command: Commands.clearStaleLock,
-        icon: 'unlock',
-        contextValue: 'action',
-      })
-      add({
-        id: 'cleanup-refs',
-        label: 'Clean up leftover refs…',
-        description: 'Permanently removes leftover Tabthrough refs. Stash entries stay.',
-        command: Commands.cleanupBackups,
-        icon: 'trash',
-        contextValue: 'action',
-      })
-      return items
-    }
+  addGitBanner(view.gitState, add)
 
+  if (view.status === 'idle') {
     addIdleItems(view, add)
     return items
   }
 
-  if (view.status === 'preflight') {
-    if (view.preflight === null) {
-      add({ id: 'preparing', label: 'Preparing your review…', description: 'Checking the repository and saved changes.' })
-      add({ id: 'cancel-preparing', label: 'Cancel', command: Commands.cancel, contextValue: 'action' })
-      return items
-    }
-    const plan = view.preflight
-    const changed = plan.changedFileCount === 1 ? '1 changed file' : `${plan.changedFileCount} changed files`
-    add({ id: 'preflight', label: `Ready to review ${changed}`, description: `${plan.changedLineCount} changed lines · ${plan.sessionMode === 'apply' ? 'apply with user' : 'read-only'}`, icon: 'question' })
-    add({ id: 'target', label: safeSidebarText(describeTarget(plan.entry, { short: true })), description: plan.willStash ? 'Your work will be stashed safely first' : 'Working tree is clean', icon: 'info' })
-    add({ id: 'cancel-preflight', label: 'Cancel', command: Commands.cancel, icon: 'close', contextValue: 'action' })
+  if (view.status === 'starting') {
+    add({ id: 'starting', label: 'Starting review…', description: `Will run: ${view.willRun}`, icon: 'sync~spin' })
+    add({ id: 'cancel-starting', label: 'Cancel', command: Commands.cancel, icon: 'close', contextValue: 'action' })
     return items
   }
 
-  if (view.status === 'stashing') {
-    add({ id: 'stashing', label: 'Preparing walkthrough…', description: 'Capturing your workspace safely', icon: 'sync~spin' })
-    add({ id: 'cancel-stashing', label: 'Cancel', command: Commands.cancel, icon: 'close', contextValue: 'action' })
-    return items
-  }
-
-  if (view.status === 'restoring') {
-    add({ id: 'restoring', label: 'Restoring your workspace…', description: 'Waiting for git to verify the restore', icon: 'sync~spin' })
-    return items
-  }
-
-  if (view.status === 'blocked' || view.status === 'error') {
-    add({ id: 'blocked', label: view.status === 'blocked' ? 'Walkthrough needs attention' : 'Walkthrough could not start', description: view.blockedMessage ?? 'Your backup is retained. Restore your workspace to continue.', icon: 'error' })
-    if (view.status === 'blocked')
-      add({ id: 'cancel-blocked', label: 'Restore workspace', command: Commands.restoreBackup, icon: 'history', contextValue: 'action' })
-    add({ id: 'dismiss', label: 'Dismiss recovery reminder…', command: Commands.discardRecovery, contextValue: 'action' })
+  if (view.status === 'finishing') {
+    add({ id: 'finishing', label: 'Closing review…', icon: 'sync~spin' })
     return items
   }
 
   const progress = view.progress
   const current = view.currentStep
-  const mode = view.mode === 'apply' ? 'Apply with user' : 'Read-only walkthrough'
   add({
     id: 'session',
-    label: mode,
+    label: 'Read-only walkthrough',
     description: progress === null ? view.status : `${progress.index} of ${progress.total}`,
     tooltip: view.entry === null ? undefined : `Reviewing ${view.entry}`,
-    icon: view.mode === 'apply' ? 'edit' : 'book',
+    icon: 'book',
   })
   if (view.summary !== null)
     add({ id: 'summary', label: 'Guide summary', description: view.summary, tooltip: view.summary, icon: 'note' })
 
-  if (view.applyPending || view.status === 'applying') {
-    add({ id: 'applying', label: 'Applying current step…', description: 'Saving and updating your workspace', icon: 'sync~spin' })
+  if (current === null)
+    add({ id: 'ready', label: 'Ready for the first step', description: 'Use Next step to begin', icon: 'circle-outline' })
+  if (current !== null) {
+    const title = current.title ?? current.path
+    const edited = view.editedPaths.includes(current.path)
+    add({
+      id: 'current',
+      label: edited ? `${title} · edited on disk` : title,
+      description: current.path,
+      tooltip: current.rationale,
+      icon: 'arrow-right',
+    })
+    if (current.rationale !== '')
+      add({ id: 'rationale', label: 'Why here', description: current.rationale, tooltip: current.rationale, icon: 'lightbulb' })
+    if (current.notes !== undefined && current.notes.trim() !== '')
+      add({ id: 'notes', label: 'Notes', description: current.notes, tooltip: current.notes, icon: 'note' })
+    if (view.nextStep !== null)
+      add({ id: 'next-step', label: 'Next', description: `${view.nextStep.title ?? view.nextStep.path} · ${view.nextStep.rationale}`, icon: 'chevron-right' })
   }
-  else {
-    if (current === null)
-      add({ id: 'ready', label: 'Ready for the first step', description: 'Use Next step to begin', icon: 'circle-outline' })
-    if (current !== null) {
-      const title = current.title ?? current.path
-      add({ id: 'current', label: title, description: current.path, tooltip: current.rationale, icon: 'arrow-right' })
-      if (current.rationale !== '')
-        add({ id: 'rationale', label: 'Why here', description: current.rationale, tooltip: current.rationale, icon: 'lightbulb' })
-      if (current.notes !== undefined && current.notes.trim() !== '')
-        add({ id: 'notes', label: 'Notes', description: current.notes, tooltip: current.notes, icon: 'note' })
-      if (view.nextStep !== null)
-        add({ id: 'next-step', label: 'Next', description: `${view.nextStep.title ?? view.nextStep.path} · ${view.nextStep.rationale}`, icon: 'chevron-right' })
-    }
-    if (view.complete)
-      add({ id: 'complete', label: view.mode === 'apply' ? 'All steps applied' : 'Walkthrough complete', description: view.mode === 'apply' ? 'Finish keeps changes for your commit' : 'Finish restores your workspace', icon: 'check' })
-  }
+  if (view.complete)
+    add({ id: 'complete', label: 'Walkthrough complete', description: 'Finish closes the review', icon: 'check' })
 
-  if (!view.applyPending && view.status === 'active') {
+  if (view.status === 'active') {
     add({
       id: 'previous',
       label: 'Previous',
@@ -180,7 +121,7 @@ export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[]
       })
       add({
         id: 'finish',
-        label: view.mode === 'apply' ? 'Finish and keep changes' : 'Finish and restore workspace',
+        label: 'Finish review',
         command: Commands.finish,
         icon: 'check',
         contextValue: 'action',
@@ -188,9 +129,112 @@ export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[]
       })
     }
     add({ id: 'current-file', label: 'Go to current change', command: Commands.showStepDetail, contextValue: 'action', enabled: current !== null })
+    add({
+      id: 'edit-here',
+      label: 'Edit here',
+      description: view.editHereEnabled ? 'Open the real file at this step' : 'Start in Rebase or Worktree mode to edit the real file',
+      command: Commands.editHere,
+      icon: 'go-to-file',
+      contextValue: 'action',
+      enabled: view.editHereEnabled,
+    })
   }
-  add({ id: 'cancel', label: 'Cancel and restore workspace', command: Commands.cancel, icon: 'close', contextValue: 'action', enabled: true })
+  add({ id: 'cancel', label: 'Cancel review', command: Commands.cancel, icon: 'close', contextValue: 'action', enabled: true })
   return items
+}
+
+function addGitBanner(state: GitState | null, add: (item: SidebarItemData) => void): void {
+  if (state === null)
+    return
+
+  if (state.rebase !== null) {
+    const sha = state.rebase.stoppedSha === null ? '?' : state.rebase.stoppedSha.slice(0, 8)
+    const branch = state.rebase.branch ?? 'HEAD'
+    add({
+      id: 'rebase',
+      label: `Rebasing ${branch} · stopped at ${sha} · ${state.rebase.done} of ${state.rebase.total}`,
+      icon: 'git-merge',
+    })
+    add({ id: 'continue-rebase', label: 'Continue', command: Commands.continueRebase, contextValue: 'action' })
+    add({ id: 'abort-rebase', label: 'Abort', command: Commands.abortRebase, contextValue: 'action' })
+    add({ id: 'scm-rebase', label: 'Open Source Control', command: Commands.commitHandoff, contextValue: 'action' })
+  }
+  else if (state.operation !== null) {
+    add({
+      id: 'operation',
+      label: operationLabel(state.operation),
+      command: Commands.commitHandoff,
+      contextValue: 'action',
+    })
+  }
+
+  for (const path of state.conflicts) {
+    add({
+      id: `conflict-${path}`,
+      label: path,
+      description: 'Conflict',
+      command: Commands.openConflict,
+      payload: path,
+      icon: 'warning',
+      contextValue: 'action',
+    })
+  }
+  if (state.conflicts.length > 0 && state.rebase !== null)
+    add({ id: 'continue-conflicts', label: 'Continue', command: Commands.continueRebase, contextValue: 'action' })
+
+  for (const stash of state.autostashes) {
+    add({
+      id: `autostash-${stash.selector}`,
+      label: `A rebase left your changes in ${stash.selector}`,
+      description: stash.subject,
+      icon: 'archive',
+    })
+    add({ id: `pop-${stash.selector}`, label: 'Pop', command: Commands.popAutostash, payload: stash.selector, contextValue: 'action' })
+    add({ id: `show-${stash.selector}`, label: 'Show', command: Commands.showAutostash, payload: stash.selector, contextValue: 'action' })
+  }
+
+  for (const worktree of state.worktrees) {
+    add({
+      id: `worktree-${worktree.path}`,
+      label: worktree.path,
+      description: `${worktree.head.slice(0, 8)}${worktree.dirty ? ' · dirty' : ''}`,
+    })
+    add({ id: `open-${worktree.path}`, label: 'Open', command: Commands.openWorktree, payload: worktree.path, contextValue: 'action' })
+    add({ id: `remove-${worktree.path}`, label: 'Remove', command: Commands.removeWorktree, payload: worktree.path, contextValue: 'action' })
+  }
+  if (state.worktrees.length > 0)
+    add({ id: 'prune', label: 'Prune', command: Commands.pruneWorktrees, contextValue: 'action' })
+
+  if (state.staged > 0 || state.unstaged > 0 || state.untracked > 0) {
+    add({
+      id: 'dirty',
+      label: `${state.staged} staged · ${state.unstaged} unstaged · ${state.untracked} untracked`,
+    })
+  }
+
+  if (state.detached)
+    add({ id: 'detached', label: 'Detached HEAD', description: state.headSha === null ? undefined : state.headSha.slice(0, 12) })
+
+  if (state.snapshotRefCount > 0) {
+    add({
+      id: 'snapshots',
+      label: state.snapshotRefCount === 1 ? '1 snapshot ref' : `${state.snapshotRefCount} snapshot refs`,
+      description: 'Swept after 24 hours',
+    })
+  }
+}
+
+function operationLabel(operation: NonNullable<GitState['operation']>): string {
+  switch (operation) {
+    case 'merge':
+      return 'Merge in progress'
+    case 'cherry-pick':
+      return 'Cherry-pick in progress'
+    case 'revert':
+      return 'Revert in progress'
+    case 'bisect':
+      return 'Bisect in progress'
+  }
 }
 
 function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => void): void {
@@ -283,6 +327,12 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
       id: 'generate',
       label: describeSetupTarget(phase.target),
       description: `Write ${view.guideFileName}, then Start the walkthrough.`,
+    })
+    add({
+      id: 'will-run',
+      label: `Will run: ${view.willRun}`,
+      description: 'Read-only — the working tree is not checked out.',
+      icon: 'terminal',
     })
     add({
       id: 'simple',

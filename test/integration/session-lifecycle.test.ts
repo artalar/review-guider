@@ -1,817 +1,155 @@
-import type { NotifyLevel, Ports, StorePort } from '../../src/model/ports'
-import type { TmpRepo } from '../helpers/tmp-repo'
-import { join } from 'node:path'
 import { context, peek } from '@reatom/core'
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { listGuideRefs, RepoLockedError } from '../../src/git/isolate'
-import { advanceStage } from '../../src/git/journal'
-import { readStatus } from '../../src/git/probe'
-import { acquireLock, afterRefName, backupRefName, LOCK_REF, readLock, releaseLock, resolveRef, writeRef } from '../../src/git/refs'
-import { listStash } from '../../src/git/stash'
-import { memoryStore } from '../../src/model/ports'
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterRefName, resolveRef } from '../../src/git/refs'
 import {
   cancelSession,
   canStart,
-  cleanupBackups,
-  clearStaleLock,
-  discardRecovery,
   EmptyDiffError,
-  forgetPendingRestore,
-  gitCapability,
   GitUnavailableError,
-  gitWatchToken,
   isolation,
-  LIVE_ELSEWHERE_MESSAGE,
-  LOCK_CHANGED_MESSAGE,
   ports,
-  preflightAnswer,
-  preflightRequest,
-  recoverBackup,
-  recoveryPending,
-  recoveryToken,
-  refreshHeartbeat,
-  repoLockOwner,
-  restoreBlock,
   session,
   SessionAlreadyActiveError,
-  sessionLiveElsewhere,
   sessionStatus,
-  STALE_LOCK_MESSAGE,
-  staleLock,
   startBlockedReason,
   startSession,
-  workspaceRoot,
 } from '../../src/model/session'
-import { isolateUpTo } from '../helpers/protocol'
-import { cleanupTempRepos, makeTempRepo } from '../helpers/tmp-repo'
-
-/**
- * The model driving the real protocol (plan P0-5 / P0-6 / P0-7).
- *
- * The suites above prove `src/git` restores correctly. This one proves the
- * Reatom lifecycle reaches it on every exit path, and that the gating atoms the
- * bridge renders agree with what actually happened on disk.
- */
-
-const subscriptions: Array<() => void> = []
+import { bootstrapModel, startReview } from '../helpers/model'
+import { cleanupTempRepos, makeTempDir, makeTempRepo } from '../helpers/tmp-repo'
 
 beforeEach(() => context.reset())
 
-afterEach(() => {
-  while (subscriptions.length > 0)
-    subscriptions.pop()?.()
+afterEach(async () => {
+  if (peek(sessionStatus) !== 'idle')
+    await cancelSession('cancel')
 })
 
 afterAll(cleanupTempRepos)
 
-interface Notification {
-  readonly level: NotifyLevel
-  readonly message: string
-}
-
-interface Harness {
-  readonly store: StorePort
-  readonly notifications: Notification[]
-  /** Answers the pre-flight the way `src/ui/prompts.ts` does. */
-  approve: boolean
-  /** Which action button a notification comes back with, if any. */
-  answer: string | undefined
-  /** Runs once, before the next notify returns — used to race the confirm. */
-  beforeAnswer?: () => Promise<void>
-  /** What `ClockPort.now` returns; movable, so heartbeats can be aged. */
-  now: number
-  /** Scriptable editor-save result and calls, for the pre-stash buffer guard. */
-  saveDocumentsResult: { readonly ok: true } | { readonly ok: false, readonly path: string }
-  readonly saveDocumentsCalls: Array<{ readonly repoRoot: string, readonly paths: readonly string[] }>
-}
-
-function install(store: StorePort = memoryStore()): Harness {
-  const harness: Harness = {
-    store,
-    notifications: [],
-    approve: true,
-    answer: undefined,
-    now: 1_000,
-    saveDocumentsResult: { ok: true },
-    saveDocumentsCalls: [],
-  }
-  const installed: Ports = {
-    store,
-    ui: {
-      confirm: async () => harness.approve,
-      chooseSessionMode: async () => 'readonly',
-      notify: async (level, message) => {
-        harness.notifications.push({ level, message })
-        const hook = harness.beforeAnswer
-        harness.beforeAnswer = undefined
-        if (hook !== undefined)
-          await hook()
-        return harness.answer
-      },
-      openReview: async () => {},
-      openWorkspaceFile: async () => {},
-      openSourceControl: async () => {},
-      saveDocuments: async (repoRoot, paths) => {
-        harness.saveDocumentsCalls.push({ repoRoot, paths })
-        return harness.saveDocumentsResult
-      },
-      writeTextFile: async () => {},
-      fileExists: async () => false,
-      readBundledSkill: async () => null,
-      openAgentChat: async () => {},
-    },
-    clock: {
-      now: () => harness.now,
-      sessionId: () => 'model-session',
-    },
-  }
-  ports.set(installed)
-  return harness
-}
-
-async function bootstrap(repo: TmpRepo, store?: StorePort): Promise<Harness> {
-  return await bootstrapAt(repo.root, store)
-}
-
-async function bootstrapAt(root: string, store?: StorePort): Promise<Harness> {
-  const harness = install(store)
-  workspaceRoot.set(root)
-
-  // The gating computeds are async and only refresh while something is
-  // listening, so the harness connects them exactly as `useGuideContextKeys`
-  // does. Without this the test would assert against a never-updated cache.
-  subscriptions.push(
-    canStart.subscribe(() => {}),
-    recoveryPending.subscribe(() => {}),
-    staleLock.subscribe(() => {}),
-  )
-
-  await gitCapability()
-  await recoveryToken()
-  await repoLockOwner()
-  return harness
-}
-
-/**
- * Starts a session and plays the bridge's part in the pre-flight handshake:
- * the model publishes a request, the bridge answers it.
- */
-async function start(harness: Harness): Promise<void> {
-  const running = startSession({ entry: { kind: 'workingTree' } })
-  const settled = running.then(() => undefined, () => undefined)
-
-  await Promise.race([
-    settled,
-    vi.waitFor(() => {
-      if (peek(preflightRequest) === null)
-        throw new Error('pre-flight not published yet')
-    }, { timeout: 5_000, interval: 5 }),
-  ])
-
-  if (peek(preflightRequest) !== null)
-    preflightAnswer(harness.approve)
-
-  await running
-}
-
-async function dirtyRepo(): Promise<TmpRepo> {
+async function dirtyRepo() {
   const repo = await makeTempRepo({ files: { 'a.txt': 'one\n', 'b.txt': 'keep\n' } })
   await repo.write('a.txt', 'edited\n')
   await repo.write('new.txt', 'fresh\n')
   return repo
 }
 
-describe('session lifecycle over the real protocol', () => {
-  it('cancels a pending pre-flight and prevents a later approval from isolating', async () => {
+describe('session lifecycle', () => {
+  it('starts a working-tree review without cleaning the disk', async () => {
     const repo = await dirtyRepo()
     const before = await repo.fingerprint()
-    await bootstrap(repo)
-    const running = startSession({ entry: { kind: 'workingTree' } })
-
-    await vi.waitFor(() => {
-      if (peek(preflightRequest) === null)
-        throw new Error('pre-flight not published yet')
-    }, { timeout: 5_000, interval: 5 })
-
-    await cancelSession('cancel')
-    await expect(running).rejects.toBeDefined()
-
-    expect(peek(sessionStatus)).toBe('idle')
-    expect(peek(preflightRequest)).toBeNull()
-    expect(await repo.fingerprint()).toEqual(before)
-    expect(await listGuideRefs(repo.root)).toEqual([])
-    expect(await readLock(repo.root)).toBeNull()
-  })
-
-  it('isolates the tree on start and restores it on finish', async () => {
-    const repo = await dirtyRepo()
-    const before = await repo.fingerprint()
-    const harness = await bootstrap(repo)
+    const harness = await bootstrapModel(repo.root)
 
     expect(peek(canStart)).toBe(true)
     expect(peek(startBlockedReason)).toBeNull()
 
-    await start(harness)
+    await startReview(harness, { kind: 'workingTree' })
 
     expect(peek(sessionStatus)).toBe('active')
-    expect(peek(preflightRequest)).toBeNull()
-    expect((await readStatus(repo.root)).clean).toBe(true)
-    expect(await readLock(repo.root)).not.toBeNull()
-    expect(await harness.store.readToken(repo.root)).not.toBeNull()
-
-    // One step per changed file here: an edited tracked file and an untracked one.
-    const model = peek(session)
-    expect(model).not.toBeNull()
-    expect(peek(model!.progress)).toEqual({ index: 1, total: 2 })
+    expect(peek(session)).not.toBeNull()
+    expect(await repo.fingerprint()).toEqual(before)
+    expect((await repo.git('stash', 'list')).trim()).toBe('')
+    expect(await resolveRef(repo.root, afterRefName('entry-session'))).not.toBeNull()
+    expect(harness.saveDocumentsCalls.length).toBeGreaterThan(0)
 
     await cancelSession('finish')
-
     expect(peek(sessionStatus)).toBe('idle')
-    expect(peek(session)).toBeNull()
     expect(peek(isolation)).toBeNull()
+    expect(await resolveRef(repo.root, afterRefName('entry-session'))).toBeNull()
     expect(await repo.fingerprint()).toEqual(before)
-    expect(await harness.store.readToken(repo.root)).toBeNull()
-    expect(await listGuideRefs(repo.root)).toEqual([])
-    expect(await readLock(repo.root)).toBeNull()
+    expect(harness.notifications.at(-1)?.message).toContain('finished')
+    harness.dispose()
   })
 
-  it('treats cancel exactly like finish', async () => {
+  it('treats cancel like finish for the after-ref', async () => {
     const repo = await dirtyRepo()
     const before = await repo.fingerprint()
-    const harness = await bootstrap(repo)
+    const harness = await bootstrapModel(repo.root)
 
-    await start(harness)
+    await startReview(harness, { kind: 'workingTree' })
     await cancelSession('cancel')
 
     expect(peek(sessionStatus)).toBe('idle')
     expect(await repo.fingerprint()).toEqual(before)
-    expect(await listStash(repo.root)).toEqual([])
+    expect((await repo.git('stash', 'list')).trim()).toBe('')
     expect(harness.notifications.at(-1)?.message).toContain('cancelled')
+    harness.dispose()
   })
 
-  it('restores on the deactivate path too', async () => {
-    const repo = await dirtyRepo()
+  it('does not write an after-ref for a commit review', async () => {
+    const repo = await makeTempRepo({ files: { 'src/app.ts': 'export const n = 1\n' } })
+    await repo.write('src/app.ts', 'export const n = 2\n')
+    await repo.git('add', '-A')
+    await repo.commit('bump')
     const before = await repo.fingerprint()
-    const harness = await bootstrap(repo)
+    const harness = await bootstrapModel(repo.root)
 
-    await start(harness)
-    await cancelSession('deactivate')
-
-    expect(peek(sessionStatus)).toBe('idle')
+    await startReview(harness, { kind: 'commit', rev: 'HEAD' })
+    expect(peek(isolation)?.afterRef).toBeNull()
+    expect(await resolveRef(repo.root, afterRefName('entry-session'))).toBeNull()
     expect(await repo.fingerprint()).toEqual(before)
-  })
 
-  it('mutates nothing when the pre-flight is declined', async () => {
-    const repo = await dirtyRepo()
-    const before = await repo.fingerprint()
-    const harness = await bootstrap(repo)
-    harness.approve = false
-
-    await expect(start(harness)).rejects.toThrow()
-
-    expect(peek(sessionStatus)).toBe('idle')
-    expect(await repo.fingerprint()).toEqual(before)
-    expect(await listGuideRefs(repo.root)).toEqual([])
-    expect(await readLock(repo.root)).toBeNull()
-    expect(await harness.store.readToken(repo.root)).toBeNull()
-    // Declining is a choice, not a failure: no error toast.
-    expect(harness.notifications).toEqual([])
-  })
-
-  it('saves all dirty editor buffers for the probed repository before stashing', async () => {
-    const repo = await dirtyRepo()
-    const harness = await bootstrap(repo)
-
-    await start(harness)
-
-    expect(harness.saveDocumentsCalls).toContainEqual({ repoRoot: repo.root, paths: [] })
     await cancelSession('cancel')
+    expect(await repo.fingerprint()).toEqual(before)
+    harness.dispose()
   })
 
-  it('refuses to isolate when an editor buffer cannot be saved', async () => {
+  it('saves dirty buffers before snapshotting the working tree', async () => {
     const repo = await dirtyRepo()
-    const before = await repo.fingerprint()
-    const harness = await bootstrap(repo)
+    const harness = await bootstrapModel(repo.root)
     harness.saveDocumentsResult = { ok: false, path: 'a.txt' }
 
-    await expect(start(harness)).rejects.toThrow()
-    await vi.waitFor(() => expect(peek(sessionStatus)).toBe('idle'))
-
-    expect(await repo.fingerprint()).toEqual(before)
-    expect(await listStash(repo.root)).toEqual([])
-    expect(harness.notifications.at(-1)?.message).toContain('Save a.txt')
+    await expect(startReview(harness, { kind: 'workingTree' })).rejects.toBeDefined()
+    expect(peek(sessionStatus)).toBe('idle')
+    expect(harness.notifications.some(entry => entry.message.includes('a.txt'))).toBe(true)
+    harness.dispose()
   })
 
-  it('refuses to start on an empty diff', async () => {
-    const repo = await makeTempRepo({ files: { 'a.txt': 'one\n' } })
-    const harness = await bootstrap(repo)
+  it('cancels a start that is still saving', async () => {
+    const repo = await dirtyRepo()
+    const before = await repo.fingerprint()
+    const harness = await bootstrapModel(repo.root)
+    const current = peek(ports)
+    ports.set({
+      ui: {
+        ...current.ui,
+        saveDocuments: async () => {
+          await new Promise<void>(resolve => setTimeout(resolve, 80))
+          return { ok: true as const }
+        },
+      },
+      clock: current.clock,
+    })
 
-    await expect(start(harness)).rejects.toBeInstanceOf(EmptyDiffError)
+    const running = startSession({ entry: { kind: 'workingTree' } })
+    await cancelSession('cancel')
+    await expect(running).rejects.toBeDefined()
 
     expect(peek(sessionStatus)).toBe('idle')
-    expect(await readLock(repo.root)).toBeNull()
-    expect(harness.notifications.at(-1)?.level).toBe('error')
+    expect(await repo.fingerprint()).toEqual(before)
+    harness.dispose()
   })
 
   it('refuses a second start in the same window', async () => {
     const repo = await dirtyRepo()
-    const harness = await bootstrap(repo)
-    await start(harness)
-
+    const harness = await bootstrapModel(repo.root)
+    await startReview(harness, { kind: 'workingTree' })
     await expect(startSession({ entry: { kind: 'workingTree' } })).rejects.toBeInstanceOf(SessionAlreadyActiveError)
-
-    expect(peek(sessionStatus)).toBe('active')
-    await cancelSession('cancel')
+    harness.dispose()
   })
 
-  it('refuses before the pre-flight when another window holds the lock', async () => {
-    const repo = await dirtyRepo()
-    const before = await repo.fingerprint()
-    const harness = await bootstrap(repo)
-
-    await writeRef(repo.root, LOCK_REF, await repo.head())
-    gitWatchToken.set(value => value + 1)
-    await repoLockOwner()
-
-    expect(peek(staleLock)).toBe(true)
+  it('refuses to start outside a repository', async () => {
+    const dir = await makeTempDir()
+    const harness = await bootstrapModel(dir)
     expect(peek(canStart)).toBe(false)
-    expect(peek(startBlockedReason)).toBe(STALE_LOCK_MESSAGE)
+    await expect(startSession({ entry: { kind: 'workingTree' } })).rejects.toBeInstanceOf(GitUnavailableError)
+    harness.dispose()
+  })
 
-    // Refused up front rather than after the user approves a stash that could
-    // never have happened.
-    await expect(startSession({ entry: { kind: 'workingTree' } })).rejects.toBeInstanceOf(RepoLockedError)
-
-    expect(peek(preflightRequest)).toBeNull()
+  it('refuses an empty working tree', async () => {
+    const repo = await makeTempRepo()
+    const harness = await bootstrapModel(repo.root)
+    await expect(startReview(harness, { kind: 'workingTree' })).rejects.toBeInstanceOf(EmptyDiffError)
     expect(peek(sessionStatus)).toBe('idle')
-    expect(await repo.fingerprint()).toEqual(before)
-    expect(harness.notifications.at(-1)?.message).toContain('locked by Tabthrough session')
-  })
-
-  it('clears a leftover lock from the sidebar action and then allows start', async () => {
-    const repo = await dirtyRepo()
-    const before = await repo.fingerprint()
-    const harness = await bootstrap(repo)
-
-    expect(await acquireLock(repo.root, 'abandoned')).toBe(true)
-    await writeRef(repo.root, afterRefName('abandoned'), await repo.head())
-    gitWatchToken.set(value => value + 1)
-    await repoLockOwner()
-
-    expect(peek(staleLock)).toBe(true)
-    expect(peek(canStart)).toBe(false)
-
-    harness.answer = 'Keep lock'
-    expect(await clearStaleLock()).toEqual([])
-    expect(await readLock(repo.root)).toBe('abandoned')
-    expect(peek(staleLock)).toBe(true)
-
-    harness.answer = 'Clear lock'
-    const removed = await clearStaleLock()
-    expect(removed).toEqual([LOCK_REF])
-    expect(await readLock(repo.root)).toBeNull()
-    expect(await resolveRef(repo.root, afterRefName('abandoned'))).not.toBeNull()
-    expect(peek(staleLock)).toBe(false)
-    expect(peek(canStart)).toBe(true)
-    expect(await repo.fingerprint()).toEqual(before)
-    expect(harness.notifications.at(-1)?.message).toContain('Leftover lock cleared')
-
-    await start(harness)
-    expect(peek(sessionStatus)).toBe('active')
-    await cancelSession('cancel')
-    expect(await repo.fingerprint()).toEqual(before)
-  })
-
-  it('clears a hand-written lock that has no tabthrough-lock payload', async () => {
-    const repo = await dirtyRepo()
-    const harness = await bootstrap(repo)
-    await writeRef(repo.root, LOCK_REF, await repo.head())
-    gitWatchToken.set(value => value + 1)
-    await repoLockOwner()
-
-    harness.answer = 'Clear lock'
-    expect(await clearStaleLock()).toEqual([LOCK_REF])
-    expect(await readLock(repo.root)).toBeNull()
-    expect(peek(staleLock)).toBe(false)
-  })
-
-  it('keeps Start blocked while the lock probe is refreshing', async () => {
-    const repo = await dirtyRepo()
-    await bootstrap(repo)
-    expect(await acquireLock(repo.root, 'abandoned')).toBe(true)
-    gitWatchToken.set(value => value + 1)
-    await repoLockOwner()
-    expect(peek(staleLock)).toBe(true)
-    expect(peek(canStart)).toBe(false)
-
-    gitWatchToken.set(value => value + 1)
-    expect(peek(staleLock)).toBe(true)
-    expect(peek(canStart)).toBe(false)
-  })
-
-  it('refuses to clear while a recoverable token is still in this editor', async () => {
-    const repo = await dirtyRepo()
-    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'ghost', heartbeatAt: 0 })
-    await bootstrap(repo, store)
-
-    expect(peek(recoveryPending)).toBe(true)
-    expect(peek(staleLock)).toBe(false)
-    expect(await clearStaleLock()).toEqual([])
-    expect(await readLock(repo.root)).toBe('ghost')
-  })
-
-  it('leaves leftover refs after a dismissed restore reminder is unlocked', async () => {
-    const repo = await dirtyRepo()
-    const { store, token } = await isolateUpTo(repo, 'reviewing', { sessionId: 'dismissed' })
-    const harness = await bootstrap(repo, store)
-    harness.answer = 'Forget'
-    expect(await discardRecovery()).toBe(true)
-    gitWatchToken.set(value => value + 1)
-    await repoLockOwner()
-
-    expect(peek(staleLock)).toBe(true)
-    harness.answer = 'Clear lock'
-    expect(await clearStaleLock()).toEqual([LOCK_REF])
-    expect(await resolveRef(repo.root, token.afterRef)).not.toBeNull()
-    const backup = token.backupRef
-    expect(backup).not.toBeNull()
-    if (backup !== null)
-      expect(await resolveRef(repo.root, backup)).not.toBeNull()
-  })
-
-  it('will not let a leftover-lock clear steal another window\'s lock', async () => {
-    const repo = await dirtyRepo()
-    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'window-a', heartbeatAt: 995_000 })
-    const isolated = await repo.fingerprint()
-    const harness = await bootstrap(repo, store)
-    harness.now = 1_000_000
-
-    expect(peek(sessionLiveElsewhere)).toBe(true)
-    expect(peek(staleLock)).toBe(false)
-    expect(await clearStaleLock()).toEqual([])
-    expect(await readLock(repo.root)).toBe('window-a')
-    expect(await repo.fingerprint()).toEqual(isolated)
-    expect(harness.notifications.at(-1)?.message).toBe(LIVE_ELSEWHERE_MESSAGE)
-  })
-
-  it('will not release a lock that changed while the confirmation was open', async () => {
-    const repo = await dirtyRepo()
-    const harness = await bootstrap(repo)
-    expect(await acquireLock(repo.root, 'abandoned')).toBe(true)
-    gitWatchToken.set(value => value + 1)
-    await repoLockOwner()
-
-    harness.answer = 'Clear lock'
-    harness.beforeAnswer = async () => {
-      expect(await releaseLock(repo.root, 'abandoned')).toBe(true)
-      await isolateUpTo(repo, 'reviewing', { sessionId: 'window-a' })
-    }
-
-    expect(await clearStaleLock()).toEqual([])
-    expect(await readLock(repo.root)).toBe('window-a')
-    expect(await resolveRef(repo.root, afterRefName('window-a'))).not.toBeNull()
-    expect(await resolveRef(repo.root, backupRefName('window-a'))).not.toBeNull()
-    expect(harness.notifications.at(-1)?.message).toBe(LOCK_CHANGED_MESSAGE)
-  })
-
-  /**
-   * `gitCapability` is probed when the workspace root is set and never again,
-   * so a merge begun after that still reads `ok`. Nothing downstream catches
-   * it — `planIsolation` reads the unmerged paths without refusing them — and
-   * stashing over `MERGE_HEAD` is the P0 edge row the product spec refuses.
-   */
-  it('refuses to start on a merge that began after the window opened', async () => {
-    const repo = await makeTempRepo({ files: { 'conflict.txt': 'base\n' } })
-    await repo.git('checkout', '--quiet', '-b', 'other')
-    await repo.write('conflict.txt', 'theirs\n')
-    await repo.git('add', '-A')
-    await repo.commit('theirs')
-    await repo.git('checkout', '--quiet', 'main')
-    await repo.write('conflict.txt', 'ours\n')
-    await repo.git('add', '-A')
-    await repo.commit('ours')
-
-    const harness = await bootstrap(repo)
-    expect(peek(canStart)).toBe(true)
-
-    expect((await repo.tryGit('merge', '--no-edit', 'other')).code).not.toBe(0)
-    const before = await repo.fingerprint()
-
-    await expect(start(harness)).rejects.toBeInstanceOf(GitUnavailableError)
-
-    expect(peek(sessionStatus)).toBe('idle')
-    expect(await repo.fingerprint()).toEqual(before)
-    expect(await listStash(repo.root)).toEqual([])
-    expect(await readLock(repo.root)).toBeNull()
-    expect(await harness.store.readToken(repo.root)).toBeNull()
-    expect(harness.notifications.at(-1)?.message).toContain('merge')
-  })
-
-  /**
-   * The refusal above is correct but late: the user finds out by clicking. The
-   * capability probe only refreshed when the workspace folder changed, so
-   * Start went on *looking* available over a merge that began afterwards. It
-   * is a dependant of the watch token while idle now — which is exactly the
-   * state where nothing of ours is writing under `.git/`.
-   */
-  it('disables Start as soon as a merge begins, with no folder change', async () => {
-    const repo = await makeTempRepo({ files: { 'conflict.txt': 'base\n' } })
-    await repo.git('checkout', '--quiet', '-b', 'other')
-    await repo.write('conflict.txt', 'theirs\n')
-    await repo.git('add', '-A')
-    await repo.commit('theirs')
-    await repo.git('checkout', '--quiet', 'main')
-    await repo.write('conflict.txt', 'ours\n')
-    await repo.git('add', '-A')
-    await repo.commit('ours')
-
-    await bootstrap(repo)
-    expect(peek(canStart)).toBe(true)
-
-    expect((await repo.tryGit('merge', '--no-edit', 'other')).code).not.toBe(0)
-
-    // What the bridge's FileSystemWatcher does when git writes MERGE_HEAD.
-    gitWatchToken.set(value => value + 1)
-    await vi.waitFor(() => {
-      expect(peek(canStart)).toBe(false)
-    }, { timeout: 5_000, interval: 5 })
-
-    expect(peek(startBlockedReason)).toContain('merge')
-  })
-})
-
-describe('recovery', () => {
-  it('reserves restoring before its first await so Start cannot race it', async () => {
-    const repo = await dirtyRepo()
-    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'recover-race' })
-    await bootstrap(repo, store)
-
-    const restoring = recoverBackup()
-    expect(peek(sessionStatus)).toBe('restoring')
-    await expect(startSession({ entry: { kind: 'workingTree' } })).rejects.toBeInstanceOf(SessionAlreadyActiveError)
-    expect((await restoring)?.kind).toBe('restored')
-    expect(peek(sessionStatus)).toBe('idle')
-  })
-
-  it('blocks Start and offers a restore when a previous session left a token', async () => {
-    const repo = await dirtyRepo()
-    const before = await repo.fingerprint()
-
-    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'ghost' })
-    await bootstrap(repo, store)
-
-    expect(peek(recoveryPending)).toBe(true)
-    expect(peek(canStart)).toBe(false)
-    expect(peek(startBlockedReason)).toContain('restore')
-
-    const outcome = await recoverBackup()
-    expect(outcome?.kind).toBe('restored')
-
-    expect(await repo.fingerprint()).toEqual(before)
-    await recoveryToken()
-    expect(peek(recoveryPending)).toBe(false)
-    expect(peek(canStart)).toBe(true)
-    expect(await readLock(repo.root)).toBeNull()
-  })
-
-  it('finds the token when the workspace folder is a subdirectory of the repo', async () => {
-    const repo = await makeTempRepo({ files: { 'packages/app/index.ts': 'export const app = 1\n' } })
-    await repo.write('packages/app/index.ts', 'export const app = 2\n')
-    const before = await repo.fingerprint()
-
-    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'nested' })
-
-    // The token is keyed on the repository root; the folder VS Code opened is
-    // two levels below it.
-    await bootstrapAt(join(repo.root, 'packages', 'app'), store)
-
-    expect(peek(recoveryPending)).toBe(true)
-    expect((await recoverBackup())?.kind).toBe('restored')
-    expect(await repo.fingerprint()).toEqual(before)
-  })
-
-  it('reports a blocked restore instead of pretending it worked', async () => {
-    const repo = await dirtyRepo()
-    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'stuck' })
-    const harness = await bootstrap(repo, store)
-
-    // Interference the recovery cannot reconcile.
-    await repo.write('a.txt', 'someone else was here\n')
-
-    const outcome = await recoverBackup()
-    expect(outcome?.kind).toBe('blocked')
-    expect(peek(restoreBlock)?.kind).toBe('blocked')
-    expect(harness.notifications.at(-1)?.level).toBe('warn')
-    expect(harness.notifications.at(-1)?.message).toContain('Nothing was discarded')
-
-    // Everything is still on disk for the user to finish by hand.
-    expect(await listStash(repo.root)).toHaveLength(1)
-    expect(await resolveRef(repo.root, backupRefName('stuck'))).not.toBeNull()
-    expect(await store.readToken(repo.root)).not.toBeNull()
-  })
-
-  /**
-   * The state machine has to come home, not just the files. A restore that
-   * verifies leaves `blocked` behind; if it did not, `canStart` would stay
-   * false for the rest of the window and only a reload would clear it.
-   */
-  it('returns a blocked session to idle once the restore finally verifies', async () => {
-    const repo = await dirtyRepo()
-    const before = await repo.fingerprint()
-    const harness = await bootstrap(repo)
-
-    await start(harness)
-
-    // Interference the teardown cannot reconcile: the tree will not match the
-    // capture however the stash is applied.
-    await repo.write('interference.txt', 'not ours\n')
-    await cancelSession('cancel')
-
-    expect(peek(sessionStatus)).toBe('blocked')
-    expect(peek(restoreBlock)?.kind).toBe('blocked')
-    expect(peek(canStart)).toBe(false)
-    expect(peek(isolation)).not.toBeNull()
-
-    await repo.remove('interference.txt')
-    expect((await recoverBackup())?.kind).toBe('restored')
-
-    expect(peek(sessionStatus)).toBe('idle')
-    expect(peek(session)).toBeNull()
-    expect(peek(isolation)).toBeNull()
-    expect(peek(restoreBlock)).toBeNull()
-    expect(await repo.fingerprint()).toEqual(before)
-
-    await recoveryToken()
-    expect(peek(canStart)).toBe(true)
-  })
-
-  /**
-   * The escape hatch of last resort: a restore that can never be made to
-   * verify would otherwise pin `recoveryPending` forever. Forgetting it keeps
-   * every artifact in git and only stops this window waiting on them.
-   */
-  it('lets the user forget a restore that cannot be completed', async () => {
-    const repo = await dirtyRepo()
-    const harness = await bootstrap(repo)
-
-    await start(harness)
-    await repo.write('interference.txt', 'not ours\n')
-    await cancelSession('cancel')
-    expect(peek(sessionStatus)).toBe('blocked')
-
-    harness.answer = 'Forget'
-    expect(await discardRecovery()).toBe(true)
-
-    expect(peek(sessionStatus)).toBe('idle')
-    expect(peek(isolation)).toBeNull()
-    await recoveryToken()
-    await repoLockOwner()
-    expect(peek(recoveryPending)).toBe(false)
-    expect(peek(staleLock)).toBe(true)
-    expect(peek(canStart)).toBe(false)
-
-    // Nothing was destroyed — the backup is still there to recover by hand.
-    expect(await listStash(repo.root)).toHaveLength(1)
-    expect(await resolveRef(repo.root, backupRefName('model-session'))).not.toBeNull()
-  })
-
-  /**
-   * Activation modal "Dismiss reminder" calls this without a second confirm.
-   * A recoverable token at idle (reload left stage restoring) must unblock Start.
-   */
-  it('unblocks Start when forgetPendingRestore clears an idle recovery reminder', async () => {
-    const repo = await dirtyRepo()
-    const { store, token } = await isolateUpTo(repo, 'reviewing', { sessionId: 'left-restoring' })
-    await advanceStage(store, token, 'restoring')
-    await bootstrapAt(repo.root, store)
-
-    await recoveryToken()
-    expect(peek(sessionStatus)).toBe('idle')
-    expect(peek(recoveryPending)).toBe(true)
-    expect(peek(canStart)).toBe(false)
-
-    expect(await forgetPendingRestore()).toBe(true)
-
-    await recoveryToken()
-    await repoLockOwner()
-    expect(peek(recoveryPending)).toBe(false)
-    expect(peek(staleLock)).toBe(true)
-    expect(peek(canStart)).toBe(false)
-    expect(await store.readToken(repo.root)).toBeNull()
-    expect(await readLock(repo.root)).toBe('left-restoring')
-  })
-
-  /**
-   * A repository Tabthrough will not start in may still be holding the
-   * user's work. Keying the journal lookup on a capability that has to be `ok`
-   * would drop the reminder precisely when it matters most.
-   */
-  it('still finds a pending restore in a repository git refuses to start in', async () => {
-    const repo = await dirtyRepo()
-    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'ghost' })
-
-    // What git itself writes when a merge stops for conflicts. The tree is
-    // already stashed at this point, so there is no conflict to stage.
-    await repo.write('.git/MERGE_HEAD', `${await repo.head()}\n`)
-
-    await bootstrapAt(repo.root, store)
-
-    expect(peek(canStart)).toBe(false)
-    expect(peek(startBlockedReason)).toContain('merge')
-    expect(peek(recoveryPending)).toBe(true)
-    expect((await recoveryToken())?.sessionId).toBe('ghost')
-  })
-
-  /**
-   * The second window (P0 edge row 8). The journal lives in `globalState` so a
-   * second window can see it — which is also how a second window came to offer
-   * to "restore" the first window's *running* session, applying its stash and
-   * ending its isolation mid-review. A fresh heartbeat is the only thing that
-   * tells the two apart: from git state alone they are identical.
-   */
-  it('does not offer to restore a session that is live in another window', async () => {
-    const repo = await dirtyRepo()
-
-    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'window-a', heartbeatAt: 995_000 })
-    const isolated = await repo.fingerprint()
-    const harness = await bootstrap(repo, store)
-    harness.now = 1_000_000
-
-    expect(peek(sessionLiveElsewhere)).toBe(true)
-    expect(peek(canStart)).toBe(false)
-    expect(peek(startBlockedReason)).toBe(LIVE_ELSEWHERE_MESSAGE)
-
-    expect(await recoverBackup()).toBeNull()
-
-    // Window A's isolation is untouched: its stash entry, its refs, its token.
-    expect(await repo.fingerprint()).toEqual(isolated)
-    expect(await listStash(repo.root)).toHaveLength(1)
-    expect(await readLock(repo.root)).toBe('window-a')
-    expect((await store.readToken(repo.root))?.stage).toBe('reviewing')
-    expect(harness.notifications.at(-1)).toEqual({ level: 'info', message: LIVE_ELSEWHERE_MESSAGE })
-  })
-
-  it('offers the crash-recovery modal again once the heartbeat goes stale', async () => {
-    const repo = await dirtyRepo()
-    const before = await repo.fingerprint()
-
-    // Same token, one minute without a beat: the window that owned it is gone.
-    const { store } = await isolateUpTo(repo, 'reviewing', { sessionId: 'window-a', heartbeatAt: 940_000 })
-    const harness = await bootstrap(repo, store)
-    harness.now = 1_000_000
-
-    expect(peek(sessionLiveElsewhere)).toBe(false)
-    expect(peek(startBlockedReason)).toContain('restore')
-
-    expect((await recoverBackup())?.kind).toBe('restored')
-    expect(await repo.fingerprint()).toEqual(before)
-    expect(await readLock(repo.root)).toBeNull()
-  })
-
-  /** The other half of the pair: the window that owns a session keeps beating. */
-  it('refreshes the heartbeat on the token it owns, and only then', async () => {
-    const repo = await dirtyRepo()
-    const harness = await bootstrap(repo)
-    await start(harness)
-
-    const started = await harness.store.readToken(repo.root)
-    expect(started?.heartbeatAt).toBe(1_000)
-
-    harness.now = 8_000
-    expect(await refreshHeartbeat()).toBe(true)
-
-    const beaten = await harness.store.readToken(repo.root)
-    expect(beaten?.heartbeatAt).toBe(8_000)
-    expect(beaten?.stage).toBe('reviewing')
-    // This window is the one beating, so it never reads itself as somebody else.
-    expect(peek(sessionLiveElsewhere)).toBe(false)
-
-    await cancelSession('cancel')
-
-    // Nothing to beat on once the session is over, and nothing to write to.
-    expect(await refreshHeartbeat()).toBe(false)
-    expect(await harness.store.readToken(repo.root)).toBeNull()
-  })
-
-  it('cleans up orphan refs but never while a restore is pending', async () => {
-    const repo = await dirtyRepo()
-    const harness = await bootstrap(repo)
-
-    const head = await repo.head()
-    await writeRef(repo.root, backupRefName('orphan'), head)
-
-    harness.answer = 'Remove backups'
-    const removed = await cleanupBackups()
-    expect(removed).toEqual([backupRefName('orphan')])
-    expect(await listGuideRefs(repo.root)).toEqual([])
-    expect(harness.notifications.some(entry => entry.message.includes('Clean Up Backups'))).toBe(true)
-  })
-
-  it('refuses cleanup while a token is outstanding', async () => {
-    const repo = await dirtyRepo()
-    const { store, token } = await isolateUpTo(repo, 'reviewing', { sessionId: 'pending' })
-    await bootstrap(repo, store)
-
-    await expect(cleanupBackups()).rejects.toThrow(/restore/i)
-    expect(await resolveRef(repo.root, token.afterRef)).not.toBeNull()
+    harness.dispose()
   })
 })

@@ -26,15 +26,28 @@ const SIDEBAR_COMMANDS = new Set([
   'tabthrough.previous',
   'tabthrough.finish',
   'tabthrough.cancel',
-  'tabthrough.restoreBackup',
-  'tabthrough.discardRecovery',
+  'tabthrough.editHere',
   'tabthrough.showStepDetail',
   'tabthrough.showWalkthrough',
+  'tabthrough.commitHandoff',
+  'tabthrough.continueRebase',
+  'tabthrough.abortRebase',
+  'tabthrough.popAutostash',
+  'tabthrough.showAutostash',
+  'tabthrough.openWorktree',
+  'tabthrough.removeWorktree',
+  'tabthrough.pruneWorktrees',
+  'tabthrough.openConflict',
 ])
 
 const PAYLOAD_COMMANDS = new Set([
   'tabthrough.selectCommit',
   'tabthrough.submitRange',
+  'tabthrough.popAutostash',
+  'tabthrough.showAutostash',
+  'tabthrough.openWorktree',
+  'tabthrough.removeWorktree',
+  'tabthrough.openConflict',
 ])
 
 class SidebarWebviewProvider implements WebviewViewProvider {

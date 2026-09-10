@@ -1,114 +1,26 @@
-import type { ExtensionContext } from 'vscode'
-import type { PreflightRequest } from '../git/types'
-import type { ClockPort, Ports, StorePort, UiPort } from '../model/ports'
+import type { GitCommandResult } from '../git/state'
+import type { ClockPort, Ports, UiPort } from '../model/ports'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { extensionContext } from 'reactive-vscode'
-import { commands, env, Uri, window, workspace } from 'vscode'
-import { describeTarget } from '../git/types'
+import { commands, env, Position, Range, Selection, Uri, window, workspace } from 'vscode'
 import { ports } from '../model/session'
 import { logger } from '../utils'
-import { createGlobalStateStore } from './global-state-store'
 
-export { createGlobalStateStore } from './global-state-store'
-export type { GlobalStateBag, GlobalStateContext } from './global-state-store'
-
-/**
- * Fallback used only when activation somehow lacks a context. It throws rather
- * than pretending journal writes succeeded; recovery must fail closed when the
- * durable store is unavailable.
- */
-const missingContextStore: StorePort = {
-  async readToken() {
-    const error = new Error('Tabthrough journal unavailable: ExtensionContext was never captured')
-    logger.error(error.message)
-    throw error
-  },
-  async writeToken() {
-    const error = new Error('Tabthrough journal unavailable: ExtensionContext was never captured')
-    logger.error(error.message)
-    throw error
-  },
-  async clearToken() {
-    const error = new Error('Tabthrough journal unavailable: ExtensionContext was never captured')
-    logger.error(error.message)
-    throw error
-  },
+export function logGitResult(result: GitCommandResult): void {
+  logger.info(`$ ${result.command}`)
+  if (result.stdout.trim() !== '')
+    logger.info(result.stdout.trimEnd())
+  if (result.stderr.trim() !== '')
+    logger.info(result.stderr.trimEnd())
+  if (result.code !== 0)
+    logger.info(`exit ${result.code}`)
 }
 
-export function describePreflight(request: PreflightRequest): { message: string, detail: string } {
-  const { files } = request
-  const scope: string[] = []
-  if (files.staged.length > 0)
-    scope.push(`${files.staged.length} staged`)
-  if (files.unstaged.length > 0)
-    scope.push(`${files.unstaged.length} unstaged`)
-  if (files.untracked.length > 0)
-    scope.push(`${files.untracked.length} untracked`)
-
-  const lines: string[] = []
-  lines.push(request.willStash
-    ? `Your ${scope.join(', ')} change${scope.length === 1 && files.staged.length + files.unstaged.length + files.untracked.length === 1 ? '' : 's'} will be stashed as "tabthrough:<session>". Ignored files are never touched.`
-    : 'Your working tree is already clean, so nothing will be stashed.')
-  if (request.willCheckout !== null)
-    lines.push(`HEAD will detach at ${request.willCheckout.slice(0, 12)}.`)
-
-  if (request.sessionMode === 'apply') {
-    lines.push(
-      'Apply mode writes real files as you Tab through steps. Cancel restores your pre-session tree. '
-      + 'Finish keeps the applied tree and offers Source Control so you can commit — it does not restore.',
-    )
-  }
-  else {
-    lines.push(
-      'Everything is captured to refs/tabthrough/after/<session> before anything is touched, '
-      + 'and "Tabthrough: Cancel Review" restores it at any time.',
-    )
-  }
-
-  return {
-    message: request.sessionMode === 'apply'
-      ? `Isolate this workspace and apply ${describeTarget(request.entry)} step by step?`
-      : `Isolate this workspace to review ${describeTarget(request.entry)}?`,
-    detail: lines.join('\n\n'),
-  }
-}
-
-/** Cancel is the default button on the pre-flight — the modal's Escape action. */
 export const windowUi: UiPort = {
-  async confirm(request) {
-    const { message, detail } = describePreflight(request)
-    const startLabel = request.sessionMode === 'apply' ? 'Isolate and Apply' : 'Isolate and Start'
-    const answer = await window.showWarningMessage(message, { modal: true, detail }, startLabel)
-    return answer === startLabel
-  },
-  async chooseSessionMode() {
-    const pick = await window.showQuickPick(
-      [
-        {
-          label: 'Read-only review',
-          description: 'Virtual docs; Finish and Cancel both restore',
-          mode: 'readonly' as const,
-        },
-        {
-          label: 'Apply with me',
-          description: 'Writes real files as you Tab; Finish keeps, Cancel restores',
-          mode: 'apply' as const,
-        },
-      ],
-      {
-        title: 'Tabthrough session mode',
-        placeHolder: 'How should this walkthrough run?',
-        ignoreFocusOut: true,
-      },
-    )
-    return pick?.mode ?? null
-  },
   async notify(level, message, actions = []) {
     const items = [...actions]
-    // VS Code resolves message promises only when the toast is dismissed.
-    // Informational notices must not hold an apply action pending indefinitely.
     if (items.length === 0) {
       const shown = level === 'info'
         ? window.showInformationMessage(message)
@@ -128,19 +40,37 @@ export const windowUi: UiPort = {
     }
   },
   async openReview(target) {
-    // Phase 5 opens `vscode.diff` over the two review documents.
-    logger.info(`openReview requested for ${target.path} (reveal lands in Phase 5)`)
+    logger.info(`openReview requested for ${target.path}`)
   },
   async openWorkspaceFile(repoRoot, path) {
     const root = canonicalPath(repoRoot)
     const absolute = canonicalPath(join(repoRoot, path))
     if (!isWithin(root, absolute))
       throw new Error(`Refusing to open a path outside the repository: ${path}`)
-    const uri = Uri.file(absolute)
-    await window.showTextDocument(uri, { preview: false })
+    await window.showTextDocument(Uri.file(absolute), { preview: false, viewColumn: 2 })
+  },
+  async openFileAt(repoRoot, path, line, ranges) {
+    const root = canonicalPath(repoRoot)
+    const absolute = canonicalPath(join(repoRoot, path))
+    if (!isWithin(root, absolute))
+      throw new Error(`Refusing to open a path outside the repository: ${path}`)
+    const editor = await window.showTextDocument(Uri.file(absolute), { preview: false, viewColumn: 2 })
+    const selections = ranges
+      .filter(range => range.end >= range.start)
+      .map(range => new Selection(
+        new Position(Math.max(0, range.start - 1), 0),
+        new Position(Math.max(0, range.end - 1), 0),
+      ))
+    if (selections[0] !== undefined)
+      editor.selections = selections
+    const focus = Math.max(0, line - 1)
+    editor.revealRange(new Range(focus, 0, focus, 0))
   },
   async openSourceControl() {
     await commands.executeCommand('workbench.view.scm')
+  },
+  async openFolder(dir, newWindow) {
+    await commands.executeCommand('vscode.openFolder', Uri.file(dir), { forceNewWindow: newWindow })
   },
   async saveDocuments(repoRoot, paths) {
     const root = canonicalPath(repoRoot)
@@ -215,13 +145,13 @@ export const windowUi: UiPort = {
         return
       }
       catch {
-        // Cursor may reject unknown option keys; never use the string form
-        // (upstream VS Code auto-submits that shape).
+        // Cursor may reject unknown option keys.
       }
     }
     await env.clipboard.writeText(prompt)
     await window.showInformationMessage('Guide prompt copied. Paste it into Chat and send.')
   },
+  logGit: logGitResult,
 }
 
 function canonicalPath(path: string): string {
@@ -243,22 +173,11 @@ function relativePath(root: string, path: string): string {
 }
 
 export const systemClock: ClockPort = {
-  now: () => Date.now(),
   sessionId: () => randomUUID().replace(/-/g, '').slice(0, 12),
-}
-
-function resolveDefaultStore(): StorePort {
-  const context: ExtensionContext | null = extensionContext.value
-  if (context === null) {
-    logger.error('installPorts: ExtensionContext missing; journal I/O will fail closed')
-    return missingContextStore
-  }
-  return createGlobalStateStore(context)
 }
 
 export function installPorts(overrides: Partial<Ports> = {}): void {
   ports.set({
-    store: overrides.store ?? resolveDefaultStore(),
     ui: overrides.ui ?? windowUi,
     clock: overrides.clock ?? systemClock,
   })

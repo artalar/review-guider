@@ -20,4 +20,4 @@ export const heuristicOptions = atom<HeuristicOptions>(DEFAULT_HEURISTIC_OPTIONS
 export const guideFile = atom('.tabthrough-guide.json', 'config.guideFile')
 export const revealMode = atom<RevealMode>('progressive', 'config.revealMode')
 export const sessionModeSetting = atom<SessionModeSetting>('ask', 'config.sessionMode')
-export const stashIncludeUntracked = atom(true, 'config.stashIncludeUntracked')
+export const worktreeDir = atom('', 'config.worktreeDir')

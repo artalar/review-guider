@@ -43,6 +43,26 @@ These are the primary product hypothesis for the next milestone. Read-only progr
 
 ---
 
+## Product shift (v0.3 — git-first)
+
+Dogfooding v0.2 showed the isolation protocol (stash → detach → journal → verify → restore, plus lock, heartbeat and four recovery commands) was the most complex part of the product and paid for a stance, not a capability: read-only review never reads the working tree. The apply engine wrote one step at a time, so tooling never saw a consistent tree until the last Tab.
+
+**Direction ([ADR 0005](../decisions/0005-git-first-sessions.md)):** every session mode is one native git primitive with a native exit. The review **feels read-only** everywhere; one escape hatch, **Edit here**, opens the real file at the current step when the disk holds the reviewed change.
+
+| Mode | What git does | When to pick it | Edit here |
+|------|---------------|-----------------|-----------|
+| **Read-only** (default) | nothing (a snapshot commit for working changes) | understand a change; several windows at once | working changes: yes · commit / range: no |
+| **Rebase** | `git rebase -i --autostash` stopped at the reviewed commit | fix your own branch's commits while reading, with linters and tests seeing the whole change; Finish amends, Cancel is `git rebase --abort` | yes |
+| **Worktree** | `git worktree add --detach` in a new window | check a change in parallel without touching the current checkout | yes, in the new window |
+
+**Promise wording.** "Designed to restore your workspace exactly" becomes **"Plain git underneath"**: every action is a git command shown before it runs; every exit is one the user already knows; git's own errors are forwarded, not guarded against.
+
+**Finish defaults (Rebase).** Hooks and commit signing are skipped (`--no-verify --no-gpg-sign`) unless `tabthrough.finish.hooks` / `tabthrough.finish.sign` are on, or the guide sets `defaults.finish` for its own review. A failing hook or signature offers one retry with the bypass.
+
+**Retired.** Pre-flight modal (replaced by the "Will run:" line), apply-with-user step writing, journal, lock, heartbeat, Restore from Backup, Dismiss Pending Restore, Clear Leftover Lock, Clean Up Backups, `tabthrough.stash.includeUntracked`. Journeys J2 / J3 and the "Apply-with-user mode" section below are the historical record.
+
+---
+
 ## Personas
 
 ### P1 — The Careful Reviewer (primary)
@@ -98,15 +118,33 @@ These are the primary product hypothesis for the next milestone. Read-only progr
 
 ## User journeys
 
-### J1 — Read-only review (v0.1, retained)
+### J1 — Read-only review (v0.1, retained; v0.3 shape)
 
 1. Start from working tree, commit, or range.  
-2. Pre-flight: stash/isolation summary; Cancel default.  
+2. Sidebar shows "Will run: nothing"; Start.  
 3. Tab through steps in pedagogical order on `tabthrough:` virtual docs.  
-4. Finish / Cancel restores prior workspace.  
-5. **Outcome:** understanding; working tree unchanged relative to pre-session (after restore).
+4. Working changes: **Edit here** opens the real file at the current step; fixes live on disk on top of the reviewed snapshot.  
+5. Finish / Cancel delete the snapshot ref. The working tree was never touched.  
+6. **Outcome:** understanding; nothing to restore.
 
-### J2 — Apply-with-user on a commit (v0.2 target)
+### J5 — Rebase review of your own commit (v0.3)
+
+1. On branch `feature`, dirty tree, pick commit `C` (an ancestor of `HEAD`).  
+2. Sidebar shows `git rebase -i --autostash --no-verify --no-gpg-sign C^` and "autostash will park 3 files; 2 commits above will be rewritten"; Start.  
+3. Tree is at `C`; linters and tests see the whole change; Tab through the virtual reveal; **Edit here** to fix.  
+4. Finish: untracked files offered with checkboxes; `add -u`, amend into `C`, `rebase --continue` replays the commits above; WIP pops.  
+5. Cancel: `git rebase --abort`. Any conflict or hook failure is git's message with a Continue / Retry button.  
+6. **Outcome:** the fixed commit on the branch; nothing Tabthrough-specific left in the repository.
+
+### J6 — Worktree review in parallel (v0.3)
+
+1. Pick any target; choose Worktree.  
+2. Sidebar shows `git worktree add --detach <dir> <sha>`; Start opens a new window on the worktree.  
+3. The new window preselects **Review HEAD^..HEAD**; read-only review with the whole tree at the change.  
+4. Close the window when done; **Remove** from either window runs `git worktree remove` and is refused by git if the worktree is dirty.  
+5. **Outcome:** the current checkout was never touched.
+
+### J2 — Apply-with-user on a commit (v0.2 target — superseded by J5)
 
 Metaphor: **interactive rebase with fixes**, walked by Tab.
 
@@ -119,7 +157,7 @@ Metaphor: **interactive rebase with fixes**, walked by Tab.
 
 **Outcome:** the change lives on disk under the user’s authorship.
 
-### J3 — Apply-with-user on working-tree changes (v0.2 target)
+### J3 — Apply-with-user on working-tree changes (v0.2 target — superseded by J1 + Edit here)
 
 1. User starts on dirty working tree.  
 2. Extension **stashes** (capture-first, journal-first — non-negotiable).  
@@ -178,6 +216,8 @@ See [Non-goals](#non-goals) and [Edge-case budget](#edge-case-budget).
 ---
 
 ## Apply-with-user mode (v0.2 product shape)
+
+> **Superseded (2026-09-10)** by [Product shift (v0.3 — git-first)](#product-shift-v03--git-first) and ADR 0005. Kept as the record of why D1 was reopened.
 
 ### Intent
 
@@ -324,13 +364,30 @@ Philosophy: **P0 = no data loss + honest happy path**; **P1 = common dev frictio
 | Git not a repo / no git | Disable commands with explanation |
 | Detached HEAD / shallow clone missing objects | Detect early; fail with fetch hint |
 
-### P0 (v0.2 apply mode — additional)
+### P0 (v0.2 apply mode — additional; superseded)
 
 | Edge case | Handling |
 |-----------|----------|
 | Crash mid-apply | Journal names applied step index + base; recovery offers restore-to-pre-session **or** resume from last applied step |
 | User edits then abort | Abort restores pre-session WIP; never keeps half-apply unless user explicitly “keep tree” |
 | Conflict applying next step onto user edits | Stop; show conflict; do not skip ahead |
+
+### P0 (v0.3 git-first) — replaces the stash, crash, concurrency and apply rows above
+
+| Edge case | Handling |
+|-----------|----------|
+| Dirty working tree at start | Read-only / Worktree: irrelevant, nothing is touched. Rebase: `--autostash` parks tracked changes; the Start line says how many files |
+| Editor closed mid-session | Read-only: a snapshot ref, swept after 24 h. Rebase: an ordinary rebase in progress, shown in the sidebar with Continue / Abort. Worktree: a worktree, listed with Remove |
+| Second window or terminal touches the rebase | Ownership watch closes the review with a notice; git's state stays visible |
+| Autostash pop conflicts on Finish / Abort | Git keeps the entry and says so; sidebar shows it with Pop |
+| Replay conflict after Finish | Rebase stops as git does; conflicted paths in the sidebar; Continue button |
+| Hook or signing failure on Finish (only when enabled) | Git's output shown; one Retry with `--no-verify` / `--no-gpg-sign` |
+| Commit not on the current branch in Rebase mode | Start disabled with the Worktree hint |
+| Rebase / merge / cherry-pick already in progress | Rebase mode: git refuses, message forwarded. Read-only and Worktree still start |
+| Untracked files at Rebase Finish | Listed with checkboxes, none ticked; never swept by `add -A` |
+| Edits drift Edit here ranges | Re-anchor by added-line text; nearest-line fallback; "edited on disk" mark |
+| Dirty worktree on Remove | `git worktree remove` refuses; message forwarded; no `--force` |
+| Empty / whitespace-only diff · binary stubs · not a repo · shallow missing parents · old git | unchanged from v0.1 |
 
 ### P1 — Should handle (fast follow)
 
@@ -378,6 +435,17 @@ See [Acceptance criteria (apply mode)](#acceptance-criteria-apply-mode).
 ### v0.2 — Guide granularity (PO sign-off)
 
 See [Acceptance criteria (guide quality)](#acceptance-criteria-guide-quality).
+
+### v0.3 — Git-first (PO sign-off)
+
+- [ ] Read-only review of working changes, a commit and a range leaves `git status` and `git stash list` identical; two windows can review the same repository
+- [ ] Edit here opens the real file at the current step for a guide with out-of-order groups in one file
+- [ ] Rebase review of `HEAD~2` on a dirty branch: tree at `HEAD~2`, WIP parked, Finish amends and replays, WIP pops; Cancel is `git rebase --abort`
+- [ ] `git rebase --abort` typed in a terminal closes the review without any Tabthrough action
+- [ ] Hooks and signing skipped by default; `tabthrough.finish.*` and `defaults.finish` turn them on; failure offers one bypass retry
+- [ ] Worktree review opens a new window at `HEAD^..HEAD` for every entry kind; Remove is refused on a dirty worktree
+- [ ] Every git command appears in the sidebar before it runs and in the output channel with its output
+- [ ] No lock, journal, heartbeat, or Tabthrough-specific recovery command remains; README says "Plain git underneath"
 
 ---
 

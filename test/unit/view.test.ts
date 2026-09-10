@@ -1,11 +1,8 @@
 import type { IsolationHandle } from '../../src/git/isolate'
-import type { SessionToken } from '../../src/git/journal'
 import type { GuideStep } from '../../src/guide/types'
-import type { SessionRuntime } from '../../src/model/steps'
 import { context, peek } from '@reatom/core'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { showRationale } from '../../src/model/config'
-import { memoryStore } from '../../src/model/ports'
 import { session } from '../../src/model/session'
 import { reatomSession } from '../../src/model/steps'
 import {
@@ -20,57 +17,12 @@ import {
 
 /** The bridge's projections: URIs it addresses documents by, and the labels. */
 
-const TOKEN: SessionToken = {
-  v: 1,
-  sessionId: 'view',
-  createdAt: 0,
-  heartbeatAt: null,
-  repoRoot: '/repo',
-  stage: 'reviewing',
-  entry: { kind: 'workingTree' },
-  headBefore: { kind: 'branch', name: 'main' },
-  lockValue: null,
-  afterRef: 'refs/tabthrough/after/view',
-  afterCommit: 'aaa',
-  afterTree: 'ttt',
-  statusDigest: null,
-  backupRef: null,
-  backupCommit: null,
-  stashMessage: null,
-  checkedOut: null,
-  mode: 'readonly',
-  appliedIndex: -1,
-  appliedRef: null,
-}
-
 const HANDLE: IsolationHandle = {
   sessionId: 'view',
   repoRoot: '/repo',
   baseRev: 'base',
   afterRev: 'after',
-  token: TOKEN,
-}
-
-const RUNTIME: SessionRuntime = {
-  ports: () => ({
-    store: memoryStore(),
-    ui: {
-      confirm: async () => true,
-      chooseSessionMode: async () => 'readonly',
-      notify: async () => undefined,
-      openReview: async () => {},
-      openWorkspaceFile: async () => {},
-      openSourceControl: async () => {},
-      saveDocuments: async () => ({ ok: true }),
-      writeTextFile: async () => {},
-      fileExists: async () => false,
-      readBundledSkill: async () => null,
-      openAgentChat: async () => {},
-    },
-    clock: { now: () => 0, sessionId: () => 'view' },
-  }),
-  beginApply: () => false,
-  endApply: () => {},
+  afterRef: null,
 }
 
 function step(overrides: Partial<GuideStep> = {}): GuideStep {
@@ -97,7 +49,6 @@ function makeSession(steps: readonly GuideStep[]) {
     diff: { files: [], digest: 'sha256:test' },
     guide: { steps, stale: false, diagnostics: [] },
     mode: 'readonly',
-    runtime: RUNTIME,
   })
 }
 
@@ -148,7 +99,7 @@ describe('status bar composition', () => {
       expect(peek(statusText)).toBe('$(book) 1 of 2 · client.ts')
 
       model.next()
-      expect(peek(statusText)).toBe('$(book) Walkthrough complete · Finish and restore')
+      expect(peek(statusText)).toBe('$(book) Walkthrough complete · Finish')
     })
   })
 

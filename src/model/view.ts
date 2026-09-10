@@ -1,4 +1,5 @@
-import type { PreflightRequest, SessionMode } from '../git/types'
+import type { GitState } from '../git/state'
+import type { SessionMode } from '../git/types'
 import type { GuideStep, LineRange } from '../guide/types'
 import type { SessionStatus } from './session'
 import type { SetupPhase } from './setup'
@@ -8,16 +9,14 @@ import { describeTarget } from '../git/types'
 import { resolveGuideFile } from '../guide/sidecar'
 import { guideFile, showRationale } from './config'
 import {
-  preflightRequest,
-  recoveryPending,
-  repoLockOwner,
-  restoreBlock,
+  editedPaths,
+  editHereEnabled,
+  gitState,
   session,
   canStart as sessionCanStart,
-  sessionLiveElsewhere,
   sessionStatus,
-  staleLock,
   startBlockedReason,
+  willRun,
 } from './session'
 import {
   focusedGuidePath,
@@ -26,24 +25,8 @@ import {
   skillInstalled,
 } from './setup'
 
-/**
- * The bridge's projections. Everything VS Code renders is derived here, so the
- * UI layer holds no branching logic of its own.
- */
-
 export const REVIEW_SCHEME = 'tabthrough'
 
-/**
- * Two read-only documents per file (architecture/overview.md §7.1):
- *
- * ```
- * tabthrough://base/<sessionId>/<path>?rev=<baseRev>
- * tabthrough://reveal/<sessionId>/<path>
- * ```
- *
- * The kind is the URI authority and the repo-relative path is kept verbatim at
- * the end, so the editor picks the right language from the file extension.
- */
 export type ReviewDocKind = 'base' | 'reveal'
 
 export interface ReviewDocRef {
@@ -71,10 +54,6 @@ export function basename(path: string): string {
   return index === -1 ? path : path.slice(index + 1)
 }
 
-/**
- * Stable per file rather than per step: a title that carried `k/n` would rename
- * the editor tab on every Tab press. The status bar is where `k/n` belongs.
- */
 export function reviewDocTitle(path: string): string {
   return `${basename(path)} (Tabthrough)`
 }
@@ -84,23 +63,8 @@ export const statusText = computed((): string | null => {
   if (model === null)
     return null
 
-  if (model.mode === 'apply') {
-    if (model.applyPending())
-      return '$(sync~spin) Applying step…'
-    if (model.isComplete())
-      return '$(edit) Apply complete · Finish keeps · Cancel restores'
-    const { index, total } = model.progress()
-    const step = model.currentStep()
-    const parts = [`$(edit) ${index} of ${total}`]
-    if (step !== null)
-      parts.push(basename(step.path))
-    if (showRationale() && step !== null && step.rationale !== '')
-      parts.push(step.rationale)
-    return parts.join(' · ')
-  }
-
   if (model.isComplete())
-    return '$(book) Walkthrough complete · Finish and restore'
+    return '$(book) Walkthrough complete · Finish'
 
   const { index, total } = model.progress()
   const step = model.currentStep()
@@ -118,9 +82,6 @@ export const statusTooltip = computed((): string | null => {
     const reason = startBlockedReason()
     return reason === null ? null : `Tabthrough: ${reason}`
   }
-
-  if (sessionStatus() === 'blocked')
-    return 'Workspace restore needs attention'
 
   const step = model.currentStep()
   const lines = [`Tabthrough — ${sessionStatus()}`]
@@ -149,39 +110,25 @@ export interface ReviewViewModel {
   readonly activePath: string | null
   readonly baseRev: string
   readonly title: string
-  /** `null` until the base blob has been read. */
   readonly baseText: string | null
   readonly revealText: string | null
-  /** The current step's lines inside `revealText`, for the highlight. */
   readonly ranges: readonly LineRange[]
-  /** Unreached lines, for the dim mode's grey-out. Empty when progressive. */
   readonly pendingRanges: readonly LineRange[]
   readonly complete: boolean
 }
 
-/**
- * A binary, generated, or mode-only file has nothing to reveal, so its step
- * shows why it is in the list instead. Keeping it in the list is what keeps
- * `k/n` honest — silently dropping it would make the count a lie.
- */
 function stubDocumentText(step: GuideStep): string {
   return `${step.path}\n\n${step.rationale}\n`
 }
 
-/** One computed, one subscription, one place where connection lifetime is owned. */
 export const reviewViewModel = computed((): ReviewViewModel | null => {
   const model = session()
   if (model === null)
-    return null
-  // Apply mode uses ordinary file editors (ADR 0004 D2); no virtual diff.
-  if (model.mode === 'apply')
     return null
 
   const active = model.activeFile()
   const upcoming = model.nextStep()
 
-  // Touching the next file's base text keeps it connected, which starts its
-  // fetch now. Lookahead warming with zero imperative scheduling.
   if (upcoming !== null && upcoming.path !== active?.path)
     model.fileByPath.get(upcoming.path)?.baseText.data()
 
@@ -204,17 +151,6 @@ export const reviewViewModel = computed((): ReviewViewModel | null => {
   }
 }, 'ui.reviewViewModel')
 
-/** Bound into VS Code context keys so keybindings see live apply-in-flight (R-apply-5). */
-export const applyPending = computed(
-  (): boolean => session()?.applyPending() ?? false,
-  'ui.applyPending',
-)
-
-/**
- * The native sidebar reads one projection instead of reaching into the
- * session model itself. Keeping the projection here makes the extension host
- * bridge a renderer, while all session state remains owned by Reatom.
- */
 export interface SidebarViewModel {
   readonly status: SessionStatus
   readonly mode: SessionMode | null
@@ -225,15 +161,8 @@ export interface SidebarViewModel {
   readonly currentStep: GuideStep | null
   readonly nextStep: GuideStep | null
   readonly complete: boolean
-  readonly applyPending: boolean
   readonly canAdvance: boolean
   readonly canRetreat: boolean
-  readonly preflight: PreflightRequest | null
-  readonly recoveryPending: boolean
-  readonly liveElsewhere?: boolean
-  readonly staleLock: boolean
-  readonly lockOwner: string | null
-  readonly blockedMessage: string | null
   readonly idleReason: string | null
   readonly setup: SetupPhase
   readonly skillInstalled: boolean | null
@@ -241,6 +170,10 @@ export interface SidebarViewModel {
   readonly sidecarReady: boolean
   readonly focusedGuideMismatch: boolean
   readonly guideFileName: string
+  readonly gitState: GitState | null
+  readonly willRun: string
+  readonly editHereEnabled: boolean
+  readonly editedPaths: readonly string[]
 }
 
 export const sidebarViewModel = computed((): SidebarViewModel => {
@@ -248,7 +181,6 @@ export const sidebarViewModel = computed((): SidebarViewModel => {
   const status = sessionStatus()
   const current = model?.currentStep() ?? null
   const next = model?.nextStep() ?? null
-  const block = restoreBlock()
   const configuredGuide = guideFile().trim()
 
   return {
@@ -261,15 +193,8 @@ export const sidebarViewModel = computed((): SidebarViewModel => {
     currentStep: current,
     nextStep: next,
     complete: model?.isComplete() ?? false,
-    applyPending: model?.applyPending() ?? false,
     canAdvance: model?.canAdvance() ?? false,
     canRetreat: model?.canRetreat() ?? false,
-    preflight: preflightRequest(),
-    recoveryPending: recoveryPending(),
-    liveElsewhere: sessionLiveElsewhere(),
-    staleLock: staleLock(),
-    lockOwner: repoLockOwner.data(),
-    blockedMessage: block?.kind === 'blocked' ? `${block.message}\n${block.commands.join('\n')}` : null,
     idleReason: status === 'idle' ? startBlockedReason() : null,
     setup: setupPhase(),
     skillInstalled: skillInstalled.data(),
@@ -277,5 +202,9 @@ export const sidebarViewModel = computed((): SidebarViewModel => {
     sidecarReady: sidecarExists.data(),
     focusedGuideMismatch: focusedGuidePath() !== null && focusedGuidePath() !== resolveGuideFile(guideFile()),
     guideFileName: resolveGuideFile(configuredGuide),
+    gitState: gitState.data(),
+    willRun: willRun(),
+    editHereEnabled: editHereEnabled(),
+    editedPaths: editedPaths.data(),
   }
 }, 'ui.sidebarViewModel')

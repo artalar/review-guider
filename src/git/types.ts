@@ -6,8 +6,8 @@ export type ReviewTarget
     | { readonly kind: 'commit', readonly rev: string }
     | { readonly kind: 'range', readonly from: string, readonly to: string }
 
-/** Session contract: read-only virtual reveal vs write-to-disk apply. */
-export type SessionMode = 'readonly' | 'apply'
+/** Session contract: which git primitive the working tree follows. */
+export type SessionMode = 'readonly' | 'rebase' | 'worktree'
 
 export function describeTarget(target: ReviewTarget, options?: { readonly short?: boolean }): string {
   const short = options?.short === true
@@ -73,29 +73,7 @@ export function rangeInputError(raw: string): string | null {
   return null
 }
 
-/** Where HEAD pointed before the session detached it. */
+/** Where HEAD pointed when the session started. */
 export type HeadPosition
   = | { readonly kind: 'branch', readonly name: string }
     | { readonly kind: 'detached', readonly sha: string }
-
-export interface PreflightFiles {
-  readonly staged: readonly string[]
-  readonly unstaged: readonly string[]
-  readonly untracked: readonly string[]
-}
-
-/**
- * Everything the pre-flight modal must state plainly before anything is
- * touched: what will be stashed, and what the session will check out.
- */
-export interface PreflightRequest {
-  readonly entry: ReviewTarget
-  readonly repoRoot: string
-  readonly changedFileCount: number
-  readonly changedLineCount: number
-  readonly willStash: boolean
-  readonly willCheckout: string | null
-  readonly files: PreflightFiles
-  /** Frozen for the session; disclosed so apply never looks like read-only. */
-  readonly sessionMode: SessionMode
-}

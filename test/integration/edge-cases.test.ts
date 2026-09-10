@@ -3,8 +3,9 @@ import type { TmpRepo } from '../helpers/tmp-repo'
 import { Buffer } from 'node:buffer'
 import { context, peek } from '@reatom/core'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { listGuideRefs, MissingObjectsError, planIsolation } from '../../src/git/isolate'
+import { MissingObjectsError, planIsolation } from '../../src/git/isolate'
 import { probeGit } from '../../src/git/probe'
+import { listAfterRefs } from '../../src/git/refs'
 import {
   cancelSession,
   canStart,
@@ -156,7 +157,7 @@ describe('binary and generated files in the diff', () => {
 
     expect(peek(sessionStatus)).toBe('idle')
     expect(await repo.fingerprint()).toEqual(before)
-    expect(await listGuideRefs(repo.root)).toEqual([])
+    expect(await listAfterRefs(repo.root)).toEqual([])
   })
 })
 
@@ -187,7 +188,7 @@ describe('shallow clone with missing objects', () => {
 
     // The plan is the stat-only pass, so the refusal happens before the
     // pre-flight is even shown.
-    const failure = await planIsolation(clone.root, { entry: { kind: 'commit', rev: 'HEAD' }, includeUntracked: true, sessionMode: 'readonly' })
+    const failure = await planIsolation(clone.root, { entry: { kind: 'commit', rev: 'HEAD' } })
       .then(() => null, (error: unknown) => error)
 
     expect(failure).toBeInstanceOf(MissingObjectsError)
@@ -207,7 +208,7 @@ describe('shallow clone with missing objects', () => {
     expect(peek(session)).toBeNull()
     expect(peek(sessionStatus)).toBe('idle')
     expect(await clone.fingerprint()).toEqual(before)
-    expect(await listGuideRefs(clone.root)).toEqual([])
+    expect(await listAfterRefs(clone.root)).toEqual([])
     expect(harness.notifications.at(-1)?.message).toContain('shallow')
   })
 
@@ -239,7 +240,7 @@ describe('shallow clone with missing objects', () => {
     await clone.git('fetch', '--quiet', '--depth', '1', 'origin', 'feature')
 
     await expect(
-      planIsolation(clone.root, { entry: { kind: 'range', from: 'FETCH_HEAD', to: 'HEAD' }, includeUntracked: true, sessionMode: 'readonly' }),
+      planIsolation(clone.root, { entry: { kind: 'range', from: 'FETCH_HEAD', to: 'HEAD' } }),
     ).rejects.toBeInstanceOf(MissingObjectsError)
   })
 })

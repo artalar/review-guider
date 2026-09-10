@@ -15,7 +15,6 @@ import {
   window,
   workspace,
 } from 'vscode'
-import { ports, session } from '../model/session'
 import { REVIEW_SCHEME, reviewDocPath, reviewViewModel } from '../model/view'
 import { logger } from '../utils'
 import { useAtomRef } from './binding'
@@ -95,14 +94,6 @@ export function focusCurrentStep(): void {
 
 /** Status-bar click and `Go to Current Step`: reopen the diff if it was closed. */
 export async function revealCurrentStep(): Promise<void> {
-  const model = peek(session)
-  if (model?.mode === 'apply') {
-    const step = model.currentStep()
-    if (step !== null)
-      await wrap(peek(ports).ui.openWorkspaceFile(model.repoRoot, step.path))
-    return
-  }
-
   const view = withActivePath(peek(reviewViewModel))
   if (view === null)
     return

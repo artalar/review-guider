@@ -35,11 +35,6 @@ const HEALTHY_LAYOUT: Recording = {
   stdout: '/repo\nfalse\ntrue\nfalse\n/repo/.git\n',
 }
 
-const NO_OPERATION_IN_PROGRESS: Recording = {
-  match: args => args[0] === 'rev-parse' && args.includes('--git-path'),
-  stdout: '.git/rebase-merge\n.git/rebase-apply\n.git/MERGE_HEAD\n.git/CHERRY_PICK_HEAD\n.git/REVERT_HEAD\n',
-}
-
 const HEAD_OK: Recording = {
   match: args => args[0] === 'rev-parse' && args.includes('HEAD^{commit}'),
   stdout: '1111111111111111111111111111111111111111\n',
@@ -51,8 +46,6 @@ const CLEAN_STATUS: Recording = {
   match: args => args.includes('status'),
   stdout: '# branch.oid 1111111111111111111111111111111111111111\0# branch.head main\0',
 }
-
-const neverExists = async () => false
 
 describe('parseGitVersion', () => {
   it('reads plain and platform-suffixed versions', () => {
@@ -66,8 +59,7 @@ describe('parseGitVersion', () => {
 describe('probeGit', () => {
   it('reports a healthy repository', async () => {
     const capability = await probeGit('/repo', {
-      exists: neverExists,
-      exec: recordedExec([VERSION, HEALTHY_LAYOUT, NO_OPERATION_IN_PROGRESS, HEAD_OK, ON_MAIN, CLEAN_STATUS]),
+      exec: recordedExec([VERSION, HEALTHY_LAYOUT, HEAD_OK, ON_MAIN, CLEAN_STATUS]),
     })
 
     expect(capability).toEqual({
@@ -85,7 +77,6 @@ describe('probeGit', () => {
 
   it('reports git-missing when the executable is absent', async () => {
     const capability = await probeGit('/repo', {
-      exists: neverExists,
       exec: async () => { throw new GitMissingError(new Error('ENOENT')) },
     })
 
@@ -94,7 +85,6 @@ describe('probeGit', () => {
 
   it('reports git-too-old below the documented minimum', async () => {
     const capability = await probeGit('/repo', {
-      exists: neverExists,
       exec: recordedExec([{ match: starts('version'), stdout: 'git version 2.11.0\n' }]),
     })
 
@@ -103,7 +93,6 @@ describe('probeGit', () => {
 
   it('reports not-a-repo when rev-parse refuses', async () => {
     const capability = await probeGit('/tmp/plain', {
-      exists: neverExists,
       exec: recordedExec([
         VERSION,
         { match: starts('rev-parse'), code: 128, stderr: 'fatal: not a git repository' },
@@ -115,7 +104,6 @@ describe('probeGit', () => {
 
   it('reports bare-repo when there is no working tree', async () => {
     const capability = await probeGit('/repo.git', {
-      exists: neverExists,
       exec: recordedExec([
         VERSION,
         { match: args => args.includes('--show-toplevel'), stdout: '/repo.git\ntrue\nfalse\nfalse\n/repo.git\n' },
@@ -127,11 +115,9 @@ describe('probeGit', () => {
 
   it('reports unborn-head in a repository with no commits', async () => {
     const capability = await probeGit('/repo', {
-      exists: neverExists,
       exec: recordedExec([
         VERSION,
         HEALTHY_LAYOUT,
-        NO_OPERATION_IN_PROGRESS,
         { match: args => args.includes('HEAD^{commit}'), code: 1 },
       ]),
     })
@@ -139,22 +125,11 @@ describe('probeGit', () => {
     expect(capability).toMatchObject({ ok: false, reason: 'unborn-head' })
   })
 
-  it('refuses while a merge is in progress', async () => {
-    const capability = await probeGit('/repo', {
-      exists: async path => path.endsWith('MERGE_HEAD'),
-      exec: recordedExec([VERSION, HEALTHY_LAYOUT, NO_OPERATION_IN_PROGRESS, HEAD_OK, ON_MAIN, CLEAN_STATUS]),
-    })
-
-    expect(capability).toMatchObject({ ok: false, reason: 'rebase-or-merge-in-progress' })
-  })
-
   it('flags a shallow clone without refusing it', async () => {
     const capability = await probeGit('/repo', {
-      exists: neverExists,
       exec: recordedExec([
         VERSION,
         { match: args => args.includes('--show-toplevel'), stdout: '/repo\nfalse\ntrue\ntrue\n/repo/.git\n' },
-        NO_OPERATION_IN_PROGRESS,
         HEAD_OK,
         ON_MAIN,
         CLEAN_STATUS,
@@ -166,11 +141,9 @@ describe('probeGit', () => {
 
   it('reports a detached HEAD', async () => {
     const capability = await probeGit('/repo', {
-      exists: neverExists,
       exec: recordedExec([
         VERSION,
         HEALTHY_LAYOUT,
-        NO_OPERATION_IN_PROGRESS,
         HEAD_OK,
         { match: starts('symbolic-ref'), code: 1 },
         CLEAN_STATUS,

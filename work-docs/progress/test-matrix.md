@@ -324,6 +324,8 @@ Three of the four costs are git subprocesses — capture, checkout, `readDiff` �
 
 ## 9. Apply mode (v0.2) — planned coverage
 
+> **Superseded (2026-09-10)** by §10. Retired together with §3, §4 and §6.1–6.3 when Phase 12 lands.
+
 Normative: [ADR 0004](../decisions/0004-apply-mode.md). Product edges: [specs/product.md → P0 (v0.2 apply)](../specs/product.md#edge-case-budget). Risks: [plan.md R-apply-1…9](./plan.md#apply-mode-risk-register-v02).
 
 **Status:** Planned (Planner P0-A2). Implementer fills Pass/Fail as Phases 7–10 land. Tester owns fixture authorship once code exists.
@@ -405,3 +407,82 @@ Readonly §6.4 still applies to `tabthrough:` docs. Apply adds:
 | Crash mid-apply | §9.3 |
 | User edits then abort | §9.1 Cancel row · Phase 8 WT |
 | Conflict applying next step onto user edits | §9.1 conflict rows |
+
+---
+
+## 10. Git-first (v0.3) — planned coverage
+
+Normative: [ADR 0005](../decisions/0005-git-first-sessions.md). Product edges: [specs/product.md → P0 (v0.3 git-first)](../specs/product.md#edge-case-budget). Risks: [plan.md R-git-1…5](./plan.md#git-first-risk-register-v03).
+
+**Status:** Phase 12 suites exist (`snapshot-ref`, `git-state`, `edit-here`). Phases 13–14 still planned. Every integration row runs against a temp repository on ubuntu, windows and macos.
+
+### 10.1 Snapshot ref, deletions, and read-only start (Phase 12 — P0-N2)
+
+| Case | Assert |
+|------|--------|
+| Working-tree entry start | `refs/tabthrough/after/<id>` exists; parent `HEAD`; tree equals a fresh temp-index snapshot; `git status` and `git stash list` unchanged |
+| Commit / range start | no ref written; no git command with a side effect (exec spy) |
+| Finish / Cancel | ref deleted; nothing else changed |
+| Activation sweep | ref older than 24 h deleted; fresh ref kept; foreign refs under `refs/tabthrough/` untouched |
+| Two sessions, one repo | both start; independent refs |
+| Isolation / apply / lock gone | `rg -i 'stash|journal|heartbeat|lock' src/` matches only `src/git/state.ts` display code; `stash-roundtrip`, `crash-matrix`, `launch-safety`, `apply-step`, `apply-commit` deleted |
+
+### 10.2 Edit here projection (Phase 12 / 13)
+
+| Case | Assert |
+|------|--------|
+| Two steps in one file, second step earlier in the file | each step opens at its own after-side range |
+| File edited above the step | re-anchored by added-line text |
+| Anchor text removed | nearest-line fallback, no throw |
+| Pure-deletion step | opens at the removed lines' position |
+| Commit entry in read-only | disabled with the Rebase / Worktree hint |
+| Disk differs from after blob | "edited on disk" mark |
+
+### 10.3 Git state detection (Phase 12 — P0-N2)
+
+| Fixture | Expected `gitState` |
+|---------|---------------------|
+| clean · dirty (staged / unstaged / untracked counts) | counts |
+| `rebase -i` stopped at `edit` | rebase: branch, onto, stopped-sha, n of m, autostash sha |
+| rebase with conflict | rebase + `u` paths |
+| `git merge` conflict · `cherry-pick` stopped · `revert` stopped · bisect | one marker each |
+| autostash entry left (`stash store -m autostash`) | listed as autostash |
+| detached HEAD | detached |
+| worktree under the Tabthrough root · foreign worktree | only ours listed |
+| Buttons | each runs the named command; stdout / stderr reach the output channel |
+
+### 10.4 Rebase driver (Phase 13 — P0-N3)
+
+| Case | Assert |
+|------|--------|
+| Start on `HEAD~2` with dirty tree | tree equals `HEAD~2`; `rebase-merge/autostash` set; todo shows `edit` for `after` only |
+| Default flags | argv contains `--no-verify --no-gpg-sign`; absent when `finish.hooks` / `finish.sign` are on |
+| Guide `defaults.finish` | overrides the setting in both directions |
+| Finish, no edits | `--continue` replays; commits above have new shas; WIP back; `stash list` empty |
+| Finish with edits + one untracked ticked | amended into `after`; untracked included; unticked stays untracked |
+| Finish with a fixture `pre-commit` hook | hook runs only when `hooks: true`; failure surfaces Retry |
+| Replay conflict | rebase stopped; conflicted paths reported; Continue after resolution completes |
+| Cancel | `--abort`; HEAD and tree byte-identical to before Start; WIP popped |
+| Terminal `--abort` / `--continue` mid-review | ownership lost detected; review closed; nothing run |
+| Non-ancestor commit | Start disabled with Worktree hint |
+| Rebase already in progress | git's refusal forwarded verbatim |
+| Sequence editor | full and abbreviated verbs; `rebase.instructionFormat` extra text; `--check` probe |
+
+### 10.5 Worktree lifecycle (Phase 14 — P0-N4)
+
+| Case | Assert |
+|------|--------|
+| Commit / range / working-tree entry | worktree HEAD parent = `base`, tree = `after`; untracked included for working tree |
+| Location | under `tabthrough.worktree.dir` or `os.tmpdir()/tabthrough/<repo-hash>/<id>` |
+| Detection in the new window | `--git-common-dir ≠ --git-dir` and under root → preselect `HEAD^..HEAD` |
+| Remove clean · Remove dirty | removed · refused with git's message, still listed |
+| Prune | stale entry removed after directory deletion; live entries kept |
+
+### 10.6 Manual drills (replace §6.1–6.3)
+
+| Drill | Steps | Pass |
+|-------|-------|------|
+| Terminal takeover | Start Rebase; in a terminal run `git rebase --abort` | review closes with one notice; `git status` clean; WIP back |
+| Reload mid-rebase | Start Rebase; reload window | sidebar banner shows the rebase with Continue / Abort; no review restored; no Tabthrough state elsewhere |
+| Two windows | Read-only in both on one repo; Rebase in one, Rebase in the other | both read-only start; second Rebase shows git's "already in progress" |
+| Worktree window | Start Worktree; check the new window's sidebar; close it; Remove from the first window | preselected target; removed; `git worktree list` clean |

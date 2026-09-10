@@ -38,10 +38,8 @@ async function manifest(): Promise<Manifest> {
   return JSON.parse(raw) as Manifest
 }
 
-/** ADR 0002 D2, clause by clause. */
 const TAB_CLAUSES: readonly string[] = [
   'tabthrough.sessionActive',
-  'tabthrough.sessionMode != \'apply\'',
   'resourceScheme == \'tabthrough\'',
   'editorTextFocus',
   '!suggestWidgetVisible',
@@ -55,29 +53,34 @@ const TAB_CLAUSES: readonly string[] = [
 ]
 
 describe('contributed commands', () => {
-  it('declares every command the plan lists for P0-14', async () => {
+  it('declares every command Phase 12 ships', async () => {
     const { contributes } = await manifest()
     const declared = contributes.commands.map(entry => entry.command).sort()
 
     expect(declared).toEqual([
+      'tabthrough.abortRebase',
       'tabthrough.cancel',
-      'tabthrough.cleanupBackups',
-      'tabthrough.clearStaleLock',
       'tabthrough.commitHandoff',
-      'tabthrough.discardRecovery',
+      'tabthrough.continueRebase',
+      'tabthrough.editHere',
       'tabthrough.finish',
       'tabthrough.generateAgent',
       'tabthrough.generateSimple',
       'tabthrough.installSkill',
       'tabthrough.next',
+      'tabthrough.openConflict',
+      'tabthrough.openWorktree',
       'tabthrough.pickCommit',
       'tabthrough.pickRange',
       'tabthrough.pickWorkingTree',
+      'tabthrough.popAutostash',
       'tabthrough.previous',
-      'tabthrough.restoreBackup',
+      'tabthrough.pruneWorktrees',
+      'tabthrough.removeWorktree',
       'tabthrough.review',
       'tabthrough.selectCommit',
       'tabthrough.setupBack',
+      'tabthrough.showAutostash',
       'tabthrough.showStepDetail',
       'tabthrough.showWalkthrough',
       'tabthrough.start',
@@ -88,33 +91,37 @@ describe('contributed commands', () => {
     ])
   })
 
-  /**
-   * `sessionActive` means "the reveal loop is running", which is false in
-   * `blocked`, `error`, and a stalled `preflight`. Gating the way *out* on it
-   * would hide Cancel in exactly the states a user needs it.
-   */
   it('keeps the exit reachable from every state a session can be stuck in', async () => {
     const { contributes } = await manifest()
     const cancel = contributes.commands.find(entry => entry.command === 'tabthrough.cancel')
 
     expect(cancel?.enablement).toBe('tabthrough.sessionOpen')
+    expect(cancel?.title).toBe('Cancel Review')
   })
 
-  it('keeps the recovery commands away from a live session', async () => {
+  it('does not ship isolation recovery commands', async () => {
     const { contributes } = await manifest()
-    const recovery = contributes.commands.filter(entry =>
-      entry.command === 'tabthrough.restoreBackup' || entry.command === 'tabthrough.discardRecovery')
+    const retired = contributes.commands.filter(entry =>
+      entry.command === 'tabthrough.restoreBackup'
+      || entry.command === 'tabthrough.discardRecovery'
+      || entry.command === 'tabthrough.clearStaleLock'
+      || entry.command === 'tabthrough.cleanupBackups')
 
-    expect(recovery).toHaveLength(2)
-    for (const entry of recovery)
-      expect(entry.enablement).toBe('tabthrough.recoveryPending && !tabthrough.sessionActive')
+    expect(retired).toEqual([])
   })
 
-  it('offers Clear Leftover Lock only while a stale lock is present', async () => {
+  it('gates git-state commands on the matching context keys', async () => {
     const { contributes } = await manifest()
-    const clear = contributes.commands.find(entry => entry.command === 'tabthrough.clearStaleLock')
-    expect(clear?.enablement).toBe('tabthrough.staleLock')
-    expect(clear?.title).toBe('Clear Leftover Lock')
+    const byCommand = new Map(contributes.commands.map(entry => [entry.command, entry.enablement]))
+    expect(byCommand.get('tabthrough.continueRebase')).toBe('tabthrough.rebaseInProgress')
+    expect(byCommand.get('tabthrough.abortRebase')).toBe('tabthrough.rebaseInProgress')
+    expect(byCommand.get('tabthrough.popAutostash')).toBe('tabthrough.hasAutostash')
+    expect(byCommand.get('tabthrough.showAutostash')).toBe('tabthrough.hasAutostash')
+    expect(byCommand.get('tabthrough.openWorktree')).toBe('tabthrough.hasTabthroughWorktree')
+    expect(byCommand.get('tabthrough.removeWorktree')).toBe('tabthrough.hasTabthroughWorktree')
+    expect(byCommand.get('tabthrough.pruneWorktrees')).toBe('tabthrough.gitUsable')
+    expect(byCommand.get('tabthrough.openConflict')).toBe('tabthrough.hasConflicts')
+    expect(byCommand.get('tabthrough.editHere')).toBe('tabthrough.sessionActive')
   })
 
   it('gates every command on a context key, so the palette never offers a failure', async () => {
@@ -154,12 +161,6 @@ describe('contributed commands', () => {
   })
 })
 
-/**
- * Left undeclared, VS Code assumes an extension is merely "limited" in an
- * untrusted folder and loads it anyway. This one shells out to git, and a
- * repository's own config can make git run arbitrary commands, so the default
- * is the wrong one to inherit silently.
- */
 describe('workspace trust', () => {
   it('refuses untrusted and virtual workspaces, with a reason the user can read', async () => {
     const { capabilities } = await manifest()
@@ -181,43 +182,46 @@ describe('keybindings', () => {
     for (const entry of tab) {
       for (const clause of TAB_CLAUSES)
         expect(entry.when, `${entry.key} is missing ${clause}`).toContain(clause)
+      expect(entry.when ?? '').not.toContain('sessionMode')
     }
   })
 
   it('drops the two clauses ADR 0002 D2 rejected', async () => {
     const { contributes } = await manifest()
     for (const entry of contributes.keybindings) {
-      // A selection carries no Tab meaning in a read-only document, and
-      // read-only is precisely what makes Tab safe to take here.
       expect(entry.when ?? '').not.toContain('editorHasSelection')
       expect(entry.when ?? '').not.toContain('editorReadonly')
     }
   })
 
-  it('keeps the chord available while idle between apply steps', async () => {
+  it('keeps the chord available for the whole active session', async () => {
     const { contributes } = await manifest()
     const chord = contributes.keybindings.filter(entry => entry.key === 'alt+]' || entry.key === 'alt+[')
 
     expect(chord.map(entry => entry.command)).toEqual(['tabthrough.next', 'tabthrough.previous'])
     for (const entry of chord) {
-      expect(entry.when).toContain('tabthrough.sessionActive')
-      expect(entry.when).toContain('!tabthrough.applyPending')
+      expect(entry.when).toBe('tabthrough.sessionActive')
+      expect(entry.when).not.toContain('applyPending')
     }
   })
 
-  it('does not steal Tab in ordinary file editors during apply (review 004 B2 / §9.4)', async () => {
+  it('binds Edit here to Alt+Enter on a review document', async () => {
+    const { contributes } = await manifest()
+    const edit = contributes.keybindings.find(entry => entry.command === 'tabthrough.editHere')
+    expect(edit?.key).toBe('alt+enter')
+    expect(edit?.when).toContain('tabthrough.sessionActive')
+    expect(edit?.when).toContain('resourceScheme == \'tabthrough\'')
+  })
+
+  it('does not steal Tab in ordinary file editors', async () => {
     const { contributes } = await manifest()
     const tabKeys = contributes.keybindings.filter(entry =>
       entry.key === 'tab' || entry.key === 'shift+tab')
 
     for (const entry of tabKeys) {
       expect(entry.when ?? '', entry.key).not.toContain('resourceScheme == \'file\'')
-      expect(entry.when ?? '', entry.key).not.toContain('sessionMode == \'apply\'')
       expect(entry.when ?? '', entry.key).toContain('resourceScheme == \'tabthrough\'')
     }
-
-    const chord = contributes.keybindings.filter(entry => entry.key === 'alt+]' || entry.key === 'alt+[')
-    expect(chord).toHaveLength(2)
   })
 
   it('lets the user turn the Tab binding off entirely', async () => {
@@ -231,17 +235,23 @@ describe('keybindings', () => {
     expect(setting.default).toBe('.tabthrough-guide.json')
   })
 
-  it('declares the session mode setting with ask default', async () => {
+  it('declares the session mode setting with git-first enums', async () => {
     const { contributes } = await manifest()
     const setting = contributes.configuration.properties['tabthrough.session.mode'] as {
       default?: string
       enum?: string[]
     }
     expect(setting.default).toBe('ask')
-    expect(setting.enum).toEqual(['ask', 'readonly', 'apply'])
+    expect(setting.enum).toEqual(['ask', 'readonly', 'rebase', 'worktree'])
   })
 
-  it('offers Finish for every active session, including apply', async () => {
+  it('declares the worktree root setting', async () => {
+    const { contributes } = await manifest()
+    expect(contributes.configuration.properties['tabthrough.worktree.dir']).toBeDefined()
+    expect(contributes.configuration.properties['tabthrough.stash.includeUntracked']).toBeUndefined()
+  })
+
+  it('offers Finish for every active session', async () => {
     const { contributes } = await manifest()
     const finish = contributes.commands.find(entry => entry.command === 'tabthrough.finish')
     expect(finish?.enablement).toBe('tabthrough.sessionActive')

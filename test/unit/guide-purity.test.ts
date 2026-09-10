@@ -26,6 +26,7 @@ describe('the pure layer stays pure', () => {
 
   it('has the modules the architecture calls for', () => {
     expect(files.sort()).toEqual([
+      'edit-here.ts',
       'from-file.ts',
       'groups.ts',
       'heuristic.ts',

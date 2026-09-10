@@ -1,11 +1,11 @@
-# Tabthrough — Implementation Plan (v0.1 MVP + v0.2 Apply)
+# Tabthrough — Implementation Plan (v0.1 MVP + v0.2 Apply + v0.3 Git-first)
 
 **Owner:** Planner
-**Status:** v0.1 Phases 0–6 landed in code; **v0.2 Phases 7–10 sequenced** (P0-A2 Done)
-**Last updated:** 2026-08-07
-**Scope source of truth:** [ADR 0001](../decisions/0001-mvp-scope.md) · [ADR 0004](../decisions/0004-apply-mode.md) · [specs/product.md](../specs/product.md) · [backlog.md](./backlog.md)
+**Status:** v0.1 Phases 0–6 landed in code; v0.2 Phases 7–10 **superseded by ADR 0005**; **v0.3 Phases 12–14 sequenced** (P0-N2…N4)
+**Last updated:** 2026-09-10
+**Scope source of truth:** [ADR 0001](../decisions/0001-mvp-scope.md) · [ADR 0005](../decisions/0005-git-first-sessions.md) · [specs/product.md](../specs/product.md) · [backlog.md](./backlog.md)
 
-> Phases 0–6 sequence **v0.1 P0**. Phases 7–10 sequence **v0.2 apply** (P0-A3…A6) against ADR 0004. Nothing here expands product scope. Read-only path stays shippable and additive — apply must not regress sacred restore. Guide skill track (P0-G*) is parallel and not owned here.
+> Phases 0–6 sequence **v0.1 P0**. Phases 7–10 sequenced **v0.2 apply** against ADR 0004 and stop where they are: ADR 0005 replaces isolation, apply and recovery with three git-native modes, and Phase 12 deletes that code in the same slice as the new start path. Phases 12–14 sequence **v0.3 git-first** (P0-N2…N4). Guide skill track (P0-G*) is parallel and not owned here. There are no users yet — no aliases, no one-release restore, no delayed deletion.
 
 ---
 
@@ -20,14 +20,12 @@ flowchart LR
   P3 --> P5[Phase 5<br/>UX loop]
   P4 --> P5
   P5 --> P6[Phase 6<br/>Edge hardening]
-  P6 --> P7[Phase 7<br/>Apply engine + commit]
-  P7 --> P8[Phase 8<br/>WT apply]
-  P7 --> P9[Phase 9<br/>Finish keep UX]
-  P8 --> P10[Phase 10<br/>Crash recovery]
-  P9 --> P10
+  P6 --> P12[Phase 12<br/>Read-only + git state]
+  P12 --> P13[Phase 13<br/>Rebase mode]
+  P12 --> P14[Phase 14<br/>Worktree mode]
 ```
 
-Safety (Phase 2) precedes everything user-visible. **No phase after 2 may merge while the stash round-trip suite is red.** Phases 3 and 4 are independent of each other and may interleave. **v0.2:** Phase 7 is the apply critical path; 8 and 9 may interleave after 7’s engine gate; Phase 10 is the apply recovery gate.
+Safety (Phase 2) precedes everything user-visible in v0.1. **v0.3:** Phase 12 is the critical path — it deletes the isolation protocol and lands snapshot read-only plus the git-state sidebar. 13 and 14 may interleave after 12. README updates when a phase ships, never ahead of it.
 
 ---
 
@@ -368,6 +366,8 @@ Also in this phase: README with a "Known limitations" section covering the P2 ro
 
 ## Phase 7 — Apply engine + commit target (P0-A3)
 
+> **Superseded (2026-09-10).** Phases 7–10 are kept as the record of the v0.2 apply work. [ADR 0005](../decisions/0005-git-first-sessions.md) replaces them; no further work lands here, and Phase 12 removes the code they describe.
+
 **Backlog IDs:** P0-A3 (+ P1-13 revert engine, P1-8 drift warn early). **Depends on:** ADR 0004 · Phases 2–5 green in code · v0.1 sacred suite still green. **Owner:** Implementer.
 
 Additive only: read-only `progressive`/`dim` sessions must keep behaving as today. Do not rewrite virtual-doc reveal.
@@ -481,6 +481,116 @@ Crash-matrix rows for apply stages; recovery protocol tests; manual drill §6.6 
 
 ---
 
+## Phase 12 — Read-only + git state; delete isolation (P0-N2)
+
+**Backlog IDs:** P0-N2. **Depends on:** ADR 0005 accepted · Phases 3–5 green. **Owner:** Implementer.
+
+No users yet: delete the stash / journal / apply / lock protocol in this slice. Do not alias `apply`, do not keep a legacy restore.
+
+### Tasks
+
+| # | Task | Detail |
+|---|------|--------|
+| 12-a | Delete protocol | `src/git/{stash,journal,apply}.ts`, restore / lock / finish-keep paths in `isolate.ts`, `src/ui/{global-state-store,recovery-prompt}.ts`, heartbeat, recovery atoms, `blocked` status, commands Restore from Backup / Dismiss Pending Restore / Clear Leftover Lock / Clean Up Backups, `ports.store`, `ports.clock.now`. |
+| 12-b | Snapshot-only start | Read-only `startSession`: working-tree entry → temp-index snapshot → `commit-tree -p HEAD` → `refs/tabthrough/after/<id>`; commit / range → no write. No lock, journal, stash, checkout, heartbeat, or pre-flight. `IsolationHandle` shrinks to `{ baseRev, afterRev, afterRef }`. |
+| 12-c | Ref lifecycle | Finish / Cancel delete the after-ref. Activation sweeps `refs/tabthrough/after/*` whose commit is older than 24 h. |
+| 12-d | Mode surface | `tabthrough.session.mode` enum becomes `ask · readonly · rebase · worktree`; drop `apply` and `tabthrough.stash.includeUntracked` with no alias. The chooser lists only landed modes until Phases 13 / 14 ship. |
+| 12-e | Edit here (working tree) | Sidebar button + chord: open the real file beside the review at the current step's ranges (`renderReveal(base, file, file.groups).groupRanges`); re-anchor by added-line text after edits, nearest line as fallback; pure-deletion steps open at the removed lines' position. Disabled with a hint for commit / range. Sidebar marks files whose disk content differs from the after blob. |
+| 12-f | `src/git/state.ts` | One `readGitState(repoRoot)`: rebase (`rebase-merge` / `rebase-apply`: `head-name`, `onto`, `stopped-sha`, `orig-head`, done / todo counts, `autostash`), merge / cherry-pick / revert / bisect markers, porcelain `u` conflicts, dirty counts, detached HEAD, `stash list` entries with subject `autostash`, `worktree list --porcelain` filtered by the Tabthrough root. |
+| 12-g | `gitState` atom | `withAsyncData` computed on `gitWatchToken`; replaces `repoLockOwner`, `orphanRefs`, `staleLock`, `sessionLiveElsewhere`. |
+| 12-h | Sidebar banner + Start line | ADR 0005 D5 table: one line per state, buttons run the named git command and forward stdout / stderr to the output channel and the notification. Replace the pre-flight modal with "Will run: <command>" (D6). |
+| 12-i | Commands | `tabthrough.git.continueRebase`, `abortRebase`, `popAutostash`, `openWorktree`, `removeWorktree`, `pruneWorktrees`; all with `enablement` on `gitState`. |
+| 12-j | Docs | README (read-only + "Plain git underneath" for what this phase ships), `architecture/overview.md` §3.5 / §4 / §5.1 / §7.3 / §8 / §10.2, `reatom-model.md`, skills, guides — per the ADR 0005 migration table. |
+| 12-k | Tests | Delete `stash-roundtrip`, `crash-matrix`, `launch-safety`, `apply-step`, `apply-commit`; trim `session-lifecycle`; retire test-matrix §3, §4, §6.1–6.3, §9. |
+
+### Done when
+
+- [x] Working-tree, commit and range read-only reviews start and finish with `git status` byte-identical before and after, without a stash entry ever appearing
+- [x] Two windows can review the same repository at once
+- [x] Edit here opens the right line for a fixture guide with two steps in one file in reverse order
+- [x] A rebase started from a terminal shows in the sidebar with working Continue / Abort
+- [x] A failed autostash pop shows the stash entry with a Pop button
+- [x] Every button's git output appears in the output channel verbatim
+- [x] Isolation protocol deleted; leftover `stash` / `lock` hits are display code, lockfile names, or the word "block"
+- [x] README describes only shipped behaviour
+
+### Test gate
+
+| Gate | Where |
+|------|-------|
+| Snapshot ref create / delete / sweep | `test/integration/snapshot-ref.test.ts` (new) |
+| Reveal loop and entry points green with no stash calls (`exec` spy asserts no `stash`, `checkout`, `update-ref …/lock`) | `reveal-loop`, `entry-points` (extended) |
+| Edit here projection: ordered groups, drift re-anchor, deletion step | `test/unit/edit-here.test.ts` (new) |
+| State detection matrix: clean, dirty, rebase stopped, rebase conflict, merge, cherry-pick, autostash left, detached, worktree present | `test/integration/git-state.test.ts` (new) |
+| New commands + enablement | `contributions.test.ts` |
+| Banner rendering per state | `sidebar-html.test.ts`, `sidebar.test.ts` |
+| Isolation / apply / lock suites gone; CI green on three platforms | deleted files + `pnpm test:ci` |
+
+---
+
+## Phase 13 — Rebase mode (P0-N3)
+
+**Backlog IDs:** P0-N3. **Depends on:** Phase 12. **Owner:** Implementer.
+
+### Tasks
+
+| # | Task | Detail |
+|---|------|--------|
+| 13-a | `src/git/rebase.ts` | `isAncestor(after, HEAD)`; `startRebase({ base, after, hooks, sign })` → `git rebase -i --autostash [--no-verify] [--no-gpg-sign] <base>`; `finishRebase({ hooks, sign, stageUntracked })` → `add -u`, `add -- <ticked>`, `commit --amend --no-edit [flags]` when staged, `rebase --continue`; `abortRebase`; `readOwnership(after, origHead)`. |
+| 13-b | Sequence editor | Second build entry `dist/sequence-editor.cjs`; invoked as `ELECTRON_RUN_AS_NODE=1 "<process.execPath>" "<script>" <afterSha>`; rewrites the `pick` / `p` line for `<after>` to `edit`; leaves everything else. |
+| 13-c | Hooks / signing policy | Settings `tabthrough.finish.hooks`, `tabthrough.finish.sign` (default `false`). Schema v1 gains optional `defaults.finish { hooks?, sign? }`; `loadSidecar` surfaces it; resolution guide → setting → default. Start line notes "replayed commits will be unsigned" when `commit.gpgsign=true` and `sign` is off. |
+| 13-d | Finish confirmation | Lists untracked files with checkboxes (none ticked by default); on hook / signing failure shows git output with one "Retry without hooks / signing" action. |
+| 13-e | Ownership watch | `gitState` change → if `rebase-merge` is gone or `stopped-sha ≠ after` or `orig-head ≠ recorded HEAD`, close the review with one notice; banner keeps showing git's state. |
+| 13-f | Applicability | Commit / range must satisfy `isAncestor`; otherwise Start is disabled with the Worktree hint. Working-tree entry hides the Rebase option. |
+| 13-g | Edit here | Enabled for every rebase session; same projection as 12-e. |
+
+### Done when
+
+- [ ] Reviewing `HEAD~2` on a dirty branch: tree equals `HEAD~2` after Start, WIP is parked, `git status` shows the rebase; Finish amends fixes into `HEAD~2`, replays the two commits, pops the WIP
+- [ ] Cancel = `git rebase --abort` returns HEAD and WIP exactly
+- [ ] A conflict on replay stops with the conflicted paths in the sidebar; Continue works after manual resolution
+- [ ] `git rebase --abort` in a terminal closes the review without touching anything
+
+### Test gate
+
+| Gate | Where |
+|------|-------|
+| Start / stop at `after`, autostash parked and popped, finish amend + replay, replay conflict, abort, ownership lost, `--no-verify --no-gpg-sign` present by default and absent when enabled, fixture `pre-commit` hook runs only when `hooks: true` | `test/integration/rebase-driver.test.ts` (new) |
+| Sequence editor rewrite with full and abbreviated verbs, `rebase.instructionFormat` noise | `test/unit/sequence-editor.test.ts` (new) |
+| `defaults.finish` parse + resolution | `schema.test.ts`, `published-schema.test.ts`, `merge.test.ts` |
+| Settings + Start line copy | `contributions.test.ts`, `sidebar-html.test.ts` |
+
+---
+
+## Phase 14 — Worktree mode (P0-N4)
+
+**Backlog IDs:** P0-N4. **Depends on:** Phase 12. **Owner:** Implementer.
+
+### Tasks
+
+| # | Task | Detail |
+|---|------|--------|
+| 14-a | `src/git/worktree.ts` | `squashCommit(base, afterTree, message)`; `add(dir, commit)` → `worktree add --detach`; `list()` filtered by the configured root; `remove(dir)` without `--force`; `prune()`. |
+| 14-b | Setting | `tabthrough.worktree.dir` (string, default empty → `os.tmpdir()/tabthrough`); path `<root>/<repo-hash>/<id>`. |
+| 14-c | New window | `ports.ui.openFolder(dir, newWindow)`; on activation inside a directory under the root (`--git-common-dir` ≠ `--git-dir`), the sidebar preselects **Review HEAD^..HEAD** in read-only mode. |
+| 14-d | Sidebar | Worktree rows from Phase 12 gain Open; `prune` runs on activation. |
+
+### Done when
+
+- [ ] Worktree for a working-tree entry contains the untracked files of the snapshot
+- [ ] Worktree HEAD has parent `base` and tree `after` for commit, range and working-tree entries
+- [ ] `Remove` on a dirty worktree is refused with git's message; clean worktree is removed
+
+### Test gate
+
+| Gate | Where |
+|------|-------|
+| add / list / remove-refused / remove / prune; parent and tree assertions per entry kind | `test/integration/worktree.test.ts` (new) |
+| Detection of "inside a Tabthrough worktree" | `test/unit/worktree-detect.test.ts` (new) |
+| Setting + command contributions | `contributions.test.ts` |
+
+---
+
 ## Parallel tracks
 
 These run **beside** the core sequence and never block it.
@@ -492,8 +602,9 @@ These run **beside** the core sequence and never block it.
 | **C — Architecture docs** | `architecture/overview.md`, `architecture/reatom-model.md`, `architecture/guide-schema.md` | Architect | Now | `guide-schema.md` blocks P0-15; `reatom-model.md` blocks P0-8 |
 | **D — Product surface** | README, marketplace metadata, settings descriptions, keybinding documentation | Implementer (low priority) | Phase 0 | Phase 6 |
 | **E — P1 prep (docs only)** | `.guide.json` schema v1 publication + agent skill draft | Anyone idle | Phase 3 green | **Not MVP-blocking.** Zero code in `src/` |
-| **F — Apply (v0.2)** | Phases 7→10 (P0-A3…A6) | Implementer | P0-A2 (this plan) | v0.2 milestone |
-| **G — Guide quality** | P0-G1–G3 skill / fixtures / dogfood | Docs + Tester | P0-G1 Done | Parallel with F; does not block apply engine |
+| **F — Apply (v0.2)** | Phases 7→10 (P0-A3…A6) — **superseded by ADR 0005** | — | — | — |
+| **G — Guide quality** | P0-G1–G3 skill / fixtures / dogfood | Docs + Tester | P0-G1 Done | Parallel; does not block N |
+| **N — Git-first (v0.3)** | Phases 12→14 (P0-N2…N4) | Implementer | ADR 0005 accepted | v0.3 milestone |
 
 Track B is the one worth starting immediately in parallel — the temp-repo helper is on the critical path for Phase 2, and building it early de-risks the hardest phase.
 
@@ -586,7 +697,55 @@ LLM generation, agent skill publication, and `gh` PR entry are all tempting and 
 
 ---
 
+## Git-first risk register (v0.3)
+
+From [ADR 0005](../decisions/0005-git-first-sessions.md) Consequences. Owners: Implementer unless noted. Test hooks point at [test-matrix.md](./test-matrix.md) §10.
+
+### R-git-1 — Sequence editor portability
+
+**Likelihood:** Medium · **Impact:** High · **Phase:** 13
+
+`GIT_SEQUENCE_EDITOR` must be a command git can spawn on Windows, macOS and Linux, from a desktop and a remote extension host. `ELECTRON_RUN_AS_NODE` is what VS Code's own git extension relies on for askpass, but forks and remote hosts differ.
+
+*Mitigations:* probe once at Start by running the script with `--check`; on failure, refuse Rebase mode with the reason and keep Read-only / Worktree available. CI runs `rebase-driver` on all three platforms.
+
+### R-git-2 — Rewritten commits above `after`
+
+**Likelihood:** High · **Impact:** Medium · **Phase:** 13
+
+Reviewing a commit in the middle of a branch rewrites every commit above it (new shas; unsigned by default). Users who push those commits get a force-push situation they may not expect.
+
+*Mitigations:* the Start line says "n commits above will be rewritten"; the signature note when `commit.gpgsign=true`; README states it plainly. Accepted as inherent to the git primitive.
+
+### R-git-3 — Edit here drift
+
+**Likelihood:** Medium · **Impact:** Low · **Phases:** 12, 13
+
+After edits, snapshot ranges no longer match the file.
+
+*Mitigations:* re-anchor by added-line text; nearest-line fallback; "edited on disk" mark; unit fixtures in `edit-here.test.ts`.
+
+### R-git-4 — Shared rebase state
+
+**Likelihood:** Low · **Impact:** Medium · **Phase:** 13
+
+A second window or a terminal can continue or abort the rebase under the review.
+
+*Mitigations:* accepted as git semantics; the ownership watch closes the review with a notice instead of acting on stale state.
+
+### R-git-5 — Temp-dir worktrees
+
+**Likelihood:** Low · **Impact:** Low · **Phase:** 14
+
+The OS may clean `os.tmpdir()` under a long-lived worktree window.
+
+*Mitigations:* `worktree prune` on activation removes the stale entry; `tabthrough.worktree.dir` for users who want a persistent root.
+
+---
+
 ## Apply-mode risk register (v0.2)
+
+> Superseded by ADR 0005; kept as record.
 
 From [ADR 0004](../decisions/0004-apply-mode.md) Consequences. Owners: Implementer unless noted. Test hooks point at [test-matrix.md](./test-matrix.md) §9.
 
@@ -718,9 +877,12 @@ Settings to declare in Phase 0 so later phases can read them without re-touching
 | `tabthrough.keybinding.useTab` | boolean | `true` | 5 |
 | `tabthrough.showRationale` | boolean | `true` | 5 |
 | `tabthrough.reveal.mode` | `'progressive' \| 'dim'` | `'progressive'` | 5 (readonly only) |
-| `tabthrough.session.mode` | `'ask' \| 'readonly' \| 'apply'` | `'ask'` | 7 |
+| `tabthrough.session.mode` | `'ask' \| 'readonly' \| 'rebase' \| 'worktree'` | `'ask'` | 12 (was `'apply'` in 7; no alias) |
 | `tabthrough.guideFile` | string | `.guide.json` | 3 |
-| `tabthrough.stash.includeUntracked` | boolean | `true` | 2 |
+| `tabthrough.stash.includeUntracked` | boolean | `true` | 2 — removed in 12 |
+| `tabthrough.finish.hooks` | boolean | `false` | 13 |
+| `tabthrough.finish.sign` | boolean | `false` | 13 |
+| `tabthrough.worktree.dir` | string | `''` (→ `os.tmpdir()/tabthrough`) | 14 |
 
 ---
 
@@ -739,8 +901,11 @@ Settings to declare in Phase 0 so later phases can read them without re-touching
 | 8 | WT apply + Cancel fingerprint | — |
 | 9 | Finish-keep vs Cancel; `done-kept` refs retained | Finish/Commit copy dogfood |
 | 10 | Crash matrix `applying` / `done-kept`; Resume vs Restore | Apply crash drill §6.6 |
+| 12 | Snapshot ref lifecycle §10.1; no side-effect exec spy; Edit here projection §10.2; git state detection §10.3; command contributions; banner rendering; `rg` deletion assertion; CI green | Two-window drill §10.6 |
+| 13 | Rebase driver §10.4 on 3 platforms; sequence editor; `defaults.finish` schema | Terminal takeover + reload drills §10.6 |
+| 14 | Worktree lifecycle §10.5; window detection | Worktree window drill §10.6 |
 
-Per the Planner rules, **every P0 has a gate**: P0-1/8 in Phase 1, P0-5/6/7 in Phase 2, P0-9/10/15 in Phase 3, P0-2/3/4 in Phase 4, P0-11/12/13/14 in Phase 5, P0-16 in Phase 6, **P0-A3…A6 in Phases 7–10**.
+Per the Planner rules, **every P0 has a gate**: P0-1/8 in Phase 1, P0-5/6/7 in Phase 2, P0-9/10/15 in Phase 3, P0-2/3/4 in Phase 4, P0-11/12/13/14 in Phase 5, P0-16 in Phase 6, P0-A3…A6 in Phases 7–10 (superseded), **P0-N2…N4 in Phases 12–14**.
 
 ---
 
@@ -791,9 +956,10 @@ If Finish must remain temporarily unavailable in Phase 7, that is a UX gap to cl
 ## References
 
 - [ADR 0001 — MVP scope](../decisions/0001-mvp-scope.md)
-- [ADR 0004 — Apply mode](../decisions/0004-apply-mode.md)
+- [ADR 0004 — Apply mode](../decisions/0004-apply-mode.md) (superseded)
+- [ADR 0005 — Git-first sessions](../decisions/0005-git-first-sessions.md)
 - [Product spec](../specs/product.md)
 - [Backlog](./backlog.md)
-- [Test matrix](./test-matrix.md) §9
+- [Test matrix](./test-matrix.md) §10
 - [Process](../process/README.md)
 - Reatom skills: `.agents/skills/reatom/`, `.agents/skills/reatom-async/`, `.agents/skills/reatom-review/`

@@ -1,68 +1,20 @@
 import type { IsolationHandle } from '../../src/git/isolate'
-import type { SessionToken } from '../../src/git/journal'
 import type { GuideStep } from '../../src/guide/types'
-import type { SessionRuntime } from '../../src/model/steps'
 import { context } from '@reatom/core'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { memoryStore } from '../../src/model/ports'
 import { reatomSession } from '../../src/model/steps'
 
 /**
- * Cursor movement is pure state motion in readonly mode — no I/O — which is
- * what makes Tab instant and Shift+Tab correct by construction.
+ * Cursor movement is pure state motion — no I/O — which is what makes Tab
+ * instant and Shift+Tab correct by construction.
  */
-
-const TOKEN: SessionToken = {
-  v: 1,
-  sessionId: 's',
-  createdAt: 0,
-  heartbeatAt: null,
-  repoRoot: '/repo',
-  stage: 'reviewing',
-  entry: { kind: 'workingTree' },
-  headBefore: { kind: 'branch', name: 'main' },
-  lockValue: null,
-  afterRef: 'refs/tabthrough/after/s',
-  afterCommit: 'aaa',
-  afterTree: 'ttt',
-  statusDigest: null,
-  backupRef: null,
-  backupCommit: null,
-  stashMessage: null,
-  checkedOut: null,
-  mode: 'readonly',
-  appliedIndex: -1,
-  appliedRef: null,
-}
 
 const HANDLE: IsolationHandle = {
   sessionId: 's',
   repoRoot: '/repo',
   baseRev: 'base',
   afterRev: 'after',
-  token: TOKEN,
-}
-
-const RUNTIME: SessionRuntime = {
-  ports: () => ({
-    store: memoryStore(),
-    ui: {
-      confirm: async () => true,
-      chooseSessionMode: async () => 'readonly',
-      notify: async () => undefined,
-      openReview: async () => {},
-      openWorkspaceFile: async () => {},
-      openSourceControl: async () => {},
-      saveDocuments: async () => ({ ok: true }),
-      writeTextFile: async () => {},
-      fileExists: async () => false,
-      readBundledSkill: async () => null,
-      openAgentChat: async () => {},
-    },
-    clock: { now: () => 0, sessionId: () => 's' },
-  }),
-  beginApply: () => false,
-  endApply: () => {},
+  afterRef: null,
 }
 
 function step(path: string): GuideStep {
@@ -84,11 +36,10 @@ function makeSession(paths: readonly string[]) {
     entry: { kind: 'workingTree' },
     baseRev: 'base',
     afterRev: 'after',
-    handle: { ...HANDLE, token: { ...TOKEN } },
+    handle: HANDLE,
     diff: { files: [], digest: 'sha256:test' },
     guide: { steps: paths.map(step), stale: false, diagnostics: [] },
     mode: 'readonly',
-    runtime: RUNTIME,
   })
 }
 

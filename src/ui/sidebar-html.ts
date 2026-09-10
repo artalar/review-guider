@@ -27,7 +27,7 @@ function isPrimary(row: SidebarItemData): boolean {
   return command.endsWith('.next')
     || command.endsWith('.startFromGuide')
     || command.endsWith('.review')
-    || command.endsWith('.clearStaleLock')
+    || command.endsWith('.continueRebase')
 }
 
 function commandButton(row: SidebarItemData, extraClass = ''): string {

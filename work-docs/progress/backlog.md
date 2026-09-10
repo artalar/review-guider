@@ -53,6 +53,8 @@ Product direction: [specs/product.md](../specs/product.md). **Safety still outra
 
 ### Track A — Apply-with-user / commit-oriented walkthrough
 
+> **Superseded (2026-09-10)** by [ADR 0005](../decisions/0005-git-first-sessions.md). P0-A3…A6 and their review fix items stop where they are; the apply engine, journal, lock and restore protocol are removed in Phase 12. Rows below are the historical record.
+
 | ID | Item | Acceptance hint | Depends | Phase | Owner | Status |
 |----|------|-----------------|--------|-------|-------|--------|
 | P0-A1 | **Architect: reopen ADR 0002 D1** — `apply` mode beside `progressive`/`dim`; stash/journal under writes; Finish vs Cancel | ADR + overview §7 amended; risks in product.md addressed | v0.1 drills preferably green | — | Architect | **Done** (ADR 0004; overview §7.3; reatom-model 1.1) |
@@ -129,7 +131,23 @@ these were confirmed by executing the code against real temp repos, not only by 
 | P0-G2 | **Golden fixture: mixed helper + refactor** — one change that must not be a single panel | Fixture + expected step count/ids for skill dogfood | P0-G1 | **Done** (`helper-consumer-refactor.diff` + split/merged guides; `test/unit/helper-consumer-fixture.test.ts`) |
 | P0-G3 | **P1-2 dogfood re-gated on granularity** — agent guide for a real PR; reviewer reads only the guide **and** confirms no multi-thought panels | Replaces “any guide exists” as P1-2 pass | P0-G1, P0-G2 | **Done** (PASS — `helper-consumer.dogfood.guide.json`; ≥2 steps, helper→consumer, ranges; see iteration-log) |
 
-**v0.2 milestone (PO):** P0-A1–A6 + P0-G1–G3; read-only mode remains supported.
+**v0.2 milestone (PO):** ~~P0-A1–A6~~ + P0-G1–G3; Track A superseded by v0.3 below.
+
+---
+
+## P0 — v0.3 milestone (Git-first sessions)
+
+Direction: [ADR 0005](../decisions/0005-git-first-sessions.md) (Accepted 2026-09-10). Phases 12–14 in [plan.md](./plan.md). Every mode maps to one git primitive; the extension shows the command before running it and forwards git's errors instead of guarding against them. No users yet — delete the old protocol in Phase 12; no aliases, no one-release restore.
+
+### Track N — Native git modes
+
+| ID | Item | Acceptance hint | Depends | Phase | Owner | Status |
+|----|------|-----------------|--------|-------|-------|--------|
+| P0-N2 | **Read-only + git state; delete isolation** — snapshot ref only; drop stash / lock / journal / apply / heartbeat / recovery commands; Edit here for the working-tree entry; `readGitState`, `gitState` atom, banner with Continue / Abort / Pop / Open / Remove / Prune, "Will run:" line | `git status` identical before / after, no stash entry ever; two windows review the same repo; Edit here lands on the right line for out-of-order groups in one file; terminal-started rebase visible with working buttons; `rg` hits only `state.ts` display code | ADR 0005 | **12** | Implementer | **Done** |
+| P0-N3 | **Rebase mode** — `rebase -i --autostash` stopped at `after`; bundled sequence editor; Finish = `add -u` + amend + `--continue`; `finish.hooks` / `finish.sign` settings (default off) + `defaults.finish` in the guide; ownership watch; ancestor-only applicability | Review `HEAD~2` on a dirty branch: tree at `HEAD~2`, WIP parked, Finish amends + replays + pops; Cancel = `--abort`; replay conflict surfaces; terminal `--abort` closes the review | P0-N2 | **13** | Implementer | Not started |
+| P0-N4 | **Worktree mode** — squashed `base → after` commit, `worktree add --detach` under `tabthrough.worktree.dir` (tmpdir default), new window preselects `HEAD^..HEAD`, Remove without `--force`, prune on activation | Worktree HEAD has parent `base`, tree `after` for all entry kinds; untracked included for working tree; dirty worktree Remove refused with git's message | P0-N2 | **14** | Implementer | Not started |
+
+**v0.3 milestone (PO):** P0-N2–N4. Read-only stays the default and the only mode with progressive hiding.
 
 ---
 
@@ -202,4 +220,5 @@ Phased in detail — with exit criteria, test gates, risks, and module layout �
 5. P0-11, P0-12, P0-13, P0-14 (UX loop)  
 6. P0-16 (edge hardening)  
 7. P1 docs-only track parallel after phase 3 green  
-8. **v0.2:** Architect P0-A1 **Done** ∥ P0-G* **Done** → Planner P0-A2 **Done** → Implementer Phase 7 (P0-A3) **reopened: G1–G4** ∥ Phase 9 (P0-A5) **reopened: F2–F5** → A4 → A6; v0.1 manual drills stay on Marketplace path, and **P0-A3-G1 regresses that path** — fix before any v0.1 drill is re-run
+8. **v0.2:** Architect P0-A1 **Done** ∥ P0-G* **Done** → Planner P0-A2 **Done** → Track A **stopped** (superseded by ADR 0005)
+9. **v0.3:** P0-N2 (read-only + git state; delete isolation) → P0-N3 (rebase) ∥ P0-N4 (worktree)

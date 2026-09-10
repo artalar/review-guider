@@ -1,114 +1,13 @@
-import { peek, wrap } from '@reatom/core'
 import { watch } from 'reactive-vscode'
 import { window } from 'vscode'
-import { isRecoverable, isSessionLive } from '../git/journal'
-import {
-  forgetPendingRestore,
-  guideDiagnostics,
-  LIVE_ELSEWHERE_MESSAGE,
-  ports,
-  preflightAnswer,
-  preflightRequest,
-  recoverBackup,
-  recoveryToken,
-  restoreBlock,
-} from '../model/session'
+import { guideDiagnostics } from '../model/session'
 import { logger } from '../utils'
 import { useAtomRef } from './binding'
-import {
-  describeRecoveryPrompt,
-  RECOVERY_DISMISS,
-  RECOVERY_LATER,
-  RECOVERY_RESTORE,
-} from './recovery-prompt'
 
-export {
-  describeRecoveryPrompt,
-  RECOVERY_DISMISS,
-  RECOVERY_LATER,
-  RECOVERY_RESTORE,
-} from './recovery-prompt'
-
-const answerPreflight = wrap(async (): Promise<void> => {
-  const request = peek(preflightRequest)
-  if (request === null)
-    return
-
-  let approved = false
-  try {
-    approved = await wrap(peek(ports).ui.confirm(request))
-  }
-  catch (error) {
-    // `startSession` is parked on `take(preflightAnswer)`. An unanswered
-    // pre-flight leaves the machine in `preflight` forever, which disables
-    // Start with no way back, so a failed modal has to count as a decline.
-    logger.error('pre-flight prompt failed; treating it as declined', error)
-  }
-  // A modal from a cancelled attempt must not approve a later session.
-  if (peek(preflightRequest) === request)
-    preflightAnswer(approved)
-})
-
-/**
- * The pre-flight is modelled Reatom-natively as an action event: the model
- * publishes a request and awaits `preflightAnswer`. This is the only place that
- * turns that request into a modal, and the only place that answers it.
- */
-export function usePreflightPrompt(): void {
-  const request = useAtomRef(preflightRequest)
-
-  watch(request, (next) => {
-    if (next === null)
-      return
-    void answerPreflight().catch((error: unknown) => logger.error('pre-flight prompt failed', error))
-  })
-}
-
-/**
- * Runs before any command is enabled and before any git mutation, per
- * architecture/overview.md §4.4. Recovery never guesses: it reports what is
- * missing rather than attempting a heuristic repair.
- */
-export const checkRecoveryOnActivate = wrap(async (): Promise<void> => {
-  const token = await wrap(recoveryToken())
-  // `isRecoverable`, not `!== null`: a token still at `planned` never touched
-  // the tree, and one at `done` was already restored. Opening a modal about
-  // either is a false alarm about data loss, which is the one kind of noise
-  // this extension cannot afford to make.
-  if (!isRecoverable(token))
-    return
-
-  // A fresh heartbeat means another window is reviewing right now, not that
-  // anything was lost. Restoring it would apply that window's stash and end
-  // its isolation mid-review, so this window says so and stays out of the way.
-  if (isSessionLive(token, peek(ports).clock.now())) {
-    logger.info(`Tabthrough session ${token.sessionId} is live in another window; skipping recovery.`)
-    void window.showInformationMessage(LIVE_ELSEWHERE_MESSAGE)
-      .then(undefined, (error: unknown) => logger.error('live-session notice failed', error))
-    return
-  }
-
-  logger.warn(`Tabthrough found an unfinished session (${token.stage}) for ${token.repoRoot}`)
-
-  const { message, detail } = describeRecoveryPrompt(token)
-  const answer = await wrap(window.showWarningMessage(
-    message,
-    { modal: true, detail },
-    RECOVERY_RESTORE,
-    RECOVERY_LATER,
-    RECOVERY_DISMISS,
-  ))
-
-  if (answer === RECOVERY_RESTORE)
-    await wrap(recoverBackup())
-  else if (answer === RECOVERY_DISMISS)
-    await wrap(forgetPendingRestore())
-})
 /**
  * A broken sidecar costs the reader exactly one notification, however many
- * diagnostics are behind it (guide-schema.md §5.4). The full list — including
- * the `info` entries that are pure forward-compatibility noise — goes to the
- * output channel, and the review itself proceeds on the heuristic order.
+ * diagnostics are behind it (guide-schema.md §5.4). The full list goes to the
+ * output channel, and the review proceeds on the heuristic order.
  */
 export function useGuideDiagnostics(): void {
   const diagnostics = useAtomRef(guideDiagnostics)
@@ -132,24 +31,5 @@ export function useGuideDiagnostics(): void {
       : ''
     void window.showWarningMessage(`${first.message}${more}`)
       .then(undefined, (error: unknown) => logger.error('guide diagnostics notice failed', error))
-  })
-}
-
-/**
- * A blocked restore is loud in the output channel, with the manual commands,
- * and the channel is revealed rather than merely written to: the toast the
- * model raises says "nothing was discarded", and this is where the user finds
- * out what to run next.
- */
-export function useRestoreBlockNotice(): void {
-  const blocked = useAtomRef(restoreBlock)
-
-  watch(blocked, (outcome) => {
-    if (outcome === null || outcome.kind !== 'blocked')
-      return
-    logger.error(`Restore blocked (${outcome.reason}): ${outcome.message}`)
-    for (const command of outcome.commands)
-      logger.error(`  ${command}`)
-    logger.show(true)
   })
 }

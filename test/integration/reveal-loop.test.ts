@@ -6,6 +6,7 @@ import { showBlob } from '../../src/git/diff'
 import { revealMode } from '../../src/model/config'
 import { cancelSession, session, sessionStatus } from '../../src/model/session'
 import { reviewViewModel } from '../../src/model/view'
+import { isForbiddenIsolationGit, recordGitExec } from '../helpers/git-spy'
 import { bootstrapModel, startReview } from '../helpers/model'
 import { cleanupTempRepos, makeTempRepo } from '../helpers/tmp-repo'
 
@@ -311,5 +312,22 @@ describe('dim mode', () => {
     const last = await view()
     expect(last.revealText).toBe(after)
     expect(last.pendingRanges).toEqual([])
+  })
+})
+
+describe('reveal start does not isolate', () => {
+  it('never calls stash, checkout, or a lock ref while walking', async () => {
+    const repo = await fixtureRepo()
+    const harness = await bootstrap(repo)
+    const spy = recordGitExec()
+    try {
+      const model = await startReview(harness, { kind: 'workingTree' })
+      model.jumpTo(0)
+      await view()
+      expect(spy.calls.filter(isForbiddenIsolationGit)).toEqual([])
+    }
+    finally {
+      spy.restore()
+    }
   })
 })

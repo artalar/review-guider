@@ -1,105 +1,133 @@
 {
   "$schema": "https://tabthrough.dev/schema/guide-v1.json",
   "version": 1,
-  "scope": {
-    "kind": "workingTree"
+  "scope": { "kind": "workingTree" },
+  "summary": "Phase 12 deletes isolation and lands snapshot read-only plus a git-state sidebar. Read the new contract first, then the snapshot, then the session machine, then the UI that shows git's own state.",
+  "files": {
+    "README.md": { "significance": "skip", "rationale": "Shipped-behaviour copy, not the protocol" },
+    "work-docs/architecture/overview.md": { "significance": "skip", "rationale": "Docs follow the code" },
+    "work-docs/architecture/reatom-model.md": { "significance": "skip", "rationale": "Docs follow the code" },
+    "work-docs/decisions/0005-git-first-sessions.md": { "significance": "skip", "rationale": "Already accepted; this slice implements it" },
+    "work-docs/process/README.md": { "significance": "skip", "rationale": "Process pointer" },
+    "work-docs/progress/backlog.md": { "significance": "skip", "rationale": "Status tick" },
+    "work-docs/progress/iteration-log.md": { "significance": "skip", "rationale": "Log entry" },
+    "work-docs/progress/plan.md": { "significance": "skip", "rationale": "Plan checkboxes" },
+    "work-docs/progress/test-matrix.md": { "significance": "skip", "rationale": "Matrix status" },
+    "work-docs/specs/product.md": { "significance": "skip", "rationale": "Spec already shifted with the ADR" },
+    "scripts/create-demo.mjs": { "significance": "skip", "rationale": "Demo notes only" },
+    "tabthrough-0.0.0.vsix": { "significance": "skip", "rationale": "Packaged binary of this same change" },
+    "src/git/apply.ts": { "significance": "skip", "rationale": "Isolation file the isolate step replaces" },
+    "src/git/journal.ts": { "significance": "skip", "rationale": "Isolation file the isolate step replaces" },
+    "src/git/stash.ts": { "significance": "skip", "rationale": "Isolation file the isolate step replaces" },
+    "src/ui/global-state-store.ts": { "significance": "skip", "rationale": "Journal store deleted with the protocol" },
+    "src/ui/recovery-prompt.ts": { "significance": "skip", "rationale": "Recovery copy deleted with the protocol" },
+    "test/helpers/protocol.ts": { "significance": "skip", "rationale": "Crash-matrix helper for the deleted protocol" },
+    "test/integration/apply-commit.test.ts": { "significance": "skip", "rationale": "Deleted with apply mode" },
+    "test/integration/crash-matrix.test.ts": { "significance": "skip", "rationale": "Deleted with isolation" },
+    "test/integration/launch-safety.test.ts": { "significance": "skip", "rationale": "Deleted with isolation" },
+    "test/integration/stash-roundtrip.test.ts": { "significance": "skip", "rationale": "Deleted with stash" },
+    "test/unit/apply-step.test.ts": { "significance": "skip", "rationale": "Deleted with apply mode" },
+    "test/unit/global-state-store.test.ts": { "significance": "skip", "rationale": "Deleted with the journal store" },
+    "test/unit/journal.test.ts": { "significance": "skip", "rationale": "Deleted with the journal" }
   },
-  "summary": "A leftover lock with no recovery token used to toast 'another window'. The sidebar now diagnoses it, blocks Start, and offers a CAS-only clear that re-checks after confirm and never deletes leftover refs.",
   "steps": [
     {
-      "id": "primitive",
+      "id": "mode-contract",
       "order": 10,
-      "path": "src/git/isolate.ts",
-      "ranges": [{ "side": "new", "start": 849, "end": 861 }],
+      "path": "src/git/types.ts",
       "significance": "critical",
-      "rationale": "Clear is a compare-and-swap on the captured owner, not a wipe of the namespace"
+      "title": "Modes are git primitives",
+      "rationale": "The session contract before any start path"
     },
     {
-      "id": "diagnose",
+      "id": "slim-ports",
       "order": 20,
-      "path": "src/model/session.ts",
-      "ranges": [{ "side": "new", "start": 336, "end": 348 }],
+      "path": "src/model/ports.ts",
       "significance": "high",
-      "rationale": "Leftover lock vs a token this editor can still see",
-      "dependsOn": ["primitive"]
+      "title": "No store, no clock.now",
+      "rationale": "What the model is allowed to ask the editor for",
+      "dependsOn": ["mode-contract"]
     },
     {
-      "id": "clear-action",
+      "id": "snapshot-start",
       "order": 30,
-      "path": "src/model/session.ts",
-      "ranges": [{ "side": "new", "start": 497, "end": 564 }],
+      "path": "src/git/isolate.ts",
       "significance": "critical",
-      "rationale": "Liveness is checked again after the confirm, so a race cannot steal a live lock",
-      "dependsOn": ["diagnose"]
+      "title": "Snapshot, do not isolate",
+      "rationale": "The only write on a working-tree start",
+      "dependsOn": ["mode-contract"]
     },
     {
-      "id": "gate-start",
+      "id": "git-state",
       "order": 40,
-      "path": "src/model/session.ts",
-      "ranges": [
-        { "side": "new", "start": 1162, "end": 1165 },
-        { "side": "new", "start": 1180, "end": 1194 }
-      ],
-      "significance": "high",
-      "rationale": "Start is blocked here, so the toast is no longer the first clue",
-      "dependsOn": ["diagnose"]
+      "path": "src/git/state.ts",
+      "significance": "critical",
+      "title": "Display git, do not wrap it",
+      "rationale": "Rebase and leftover stash are git's, shown as-is",
+      "dependsOn": ["snapshot-start"]
     },
     {
-      "id": "sidebar",
+      "id": "edit-here",
       "order": 50,
-      "path": "src/model/sidebar.ts",
-      "ranges": [{ "side": "new", "start": 52, "end": 76 }],
+      "path": "src/guide/edit-here.ts",
       "significance": "high",
-      "rationale": "What the reader sees, including the hedge that this editor cannot see other profiles",
-      "dependsOn": ["clear-action", "gate-start"]
+      "title": "Project the step onto disk",
+      "rationale": "The one escape hatch after the virtual reveal",
+      "dependsOn": ["snapshot-start"]
     },
     {
-      "id": "wiring",
+      "id": "four-states",
       "order": 60,
-      "path": "package.json",
-      "ranges": [{ "side": "new", "start": 199, "end": 206 }],
-      "significance": "normal",
-      "rationale": "The command enablement that keeps Clear out of a live session",
-      "dependsOn": ["sidebar"]
+      "path": "src/model/session.ts",
+      "significance": "high",
+      "title": "Four statuses, no recovery",
+      "rationale": "Lifecycle after the git layer is this small",
+      "dependsOn": ["slim-ports", "snapshot-start", "git-state"]
     },
     {
-      "id": "tests",
+      "id": "sidebar-banner",
       "order": 70,
-      "path": "test/integration/session-lifecycle.test.ts",
-      "ranges": [{ "side": "new", "start": 453, "end": 473 }],
+      "path": "src/model/sidebar.ts",
+      "significance": "normal",
+      "title": "Banner is gitState plus Will run",
+      "rationale": "What the reader clicks after the atoms exist",
+      "dependsOn": ["four-states"]
+    },
+    {
+      "id": "commands",
+      "order": 80,
+      "path": "package.json",
+      "significance": "normal",
+      "title": "Palette matches the banner",
+      "rationale": "Enablement is the last wiring for those buttons",
+      "dependsOn": ["sidebar-banner"]
+    },
+    {
+      "id": "snapshot-tests",
+      "order": 90,
+      "path": "test/integration/snapshot-ref.test.ts",
+      "significance": "normal",
+      "title": "Status identical, two after-refs",
+      "rationale": "The product promise for the snapshot",
+      "dependsOn": ["snapshot-start"]
+    },
+    {
+      "id": "state-tests",
+      "order": 100,
+      "path": "test/integration/git-state.test.ts",
+      "significance": "normal",
+      "title": "Detection matrix",
+      "rationale": "Prove the banner's inputs on real repos",
+      "dependsOn": ["git-state"]
+    },
+    {
+      "id": "edit-here-tests",
+      "order": 110,
+      "path": "test/unit/edit-here.test.ts",
       "significance": "low",
-      "rationale": "The confirm-window race that made the first clear unsafe",
-      "dependsOn": ["clear-action"]
+      "title": "Reverse steps and drift",
+      "rationale": "Projection cases after the helper",
+      "dependsOn": ["edit-here"]
     }
-  ],
-  "files": {
-    ".tabthrough-guide.json": {
-      "significance": "skip",
-      "rationale": "The sidecar this walk is written into"
-    },
-    "src/generated/meta.ts": {
-      "significance": "skip",
-      "rationale": "Regenerated command types"
-    },
-    "README.md": {
-      "significance": "skip",
-      "rationale": "Command table follow-on"
-    },
-    "work-docs/progress/reviews/007.md": {
-      "significance": "skip",
-      "rationale": "The Fable review this change answers"
-    },
-    "work-docs/progress/test-matrix.md": {
-      "significance": "skip",
-      "rationale": "Drill text matching the new flow"
-    },
-    "work-docs/architecture/overview.md": {
-      "significance": "skip",
-      "rationale": "One-sentence lock-escape update"
-    },
-    "work-docs/architecture/reatom-model.md": {
-      "significance": "skip",
-      "rationale": "Atom table for the new recovery units"
-    }
-  }
+  ]
 }

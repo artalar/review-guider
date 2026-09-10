@@ -3,16 +3,21 @@ import { useCommands } from 'reactive-vscode'
 import { Uri, commands as VscodeCommands, window } from 'vscode'
 import { commands as Commands } from '../generated/meta'
 import {
+  abortRebase,
   cancelSession,
   canStart,
-  cleanupBackups,
-  clearStaleLock,
   commitHandoff,
-  discardRecovery,
+  continueRebase,
+  editHere,
   finishSession,
+  openConflict,
+  openWorktree,
+  popAutostash,
   ports,
-  recoverBackup,
+  pruneWorktrees,
+  removeWorktree,
   session,
+  showAutostash,
   startBlockedReason,
 } from '../model/session'
 import {
@@ -33,11 +38,6 @@ import { beginFromActiveGuide } from '../ui/active-guide'
 import { revealCurrentStep } from '../ui/documents'
 import { logger } from '../utils'
 
-/**
- * Handlers read with `peek` and write only by calling actions. There is no
- * branching logic here — every decision lives in the model, which is exactly
- * why the model is testable without an extension host.
- */
 export function useGuideCommands(): void {
   useCommands({
     [Commands.review]: wrap(() => guard('review', async () => {
@@ -90,16 +90,25 @@ export function useGuideCommands(): void {
       await wrap(cancelSession('cancel'))
     })),
     [Commands.commitHandoff]: wrap(() => guard('commitHandoff', () => commitHandoff())),
-    [Commands.restoreBackup]: wrap(() => guard('restoreBackup', () => recoverBackup())),
-    [Commands.discardRecovery]: wrap(() => guard('discardRecovery', () => discardRecovery())),
-    [Commands.clearStaleLock]: wrap(() => guard('clearStaleLock', () => clearStaleLock())),
-    [Commands.cleanupBackups]: wrap(() => guard('cleanupBackups', async () => {
-      const removed = await wrap(cleanupBackups())
-      await window.showInformationMessage(
-        removed.length === 0
-          ? 'No Tabthrough backups to clean up.'
-          : `Removed ${removed.length} Tabthrough backup ref${removed.length === 1 ? '' : 's'}.`,
-      )
+    [Commands.editHere]: wrap(() => guard('editHere', () => editHere())),
+    [Commands.continueRebase]: wrap(() => guard('continueRebase', () => continueRebase())),
+    [Commands.abortRebase]: wrap(() => guard('abortRebase', () => abortRebase())),
+    [Commands.popAutostash]: wrap((selector?: unknown) => guard('popAutostash', () =>
+      popAutostash(typeof selector === 'string' ? selector : undefined))),
+    [Commands.showAutostash]: wrap((selector?: unknown) => guard('showAutostash', () =>
+      showAutostash(typeof selector === 'string' ? selector : undefined))),
+    [Commands.openWorktree]: wrap((dir?: unknown) => guard('openWorktree', async () => {
+      if (typeof dir === 'string')
+        await wrap(openWorktree(dir))
+    })),
+    [Commands.removeWorktree]: wrap((dir?: unknown) => guard('removeWorktree', async () => {
+      if (typeof dir === 'string')
+        await wrap(removeWorktree(dir))
+    })),
+    [Commands.pruneWorktrees]: wrap(() => guard('pruneWorktrees', () => pruneWorktrees())),
+    [Commands.openConflict]: wrap((path?: unknown) => guard('openConflict', async () => {
+      if (typeof path === 'string')
+        await wrap(openConflict(path))
     })),
   })
 }
@@ -132,35 +141,16 @@ async function beginRangePicker(): Promise<void> {
   pickRange()
 }
 
-/**
- * Tab past the last step is a no-op plus a subtle offer to finish — no score,
- * no timer, no gate (the PO's UX guardrail for this phase).
- *
- * `next()` returns false for conflict / refuse / save failure as well as
- * completion. Only offer Finish when the cursor cannot advance (review 003 B1).
- */
 async function advance(): Promise<void> {
   const model = peek(session)
   if (model === null)
     return
-  if (model.applyPending())
-    return
 
-  const moved = await wrap(Promise.resolve(model.next()))
+  const moved = model.next()
   if (moved)
     return
   if (model.canAdvance())
     return
-
-  if (model.mode === 'apply') {
-    const answer = await wrap(window.showInformationMessage(
-      'Apply complete. Finish keeps your changes so you can commit.',
-      'Finish and Keep',
-    ))
-    if (answer === 'Finish and Keep')
-      await wrap(finishSession())
-    return
-  }
 
   const answer = await wrap(window.showInformationMessage('Review complete.', 'Finish Review'))
   if (answer === 'Finish Review')
@@ -169,15 +159,11 @@ async function advance(): Promise<void> {
 
 async function retreat(): Promise<void> {
   const model = peek(session)
-  if (model === null || model.applyPending())
+  if (model === null)
     return
-  await wrap(Promise.resolve(model.prev()))
+  model.prev()
 }
 
-/**
- * The model already reports failures through the UI port; this only keeps a
- * rejected command from surfacing as an unhandled rejection.
- */
 async function guard(name: string, run: () => Promise<unknown>): Promise<void> {
   try {
     await run()

@@ -1,3 +1,4 @@
+import type { GitState } from '../../src/git/state'
 import type { GuideStep } from '../../src/guide/types'
 import type { SidebarViewModel } from '../../src/model/view'
 import { describe, expect, it } from 'vitest'
@@ -16,6 +17,24 @@ function step(overrides: Partial<GuideStep> = {}): GuideStep {
   }
 }
 
+function gitState(overrides: Partial<GitState> = {}): GitState {
+  return {
+    rebase: null,
+    operation: null,
+    conflicts: [],
+    staged: 0,
+    unstaged: 0,
+    untracked: 0,
+    detached: false,
+    branch: 'main',
+    headSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    autostashes: [],
+    worktrees: [],
+    snapshotRefCount: 0,
+    ...overrides,
+  }
+}
+
 function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
   const base: SidebarViewModel = {
     status: 'idle',
@@ -27,14 +46,8 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     currentStep: null,
     nextStep: null,
     complete: false,
-    applyPending: false,
     canAdvance: false,
     canRetreat: false,
-    preflight: null,
-    recoveryPending: false,
-    staleLock: false,
-    lockOwner: null,
-    blockedMessage: null,
     idleReason: null,
     setup: { kind: 'home' },
     skillInstalled: true,
@@ -42,6 +55,10 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     sidecarReady: false,
     focusedGuideMismatch: false,
     guideFileName: '.tabthrough-guide.json',
+    gitState: null,
+    willRun: 'nothing',
+    editHereEnabled: false,
+    editedPaths: [],
   }
   return { ...base, ...overrides }
 }
@@ -116,7 +133,7 @@ describe('sidebar projection', () => {
     ])
   })
 
-  it('offers Simple and Agent after a target is picked', () => {
+  it('offers Simple and Agent after a target is picked, and names Will run', () => {
     const rows = sidebarItems(view({
       setup: { kind: 'generate', target: { kind: 'workingTree' } },
     }))
@@ -125,6 +142,7 @@ describe('sidebar projection', () => {
       'tabthrough.generateAgent',
       'tabthrough.setupBack',
     ])
+    expect(rows.find(row => row.id === 'will-run')?.label).toBe('Will run: nothing')
   })
 
   it('shows Start in generate when the sidecar is already on disk', () => {
@@ -166,6 +184,7 @@ describe('sidebar projection', () => {
       summary: 'Read the state model before the bridge wiring.',
       progress: { index: 1, total: 2 },
       canAdvance: true,
+      editHereEnabled: true,
       currentStep: step({ title: 'State contract', notes: 'This note must remain visible without opening a tooltip.' }),
       nextStep: step({ id: 'next', path: 'src/ui.ts', title: 'Bridge wiring' }),
     }))
@@ -179,18 +198,35 @@ describe('sidebar projection', () => {
     expect(byId.get('next')?.slot).toBe('nav')
     expect(byId.get('finish')?.slot).toBeUndefined()
     expect(byId.get('cancel')?.command).toBe('tabthrough.cancel')
+    expect(byId.get('edit-here')?.enabled).toBe(true)
   })
 
-  it('does not expose advancing controls while apply is writing', () => {
+  it('marks the current file when disk differs from the snapshot', () => {
     const rows = sidebarItems(view({
-      status: 'applying',
-      mode: 'apply',
-      applyPending: true,
-      progress: { index: 1, total: 2 },
+      status: 'active',
+      mode: 'readonly',
+      currentStep: step({ title: 'State contract' }),
+      editedPaths: ['src/app.ts'],
+    }))
+    expect(rows.find(row => row.id === 'current')?.label).toContain('edited on disk')
+  })
+
+  it('disables Edit here for a commit review', () => {
+    const rows = sidebarItems(view({
+      status: 'active',
+      mode: 'readonly',
+      entry: 'commit abc',
+      editHereEnabled: false,
       currentStep: step(),
     }))
-    expect(rows.map(row => row.command).filter(Boolean)).toEqual(['tabthrough.cancel'])
-    expect(rows.some(row => row.id === 'applying')).toBe(true)
+    expect(rows.find(row => row.id === 'edit-here')?.enabled).toBe(false)
+    expect(rows.find(row => row.id === 'edit-here')?.description).toContain('Rebase or Worktree')
+  })
+
+  it('shows starting with Will run and a cancel', () => {
+    const rows = sidebarItems(view({ status: 'starting', willRun: 'nothing' }))
+    expect(rows.find(row => row.id === 'starting')?.description).toBe('Will run: nothing')
+    expect(rows.some(row => row.command === 'tabthrough.cancel')).toBe(true)
   })
 
   it('bounds and removes control characters from untrusted guide text', () => {
@@ -208,30 +244,46 @@ describe('sidebar projection', () => {
     expect(rows.some(row => row.id === 'next')).toBe(false)
   })
 
-  it('does not offer recovery for a live session in another window', () => {
-    expect(sidebarItems(view({ recoveryPending: true, liveElsewhere: true })).some(row => row.command)).toBe(false)
+  it('shows Continue and Abort while a rebase is stopped', () => {
+    const rows = sidebarItems(view({
+      gitState: gitState({
+        rebase: {
+          branch: 'main',
+          onto: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          stoppedSha: 'cccccccccccccccccccccccccccccccccccccccc',
+          origHead: 'dddddddddddddddddddddddddddddddddddddddd',
+          done: 1,
+          total: 3,
+          autostashSha: null,
+        },
+      }),
+    }))
+    expect(rows.find(row => row.id === 'rebase')?.label).toContain('Rebasing main')
+    expect(rows.map(row => row.command).filter(Boolean)).toEqual(expect.arrayContaining([
+      'tabthrough.continueRebase',
+      'tabthrough.abortRebase',
+      'tabthrough.commitHandoff',
+    ]))
   })
 
-  it('guides a leftover lock and offers to clear it', () => {
-    const rows = sidebarItems(view({ staleLock: true, lockOwner: 'abandoned', canStart: false }))
-    expect(rows.find(row => row.id === 'stale-lock')?.label).toContain('abandoned')
-    expect(rows.find(row => row.id === 'stale-lock')?.description).toContain('cannot see a live session')
-    expect(rows.map(row => row.command).filter(Boolean)).toEqual([
-      'tabthrough.clearStaleLock',
-      'tabthrough.cleanupBackups',
-    ])
-    expect(rows.some(row => row.command === 'tabthrough.startFromGuide')).toBe(false)
-    expect(rows.some(row => row.command === 'tabthrough.review')).toBe(false)
+  it('lists autostash Pop / Show and worktree Open / Remove / Prune', () => {
+    const rows = sidebarItems(view({
+      gitState: gitState({
+        autostashes: [{ selector: 'stash@{0}', subject: 'On main: autostash' }],
+        worktrees: [{ path: '/tmp/tabthrough/ours', head: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', dirty: false }],
+      }),
+    }))
+    expect(rows.some(row => row.command === 'tabthrough.popAutostash' && row.payload === 'stash@{0}')).toBe(true)
+    expect(rows.some(row => row.command === 'tabthrough.showAutostash')).toBe(true)
+    expect(rows.some(row => row.command === 'tabthrough.openWorktree')).toBe(true)
+    expect(rows.some(row => row.command === 'tabthrough.removeWorktree')).toBe(true)
+    expect(rows.some(row => row.command === 'tabthrough.pruneWorktrees')).toBe(true)
   })
 
-  it('does not offer to break a lock that is live in another window', () => {
-    const rows = sidebarItems(view({ liveElsewhere: true, recoveryPending: true, staleLock: true }))
-    expect(rows.some(row => row.command === 'tabthrough.clearStaleLock')).toBe(false)
-  })
-
-  it('does not offer to break a lock while a restore is pending', () => {
-    const rows = sidebarItems(view({ recoveryPending: true, staleLock: true }))
-    expect(rows.some(row => row.command === 'tabthrough.clearStaleLock')).toBe(false)
-    expect(rows.some(row => row.command === 'tabthrough.restoreBackup')).toBe(true)
+  it('opens a conflicted path from the banner', () => {
+    const rows = sidebarItems(view({
+      gitState: gitState({ conflicts: ['src/app.ts'] }),
+    }))
+    expect(rows.find(row => row.command === 'tabthrough.openConflict')?.payload).toBe('src/app.ts')
   })
 })

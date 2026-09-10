@@ -42,11 +42,9 @@ export type GuideSource = (request: GuideRequest) => Promise<GuideResult>
  * The after revision first, base second.
  *
  * An agent that authored the change writes the guide beside it, so the after
- * tree is where a fresh sidecar lives — and for the working-tree entry it is
- * the *only* place it still exists, because the capture commit is taken before
- * the stash and the file is gone from disk by the time this runs. Reading the
- * working copy here would be worse than useless: post-stash the disk holds the
- * base content, which is exactly what the second lookup returns anyway.
+ * revision is where a fresh sidecar lives. For a working-tree review that is
+ * the snapshot commit; for commit and range it is the reviewed tip. The base
+ * revision is the fallback when the after tree does not have the file.
  */
 async function readSidecar(request: GuideRequest, options: GitOptions): Promise<SidecarSource | null> {
   const candidates = [...new Set([

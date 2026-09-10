@@ -49,7 +49,7 @@ describe('probeGit against real repositories', () => {
     expect(await probeGit(repo.root)).toMatchObject({ ok: false, reason: 'bare-repo' })
   })
 
-  it('refuses while a merge is in progress', async () => {
+  it('stays usable while a merge is in progress', async () => {
     const repo = await makeTempRepo({ files: { 'conflict.txt': 'base\n' } })
     await repo.git('checkout', '-q', '-b', 'other')
     await repo.write('conflict.txt', 'other\n')
@@ -63,7 +63,7 @@ describe('probeGit against real repositories', () => {
     const merge = await repo.tryGit('merge', 'other')
     expect(merge.code).not.toBe(0)
 
-    expect(await probeGit(repo.root)).toMatchObject({ ok: false, reason: 'rebase-or-merge-in-progress' })
+    expect(await probeGit(repo.root)).toMatchObject({ ok: true })
   })
 
   it('reports a detached HEAD as usable', async () => {

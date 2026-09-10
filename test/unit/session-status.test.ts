@@ -4,28 +4,23 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   IllegalTransitionError,
   isSessionActive,
+  isSessionOpen,
   LEGAL_TRANSITIONS,
   sessionStatus,
 } from '../../src/model/session'
 
 /**
- * The plan's Phase 1 gate: enumerate every legal and illegal pair. Illegal
- * transitions must be rejected, never silently applied.
+ * ADR 0005 D7: enumerate every legal and illegal pair. Illegal transitions
+ * must be rejected, never silently applied.
  */
 
-const ALL: readonly SessionStatus[] = ['idle', 'preflight', 'stashing', 'active', 'applying', 'restoring', 'blocked', 'error']
+const ALL: readonly SessionStatus[] = ['idle', 'starting', 'active', 'finishing']
 
-// `error` and `blocked` are only reachable through a mutation, so tests reach
-// them the same way the model does, one legal hop at a time.
 const PATHS: Readonly<Record<SessionStatus, readonly SessionStatus[]>> = {
   idle: [],
-  preflight: ['preflight'],
-  stashing: ['preflight', 'stashing'],
-  active: ['preflight', 'stashing', 'active'],
-  applying: ['preflight', 'stashing', 'active', 'applying'],
-  restoring: ['preflight', 'stashing', 'active', 'restoring'],
-  blocked: ['preflight', 'stashing', 'active', 'applying', 'blocked'],
-  error: ['preflight', 'error'],
+  starting: ['starting'],
+  active: ['starting', 'active'],
+  finishing: ['starting', 'active', 'finishing'],
 }
 
 function moveTo(status: SessionStatus): void {
@@ -40,6 +35,7 @@ describe('session status machine', () => {
     context.start(() => {
       expect(sessionStatus()).toBe('idle')
       expect(isSessionActive()).toBe(false)
+      expect(isSessionOpen()).toBe(false)
     })
   })
 
@@ -79,19 +75,21 @@ describe('session status machine', () => {
     })
   })
 
-  it('never allows active -> stashing', () => {
+  it('never allows active -> starting', () => {
     context.start(() => {
       moveTo('active')
-      expect(() => sessionStatus.to('stashing')).toThrow(IllegalTransitionError)
+      expect(() => sessionStatus.to('starting')).toThrow(IllegalTransitionError)
     })
   })
 
-  it('tracks isSessionActive', () => {
+  it('tracks isSessionActive only while reviewing', () => {
     context.start(() => {
       moveTo('active')
       expect(isSessionActive()).toBe(true)
-      sessionStatus.to('restoring')
+      expect(isSessionOpen()).toBe(true)
+      sessionStatus.to('finishing')
       expect(isSessionActive()).toBe(false)
+      expect(isSessionOpen()).toBe(true)
     })
   })
 })

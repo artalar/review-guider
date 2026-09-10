@@ -49,11 +49,11 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "Tabthrough runs git in the workspace and rewrites the working tree. A repository's own config can make git execute arbitrary commands, so it needs a trusted folder."
+      "description": "Tabthrough runs git in the workspace. A repository's own config can make git execute arbitrary commands, so it needs a trusted folder."
     },
     "virtualWorkspaces": {
       "supported": false,
-      "description": "Isolation stashes and restores real files, which a virtual file system does not provide."
+      "description": "Tabthrough reviews real git repositories. A virtual file system does not provide that."
     }
   },
   "contributes": {
@@ -174,39 +174,69 @@
       },
       {
         "command": "tabthrough.cancel",
-        "title": "Cancel and Restore Workspace",
+        "title": "Cancel Review",
         "category": "Tabthrough",
         "enablement": "tabthrough.sessionOpen"
       },
       {
         "command": "tabthrough.commitHandoff",
-        "title": "Open Source Control to Commit",
+        "title": "Open Source Control",
         "category": "Tabthrough",
         "enablement": "tabthrough.gitUsable"
       },
       {
-        "command": "tabthrough.restoreBackup",
-        "title": "Restore from Backup",
+        "command": "tabthrough.editHere",
+        "title": "Edit Here",
         "category": "Tabthrough",
-        "enablement": "tabthrough.recoveryPending && !tabthrough.sessionActive"
+        "enablement": "tabthrough.sessionActive"
       },
       {
-        "command": "tabthrough.discardRecovery",
-        "title": "Dismiss Pending Restore...",
+        "command": "tabthrough.continueRebase",
+        "title": "Continue Rebase",
         "category": "Tabthrough",
-        "enablement": "tabthrough.recoveryPending && !tabthrough.sessionActive"
+        "enablement": "tabthrough.rebaseInProgress"
       },
       {
-        "command": "tabthrough.clearStaleLock",
-        "title": "Clear Leftover Lock",
+        "command": "tabthrough.abortRebase",
+        "title": "Abort Rebase",
         "category": "Tabthrough",
-        "enablement": "tabthrough.staleLock"
+        "enablement": "tabthrough.rebaseInProgress"
       },
       {
-        "command": "tabthrough.cleanupBackups",
-        "title": "Clean Up Backups",
+        "command": "tabthrough.popAutostash",
+        "title": "Pop Autostash",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.hasAutostash"
+      },
+      {
+        "command": "tabthrough.showAutostash",
+        "title": "Show Autostash",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.hasAutostash"
+      },
+      {
+        "command": "tabthrough.openWorktree",
+        "title": "Open Worktree",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.hasTabthroughWorktree"
+      },
+      {
+        "command": "tabthrough.removeWorktree",
+        "title": "Remove Worktree",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.hasTabthroughWorktree"
+      },
+      {
+        "command": "tabthrough.pruneWorktrees",
+        "title": "Prune Worktrees",
         "category": "Tabthrough",
         "enablement": "tabthrough.gitUsable"
+      },
+      {
+        "command": "tabthrough.openConflict",
+        "title": "Open Conflicted File",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.hasConflicts"
       }
     ],
     "menus": {
@@ -310,22 +340,27 @@
       {
         "command": "tabthrough.next",
         "key": "tab",
-        "when": "tabthrough.sessionActive && tabthrough.sessionMode != 'apply' && resourceScheme == 'tabthrough' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.tabthrough.keybinding.useTab"
+        "when": "tabthrough.sessionActive && resourceScheme == 'tabthrough' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.tabthrough.keybinding.useTab"
       },
       {
         "command": "tabthrough.previous",
         "key": "shift+tab",
-        "when": "tabthrough.sessionActive && tabthrough.sessionMode != 'apply' && resourceScheme == 'tabthrough' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.tabthrough.keybinding.useTab"
+        "when": "tabthrough.sessionActive && resourceScheme == 'tabthrough' && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !inSnippetMode && !renameInputVisible && !parameterHintsVisible && !accessibilityModeEnabled && !editorTabMovesFocus && config.tabthrough.keybinding.useTab"
       },
       {
         "command": "tabthrough.next",
         "key": "alt+]",
-        "when": "tabthrough.sessionActive && !tabthrough.applyPending"
+        "when": "tabthrough.sessionActive"
       },
       {
         "command": "tabthrough.previous",
         "key": "alt+[",
-        "when": "tabthrough.sessionActive && !tabthrough.applyPending"
+        "when": "tabthrough.sessionActive"
+      },
+      {
+        "command": "tabthrough.editHere",
+        "key": "alt+enter",
+        "when": "tabthrough.sessionActive && resourceScheme == 'tabthrough' && editorTextFocus"
       }
     ],
     "configuration": {
@@ -348,22 +383,24 @@
             "The whole change is rendered and unrevealed lines are dimmed."
           ],
           "default": "progressive",
-          "description": "How the reviewed change is revealed as you advance through steps. Ignored in apply mode."
+          "description": "How the reviewed change is revealed as you advance through steps."
         },
         "tabthrough.session.mode": {
           "type": "string",
           "enum": [
             "ask",
             "readonly",
-            "apply"
+            "rebase",
+            "worktree"
           ],
           "enumDescriptions": [
-            "Ask before each session whether to review read-only or apply steps to real files.",
-            "Always use read-only virtual documents.",
-            "Always apply steps to the real working tree."
+            "Ask before each session which git primitive to use. Phase 12 only lands read-only.",
+            "Read-only virtual documents. Working changes get a snapshot ref; commit and range touch nothing.",
+            "Interactive rebase stopped at the reviewed commit (lands in a later phase).",
+            "Detached worktree in a new window (lands in a later phase)."
           ],
           "default": "ask",
-          "description": "Session contract: read-only review, apply-with-user, or ask each time."
+          "description": "Which git primitive a session uses. Read-only is the only landed mode."
         },
         "tabthrough.guideFile": {
           "type": "string",
@@ -387,10 +424,10 @@
           "default": false,
           "description": "Drop steps whose changes are whitespace or comments only."
         },
-        "tabthrough.stash.includeUntracked": {
-          "type": "boolean",
-          "default": true,
-          "description": "Include untracked files when isolating the workspace. Ignored files are never included."
+        "tabthrough.worktree.dir": {
+          "type": "string",
+          "default": "",
+          "description": "Root directory for Tabthrough worktrees. Empty uses the OS temp directory under tabthrough/."
         }
       }
     }

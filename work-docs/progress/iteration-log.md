@@ -869,3 +869,19 @@ until 004 re-opens the gate. Remaining: G3 drift, F6–F7/F9–F10, rest of F11.
 ## Reviewer (Fable) — 2026-09-05 — sidebar Simple/Agent flow
 
 [Review 006](./reviews/006.md): **changes needed**. Stash contract intact (no isolate until Start). Headline Simple working-tree flow is stale by construction (`git diff` vs Start's `add -A` snapshot). Next: Implementer pass on 006 blocker + majors, then re-review.
+
+## PO + Architect + Planner — 2026-09-10 — git-first (ADR 0005)
+
+- Analysis: read-only reveal never reads the working tree, so the stash / detach / journal / lock / verify protocol (≈1.5 k lines + 1.7 k test lines) paid for ADR 0002 D4's stance, not a capability. Apply mode wrote one step at a time, so tooling never saw a consistent tree.
+- **ADR 0005 Accepted:** three modes on native primitives — read-only (snapshot ref only), rebase (`rebase -i --autostash` stopped at `after`, Finish = `add -u` + amend + `--continue`, Cancel = `--abort`), worktree (`worktree add --detach` in a new window, `HEAD^..HEAD`). Review view stays the virtual reveal in every mode; **Edit here** is the one escape hatch. Hooks / signing off by default with `tabthrough.finish.hooks` / `finish.sign` and per-guide `defaults.finish`. Git state displayed with native buttons; no lock, journal, heartbeat, or custom restore.
+- Track A (P0-A3…A6) stopped; Phases 7–10 marked superseded. Planner Phases 12–14 + R-git-1…5 in `plan.md`; backlog Track N (P0-N2…N4); product spec v0.3 shift, J5 / J6, edge rows, acceptance; test-matrix §10; process milestone. No users yet: Phase 12 deletes isolation in the same slice as snapshot read-only; no `apply` alias, no one-release restore.
+- Trust-section slogan candidate: "Every action is a git command you could type. Every exit is one you already know." Brand tagline unchanged.
+- **Next:** Implementer P0-N2 (Phase 12) — delete isolation, snapshot read-only, git state + sidebar.
+
+## Implementer — 2026-09-10 — Phase 12: read-only + git state (P0-N2)
+
+Deleted the isolation protocol (`stash`, `journal`, `apply`, lock, heartbeat, recovery commands, `ports.store`). Read-only start snapshots a working tree to `refs/tabthrough/after/<id>` and writes nothing for commit / range. Finish / Cancel delete the after-ref; activation sweeps refs older than 24 h. `session.status` is `idle → starting → active → finishing`. `gitState` drives the sidebar banner. Edit here opens the real file for a working-tree review (`Alt+Enter`).
+
+Tests: deleted isolation / apply suites; added `snapshot-ref`, `git-state`, `edit-here`; trimmed lifecycle, contributions, sidebar, probe.
+
+- **Next:** Implementer P0-N3 (Phase 13, rebase mode).
