@@ -30,17 +30,21 @@ export interface SidebarItemData {
     readonly placeholder: string
     readonly submit?: string
     readonly error?: string
+    readonly value?: string
+    readonly bound?: 'from' | 'to'
+    readonly hideSubmit?: boolean
   }
   readonly icon?: string
   readonly contextValue?: string
   readonly enabled?: boolean
-  readonly slot?: 'nav'
+  readonly slot?: 'nav' | 'header' | 'footer'
   readonly surface?: SidebarSurface
   readonly accent?: 'start' | 'end' | 'between' | 'selected'
   readonly tone?: SidebarTone
   readonly severity?: SidebarSeverity
   readonly expanded?: boolean
   readonly group?: SidebarGroup
+  readonly trailing?: 'chevron'
 }
 
 export function finishLabel(mode: SessionMode | null): string {
@@ -172,7 +176,6 @@ function addWalkItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
   add({
     id: 'session',
     label: sessionContextLabel(view.mode, view.entry),
-    description: guideProvenanceLabel(view.guideProvenance) ?? undefined,
     tooltip: view.entry === null ? undefined : `Reviewing ${view.entry}`,
     icon: 'book',
   })
@@ -214,15 +217,31 @@ function addWalkItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
         severity: 'info',
       })
     }
-    if (current.rationale !== '')
-      add({ id: 'rationale', label: 'Why here', description: current.rationale, tooltip: current.rationale, icon: 'lightbulb' })
     if (current.notes !== undefined && current.notes.trim() !== '')
-      add({ id: 'notes', label: 'Notes', description: current.notes, tooltip: current.notes, icon: 'note' })
+      add({ id: 'notes', label: 'Implementation notes', description: current.notes, tooltip: current.notes, icon: 'note' })
+    if (current.rationale !== '')
+      add({ id: 'rationale', label: 'Why this comes here', description: current.rationale, tooltip: current.rationale, icon: 'lightbulb' })
+    if (view.status === 'active') {
+      add({
+        id: 'edit-here',
+        label: 'Open real file',
+        description: view.editHereEnabled
+          ? undefined
+          : 'Opens the real file during a working-changes or rebase walkthrough.',
+        command: Commands.editHere,
+        icon: 'go-to-file',
+        contextValue: 'action',
+        enabled: view.editHereEnabled,
+        tone: 'quiet',
+      })
+    }
     if (view.nextStep !== null) {
       add({
         id: 'next-step',
-        label: `Next: ${view.nextStep.title ?? view.nextStep.path}`,
-        description: view.nextStep.rationale === '' ? undefined : view.nextStep.rationale,
+        label: 'Up next',
+        description: view.nextStep.rationale === ''
+          ? (view.nextStep.title ?? view.nextStep.path)
+          : `${view.nextStep.title ?? view.nextStep.path}\n${view.nextStep.rationale}`,
         icon: 'chevron-right',
       })
     }
@@ -238,7 +257,7 @@ function addWalkItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
   if (view.summary !== null) {
     add({
       id: 'summary',
-      label: 'Guide summary',
+      label: 'Guide overview',
       description: view.summary,
       tooltip: view.summary,
       icon: 'note',
@@ -281,36 +300,7 @@ function addWalkItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
         slot: 'nav',
         tone: 'primary',
       })
-      add({
-        id: 'finish',
-        label: finishLabel(view.mode),
-        command: Commands.finish,
-        icon: 'check',
-        contextValue: 'action',
-        enabled: true,
-        tone: 'secondary',
-      })
     }
-    add({
-      id: 'current-file',
-      label: 'Go to current change',
-      command: Commands.showStepDetail,
-      contextValue: 'action',
-      enabled: current !== null,
-      tone: 'secondary',
-    })
-    add({
-      id: 'edit-here',
-      label: 'Edit here',
-      description: view.editHereEnabled
-        ? 'Open the real file at this step'
-        : 'Opens the real file during a working-changes or rebase walkthrough.',
-      command: Commands.editHere,
-      icon: 'go-to-file',
-      contextValue: 'action',
-      enabled: view.editHereEnabled,
-      tone: 'secondary',
-    })
   }
   add({
     id: 'cancel',
@@ -320,8 +310,17 @@ function addWalkItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
     icon: 'close',
     contextValue: 'action',
     enabled: true,
-    tone: view.mode === 'rebase' ? 'consequential' : 'secondary',
+    slot: 'footer',
+    tone: view.mode === 'rebase' ? 'consequential' : 'quiet',
   })
+  const provenance = guideProvenanceLabel(view.guideProvenance)
+  if (provenance !== null) {
+    add({
+      id: 'guide-provenance',
+      label: provenance,
+      slot: 'footer',
+    })
+  }
   addRepositoryDetails(view, add)
 }
 
@@ -397,10 +396,26 @@ function addBlockingNotices(view: SidebarViewModel, add: (item: SidebarItemData)
   }
 }
 
+function repoFooterLabel(state: GitState): string {
+  if (state.detached)
+    return 'Repository · detached'
+  if (state.branch !== null && state.branch !== '')
+    return `Repository · ${state.branch}`
+  return 'Repository'
+}
+
 function addRepositoryDetails(view: SidebarViewModel, add: (item: SidebarItemData) => void): void {
   const state = view.gitState
   if (state === null)
     return
+  if (view.status === 'idle' && (view.setup.kind === 'home' || view.setup.kind === 'targets')) {
+    add(repo({
+      id: 'repository-summary',
+      label: repoFooterLabel(state),
+      slot: 'footer',
+      surface: 'disclosure',
+    }))
+  }
 
   const sessionOwnsRebase = view.status !== 'idle' && view.mode === 'rebase'
   if (state.rebase !== null && sessionOwnsRebase && state.conflicts.length === 0) {
@@ -522,70 +537,37 @@ function operationLabel(operation: NonNullable<GitState['operation']>): string {
 function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => void): void {
   const phase = view.setup
 
-  if (phase.kind === 'targets') {
-    add({
-      id: 'pick-target',
-      label: 'What should we walk through?',
-      description: 'Pick a target, then generate a guide or start from one already on disk.',
-    })
-    add({
-      id: 'working-tree',
-      label: 'Working changes',
-      description: 'Uncommitted files in this workspace',
-      command: Commands.pickWorkingTree,
-      icon: 'diff',
-      contextValue: 'action',
-      enabled: view.canStart,
-      surface: 'list',
-      tone: 'secondary',
-    })
-    add({
-      id: 'commit',
-      label: 'A commit',
-      description: 'One commit against its first parent',
-      command: Commands.pickCommit,
-      icon: 'git-commit',
-      contextValue: 'action',
-      enabled: view.canStart,
-      surface: 'list',
-      tone: 'secondary',
-    })
-    add({
-      id: 'range',
-      label: 'A commit range',
-      description: 'Compare two revisions',
-      command: Commands.pickRange,
-      icon: 'git-compare',
-      contextValue: 'action',
-      enabled: view.canStart,
-      surface: 'list',
-      tone: 'secondary',
-    })
-    add(navBack())
+  if (phase.kind === 'home' || phase.kind === 'targets') {
+    addHomeItems(view, add)
     return
   }
 
   if (phase.kind === 'commits') {
-    add({
-      id: 'pick-commit',
-      label: 'Pick a commit',
+      add({
+        id: 'pick-commit',
+      label: 'A commit',
       description: phase.loading
         ? 'Loading recent history…'
-        : 'Reviewed against its first parent.',
+        : 'One commit against its parent.',
     })
     if (!phase.loading) {
+      add({
+        id: 'history-heading',
+        label: 'Recent commits',
+      })
       addCommitChoices(phase.commits, add, view.canStart)
       add({
         id: 'commit-ref',
-        label: 'Enter a commit, tag, or ref',
+        label: 'Commit',
         command: Commands.selectCommit,
         input: {
           placeholder: 'HEAD~1',
-          submit: 'Use commit',
+          submit: 'Use commit →',
           ...(phase.error === null ? {} : { error: phase.error }),
         },
         contextValue: 'input',
         enabled: view.canStart,
+        slot: 'footer',
         tone: 'primary',
       })
     }
@@ -611,7 +593,9 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
     addGenerateItems(phase.target, view, add)
     return
   }
+}
 
+function addHomeItems(view: SidebarViewModel, add: (item: SidebarItemData) => void): void {
   if (!view.canStart && view.idleReason !== null) {
     add({
       id: 'welcome',
@@ -627,15 +611,13 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
 
   add({
     id: 'welcome',
-    label: 'Understand every change, one Tab at a time',
-    description: view.idleReason ?? 'Walk a change in an order that builds context',
-    tooltip: 'Review a target, generate a guide, then start the walkthrough.',
-    icon: 'book',
+    label: 'Review a change',
+    description: 'Choose where to begin.',
   })
   if (view.guideFocused) {
     add({
       id: 'start-guide',
-      label: 'Start walkthrough',
+      label: 'Continue with this guide',
       command: Commands.startFromGuide,
       icon: 'play',
       contextValue: 'action',
@@ -644,23 +626,53 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
     })
   }
   add({
-    id: 'review',
-    label: 'Review…',
-    command: Commands.review,
+    id: 'working-tree',
+    label: 'Working changes',
+    description: 'Staged, unstaged and new files',
+    command: Commands.pickWorkingTree,
     icon: 'diff',
     contextValue: 'action',
     enabled: view.canStart,
+    surface: 'list',
+    trailing: 'chevron',
+    tone: 'secondary',
+  })
+  add({
+    id: 'commit',
+    label: 'A commit',
+    description: 'One commit against its parent',
+    command: Commands.pickCommit,
+    icon: 'git-commit',
+    contextValue: 'action',
+    enabled: view.canStart,
+    surface: 'list',
+    trailing: 'chevron',
+    tone: 'secondary',
+  })
+  add({
+    id: 'range',
+    label: 'A commit range',
+    description: 'Changes between two revisions',
+    command: Commands.pickRange,
+    icon: 'git-compare',
+    contextValue: 'action',
+    enabled: view.canStart,
+    surface: 'list',
+    trailing: 'chevron',
     tone: 'secondary',
   })
   if (view.skillInstalled === false) {
     add({
+      id: 'agent-prompt',
+      label: 'Want an agent-authored guide?',
+    })
+    add({
       id: 'install-skill',
-      label: 'Install /tabthrough',
-      description: 'Adds the Tabthrough skill so Ask editor agent can write the guide',
+      label: 'Set up editor agent',
       command: Commands.installSkill,
-      icon: 'desktop-download',
+      icon: 'link-external',
       contextValue: 'action',
-      tone: 'secondary',
+      tone: 'quiet',
     })
   }
 }
@@ -693,6 +705,7 @@ function addGenerateItems(
     icon: 'list-tree',
     contextValue: 'action',
     enabled: view.canStart,
+    surface: 'list',
     tone: 'secondary',
   })
   add({
@@ -703,6 +716,7 @@ function addGenerateItems(
     icon: 'comment-discussion',
     contextValue: 'action',
     enabled: view.canStart && view.skillInstalled !== null,
+    surface: 'list',
     tone: 'secondary',
   })
 
@@ -764,6 +778,7 @@ function addGenerateItems(
       icon: 'play',
       contextValue: 'action',
       enabled: view.canStart && view.startEnabled,
+      slot: 'footer',
       tone: 'primary',
     })
   }
@@ -809,7 +824,7 @@ function startConsequence(
 function navBack(): SidebarItemData {
   return {
     id: 'back',
-    label: '← Back',
+    label: '← Review',
     command: Commands.setupBack,
     icon: 'arrow-left',
     contextValue: 'action',
@@ -828,61 +843,85 @@ function addRangePicker(
     label: 'Commit range',
     description: phase.loading
       ? 'Loading recent history…'
-      : rangeInstruction(phase),
+      : 'Set the start and end of your review.',
   })
   const rangeReady = phase.from !== null && phase.to !== null
-  if (!phase.loading && (phase.from !== null || phase.to !== null)) {
+  const fieldError = phase.error ?? undefined
+  add({
+    id: 'range-start',
+    label: 'Start',
+    command: Commands.selectCommit,
+    input: {
+      placeholder: 'base',
+      value: phase.from === null ? '' : displayRev(phase.from, phase.commits),
+      bound: 'from',
+      hideSubmit: true,
+      ...(fieldError === undefined ? {} : { error: fieldError }),
+    },
+    contextValue: 'input',
+    enabled: view.canStart && !phase.loading,
+    slot: 'header',
+  })
+  add({
+    id: 'range-end',
+    label: 'End',
+    command: Commands.selectCommit,
+    input: {
+      placeholder: 'tip',
+      value: phase.to === null ? '' : displayRev(phase.to, phase.commits),
+      bound: 'to',
+      hideSubmit: true,
+    },
+    contextValue: 'input',
+    enabled: view.canStart && !phase.loading,
+    slot: 'header',
+  })
+  if (!phase.loading) {
     add({
-      id: 'range-bounds',
-      label: rangeBoundSummary(phase),
+      id: 'history-heading',
+      label: rangeHistoryHeading(phase),
+    })
+    addCommitChoices(phase.commits, add, view.canStart, (_commit, index) => rangeAccent(phase, index))
+    add({
+      id: 'range-compare',
+      label: 'How this range is compared',
       description: 'Review the end against its merge base with the start.',
+      surface: 'disclosure',
+      expanded: false,
     })
   }
   add({
+    id: 'range-status',
+    label: rangeReady ? 'Range selected' : rangeStatus(phase),
+    slot: 'footer',
+  })
+  add({
     id: 'use-range',
-    label: rangeReady
-      ? `Use ${displayRev(phase.from, phase.commits)}..${displayRev(phase.to, phase.commits)}`
-      : 'Use range',
-    description: 'Review the end against its merge base with the start.',
+    label: 'Use range',
     command: Commands.submitRange,
     payload: rangeReady ? `${phase.from}..${phase.to}` : '',
     contextValue: 'action',
     enabled: view.canStart && rangeReady,
+    slot: 'footer',
     tone: 'primary',
   })
-  if (!phase.loading) {
-    addCommitChoices(phase.commits, add, view.canStart, (_commit, index) => rangeAccent(phase, index))
-    add({
-      id: 'range-input',
-      label: 'Range',
-      command: Commands.submitRange,
-      input: {
-        placeholder: 'main..HEAD',
-        submit: 'Use range',
-        ...(phase.error === null ? {} : { error: phase.error }),
-      },
-      contextValue: 'input',
-      enabled: view.canStart,
-      tone: 'primary',
-    })
-  }
   add(navBack())
 }
 
-function rangeInstruction(phase: RangeSetupPhase): string {
-  if (phase.error !== null)
-    return 'Type a range or pick two commits from history.'
-  if (phase.from === null && phase.to === null)
-    return 'Next click sets Start. You can also type a range.'
-  if (phase.to === null)
-    return 'Next click sets End.'
-  return 'Click a bound to revise it, or type a new range.'
+function rangeHistoryHeading(phase: RangeSetupPhase): string {
+  return phase.pick === 'to'
+    ? 'Recent commits · choose end'
+    : 'Recent commits · choose start'
 }
 
-function rangeBoundSummary(phase: RangeSetupPhase): string {
-  const start = phase.from === null ? 'not set' : displayRev(phase.from, phase.commits)
-  const end = phase.to === null ? 'not set' : displayRev(phase.to, phase.commits)
-  return `Start ${start} · End ${end}`
+function rangeStatus(phase: RangeSetupPhase): string {
+  if (phase.from === null && phase.to === null)
+    return 'Choose start'
+  if (phase.to === null)
+    return 'Choose end'
+  if (phase.from === null)
+    return 'Choose start'
+  return 'Range selected'
 }
 
 function addCommitChoices(
@@ -897,7 +936,8 @@ function addCommitChoices(
     add({
       id: `commit-${commit.sha}`,
       label: commit.subject === '' ? commit.shortSha : commit.subject,
-      description: `${commit.shortSha} · ${commit.author} · ${commit.relativeDate}${merge}`,
+      description: `${commit.shortSha} ${commit.author} · ${commit.relativeDate}${merge}`,
+      tooltip: commit.subject === '' ? commit.shortSha : commit.subject,
       command: Commands.selectCommit,
       payload: commit.sha,
       icon: 'git-commit',

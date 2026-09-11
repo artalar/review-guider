@@ -38,7 +38,7 @@ describe('setup machine', () => {
     pickWorkingTree()
     expect(peek(setupPhase)).toEqual({ kind: 'generate', target: { kind: 'workingTree' } })
     setupBack()
-    expect(peek(setupPhase).kind).toBe('targets')
+    expect(peek(setupPhase).kind).toBe('home')
     setupBack()
     expect(peek(setupPhase).kind).toBe('home')
 

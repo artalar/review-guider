@@ -1,6 +1,133 @@
 # Tabthrough design system
 
-Status: proposed design specification · 11 September 2026
+Status: revised visual proposal after screenshot review · 11 September 2026
+
+## Visual revision: the composition comes first
+
+This revision responds to three screenshots of the implemented home, target selection, and commit range screens. It supersedes the visual composition, typography, action styling, and spacing recommendations below wherever they conflict. The original audit is historical: several of its implementation gaps have since been addressed. The behavioral and accessibility requirements remain relevant.
+
+The first specification was too abstract. It named reasonable tokens but did not sufficiently constrain the resulting screens. The screenshots show a stack of equally assertive rows rather than a composed tool. A restrained palette cannot fix that hierarchy by itself.
+
+### What the screenshots establish
+
+- The welcome slogan occupies the first content position while delaying the actual choices by an extra Review click.
+- Review and Install /tabthrough appear as similarly heavy filled blocks. An optional setup action receives almost the same emphasis as the main task.
+- Bold headings, bold choice labels, bold commit subjects, and bold repository counts all compete. The page has little distinction between content and chrome.
+- The standalone Back strip consumes a full band above a separate title block. Setup becomes tall before any useful selection appears.
+- Repository details and its counts read as another major section. Even when a disclosure exists in code, the rendered appearance must clearly communicate its subordinate, expandable role.
+- The range appears as a heading, a summary, and a large action label. Its comparison explanation appears twice. The user reads the same decision repeatedly.
+- Commit rows alternate between prominent white blocks and empty space; metadata begins on a different axis from subjects. Endpoint shapes are visible, but the list lacks a consistent rhythm.
+
+The screenshots may include editor zoom or display scaling. Do not infer CSS font sizes from image pixels. Fix the relative weights, alignment and composition, then validate at the user's actual zoom.
+
+### The new direction
+
+Build a compact editor tool with a consistent left alignment, mostly regular-weight text, quiet list rows, and one small action at the point of commitment. Let the code and the current thought supply the interest. Empty space below a short task is acceptable; filling it with repository statistics is not necessary.
+
+The proposed visual preview covers Home, Range, and Reading, with light/dark appearance and compact/comfortable density variants. These are design alternatives, not additional product settings. Any illustrative explanation in the preview is sample copy, not a verified description of the repository's code.
+
+### Home: go directly to the task
+
+Replace the separate welcome and target-selection pages with one screen:
+
+1. Title: **Review a change**. Supporting line: “Choose where to begin.”
+2. Three flat, full-row choices: Working changes, A commit, A commit range. Each has a 16px monochrome icon, a medium-weight label, one regular-weight description, and a trailing chevron.
+3. A quiet optional link below: “Set up editor agent,” introduced by “Want an agent-authored guide?” No filled install card.
+4. A collapsed repository disclosure at the bottom of the content, with branch context if available. Counts appear only when expanded. Conflicts still surface immediately.
+
+Remove the tagline from the everyday workflow. Keep it in onboarding or marketing. The target choices themselves are the main actions; this screen needs no filled primary button. Existing valid-guide shortcuts may sit above the choices as a compact “Continue with this guide” action, only when applicable.
+
+### Range: one selection, one confirmation
+
+Place a small “← Review” control within the content gutter, followed by “Commit range” and one short instruction. Do not give Back its own full-width bordered band.
+
+Show two editable fields in a row, labeled Start and End, with a small directional arrow between them. Display each selected ref only in its field. Place the merge-base explanation in a disclosure labeled “How this range is compared.” Essential selection instructions remain visible.
+
+Below the fields, show Recent commits as one continuous list. Use a narrow dot/line gutter for history position. Both the subject and its metadata begin on the same text axis. Subjects are regular weight; reserve a medium weight for the screen heading and action. Endpoint rows receive a subtle, flat selection fill and visible Start/End labels in their metadata. Intermediate rows keep the canvas background; a thin connecting line is enough to suggest continuity. The line shows position in the loaded list, not Git ancestry or exact membership in the computed diff.
+
+Finish with a footer containing quiet selection status and a content-width **Use range →** button. Remove hashes and explanatory paragraphs from the button. Keep that confirmation available while scrolling long history. The updated preview demonstrates a constrained sidebar with independently scrolling content and persistent controls; it does not implement history pagination.
+
+Focusing either endpoint sets the destination for the next history click. After selection, indicate which endpoint is next. Preserve typed refs and their errors. At narrow widths, stack the endpoint fields before reducing the type size.
+
+### Reading: make it feel like reading
+
+Use a compact navigation row: Previous arrow, position, and a small Next button. Follow it with subdued mode/target context, the current thought title, and the path. Explanatory prose gets regular weight and comfortable line spacing. Avoid surrounding every paragraph with a heading and rule.
+
+Use “Why this comes here” as a small secondary label where the rationale is separate from the notes. A single subtle left rule can group that explanation. Keep the next-step preview and guide overview below the current thought. Open real file is a quiet text action with an icon. End walkthrough remains secondary and visually separate from Next. At the final step, retain the mode-specific completion rules later in this document.
+
+### Concrete visual constraints
+
+These values are at default editor scale and must grow with the host. The neutral and restrained green-gray colors in the preview demonstrate balance; production must map those roles onto the user's theme, not hard-code the sample palette.
+
+| Element | Revised constraint |
+| --- | --- |
+| Canvas | One continuous host sidebar surface. No alternating card backgrounds for ordinary rows. |
+| Panel gutter | 16px; 12px when narrow. All content shares this alignment. |
+| Screen title | About 17px at a 13px host baseline, weight 500, one per screen. |
+| Body / commit subject | Host size, weight 400. Never make every row bold. |
+| Choice / primary label | Host size, weight 500. |
+| Metadata | About 12px, regular weight, opaque theme secondary foreground. Keep readable at actual zoom. |
+| Choice rows | Around 58–64px at baseline; description stays outside any filled button treatment. Grow for wrapped text. |
+| Commit rows | Around 54–60px with two short lines; grow for long subjects. Compact variant reduces vertical padding, not font size. |
+| Subject wrapping | At most two lines in the list preview, with an accessible route to the full subject. Never shorten real commit text silently as the sample does for presentation. |
+| Selection | Low-contrast neutral or subtly tinted fill, 3–4px radius, plus endpoint text. No bright rail and no white floating card. |
+| Buttons | Content-width by default, 32px minimum height, 4px radius, one-line action. Filled buttons are for Start, Use range, Next or equivalent commitments. |
+| Secondary action | Text or a subtle outline; never inherit a strongly filled secondary theme button for an entire explanatory row. |
+| Dividers | Between genuine regions; avoid a rule after every text row. |
+| Section rhythm | 20–24px between purposes; 4–8px within a label/description pair. |
+| Repository context | Small collapsed disclosure; no bold counts in the normal flow. Blocking state is the exception. |
+
+### Scrolling: stable controls around one scrollable body
+
+Use three layout regions: a persistent control area, one flexible scrollable body, and a persistent action footer where needed. Keep controls in layout rather than floating them over content. Give the middle region `min-height: 0` and vertical overflow; headers and footers do not shrink. The real webview should fill its available height. The preview uses an adjustable 400–800px height to model that constraint.
+
+| Screen | Remains visible | Scrolls |
+| --- | --- | --- |
+| Home | Native panel title; compact collapsed repository footer | Target choices and optional agent setup when height is constrained |
+| Commit/range | Back/title; endpoint inputs at normal heights; Use commit/range footer | History, instructions and optional comparison details |
+| Reading | Previous, position, Next or mode-specific Finish; quiet End walkthrough footer | Thought title, path, reason, notes, next preview, guide overview |
+
+Do not pin the entire explanation, repository statistics, or a second copy of the main action. Reading navigation occupies a compact strip. The range header can be larger because editable endpoints are active selection controls. A plain 1px divider separates persistent controls from scrolling text; use an opaque matching canvas with no shadow, gradient, or blur.
+
+Below approximately 520px panel height, move range endpoint fields into the scrolling body and remove the redundant subtitle from the pinned header. Keep Back/title and Use range visible. Below 280px width, stack endpoint fields. In the checked 228px-wide, 400px-high preview, this leaves 185px for scrollable content. Production should respond to measured space and font zoom, not only fixed breakpoints: protect a useful content viewport before retaining optional pinned context.
+
+Scrolling rules for implementation:
+
+- Use one vertical scrollbar for the body. Notes, history and expanded disclosures share it; no nested scroll panes.
+- Keep 12px scroll padding and normal content padding so a focused row is not flush against a divider. Native focus scrolling must reveal the whole focused control where space allows.
+- Preserve history position when an endpoint changes. Bring a newly selected off-screen row into view only when that follows an explicit user action. Background refresh must not reset position.
+- Preserve reading position on background updates. On explicit Next/Previous, show the new thought from the top; on revisiting a step, restoring its saved reading position is acceptable if applied consistently. Keep keyboard focus on the initiating navigation control.
+- Never hide navigation until hover or make it appear only when scrolling upward. Do not intercept wheel/trackpad scrolling to advance steps.
+- Keep final actions in the same control region without overlaying content. A long rebase finish label can wrap or occupy a full control row; do not truncate its consequence.
+- A repository disclosure with substantial content should expand inside the body in production, rather than growing the pinned footer indefinitely. Blocking Git notices receive a compact persistent summary with details in the body.
+- At extreme height/zoom, retain a compact primary-action region and allow secondary context to scroll. No control may become permanently clipped; keyboard traversal and native editor commands remain escape routes.
+
+### Saved visual mockups
+
+Screenshots are rendered from the updated interactive example, not the extension. Sample prose is illustrative. Standard captures use a 390 × 640 CSS-pixel sidebar at 2× resolution (780 × 1280 PNG). The narrow example is 228 × 400 CSS pixels. Light/dark captures show the same design, including scrolled states where controls remain visible.
+
+| View | Light | Dark |
+| --- | --- | --- |
+| Home | [Home](../design/mockups/home-light.png) | [Home](../design/mockups/home-dark.png) |
+| Range, initial | [Range](../design/mockups/range-light.png) | [Range](../design/mockups/range-dark.png) |
+| Range, scrolled | [Scrolled range](../design/mockups/range-scrolled-light.png) | [Scrolled range](../design/mockups/range-scrolled-dark.png) |
+| Reading, initial | [Reading](../design/mockups/reading-light.png) | [Reading](../design/mockups/reading-dark.png) |
+| Reading, scrolled | [Scrolled reading](../design/mockups/reading-scrolled-light.png) | [Scrolled reading](../design/mockups/reading-scrolled-dark.png) |
+| Narrow/short range | [Narrow range](../design/mockups/range-narrow-light.png) | — |
+
+Browser checks confirmed that the range and reading bodies scroll while the control headers stay in position, and that the narrow case has no horizontal overflow. These checks cover the mockup, not production behavior or full accessibility compliance.
+
+### Review the composition before implementation
+
+The next implementation should begin from the visual proposal, not translate every paragraph in this document into a visible row. Keep the host's activity bar and native Walkthrough title; the preview's small enclosing header merely identifies the sidebar and should not become duplicate application chrome.
+
+First compare the three reference screens at the same width and zoom as the supplied screenshots. Then check 320–390px sidebar widths, a narrow 220px case, long real commit subjects, and light/dark/high-contrast themes. The result should have an obvious action without relying on oversized fills, one explanation per concept, aligned metadata, and one clear title. Only then proceed with the behavioral and accessibility checks in the original specification.
+
+No application code is changed by this revision.
+
+---
+
+## Original specification and behavioral reference
 
 This document defines the visual language, components, interaction rules, and content standards for Tabthrough’s current and future UI. It is a design deliverable only: it does not implement changes or authorize new product capabilities. “Current” describes the working tree inspected on this date, including changes not yet committed; “proposed” describes the system to adopt in later implementation work.
 

@@ -41,6 +41,7 @@ function rangeSetup(overrides: Partial<Omit<RangeSetupPhase, 'kind'>> = {}): Ran
     error: null,
     from: null,
     to: null,
+    pick: 'from',
     ...overrides,
   }
 }
@@ -102,12 +103,15 @@ describe('sidebar text boundary', () => {
   it('renders the range form with a data-command host can post', () => {
     const html = renderSidebarBody(view({ setup: rangeSetup() }))
     expect(html).toContain('data-command="tabthrough.submitRange"')
-    expect(html).toContain('placeholder="main..HEAD"')
+    expect(html).toContain('data-bound="from"')
+    expect(html).toContain('data-bound="to"')
     expect(html).toContain('<form')
-    expect(html).toContain('>Use range</button>')
-    expect(html).toContain('<header class="chrome">')
+    expect(html).toContain('Use range')
+    expect(html).toContain('<header class="chrome setup">')
     expect(html).toContain('data-command="tabthrough.setupBack"')
-    expect(html).toContain('← Back')
+    expect(html).toContain('← Review')
+    expect(html.indexOf('range-fields')).toBeGreaterThan(html.indexOf('<header class="chrome setup">'))
+    expect(html.indexOf('range-fields')).toBeLessThan(html.indexOf('<main class="body">'))
   })
 
   it('highlights the selected range ends and the commits between them', () => {
@@ -127,21 +131,21 @@ describe('sidebar text boundary', () => {
     expect(html).toContain('range-between')
     expect(html).toContain('aria-label="Start"')
     expect(html).toContain('aria-label="End"')
-    expect(html).not.toContain('bound-word')
+    expect(html).toContain('bound-word')
     expect(html).toContain('<svg')
     expect(html).not.toContain('gitDecoration-addedResourceForeground')
     expect(html).not.toContain('gitDecoration-modifiedResourceForeground')
     expect(html).toContain('data-payload="cccccccccccccccccccccccccccccccccccccccc..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"')
   })
 
-  it('places leftover autostash copy after the Review button', () => {
+  it('places leftover autostash copy after the target choices', () => {
     const html = renderSidebarBody(view({
       gitState: gitState({
         autostashes: [{ selector: 'stash@{0}', subject: 'On main: autostash' }],
       }),
     }))
-    expect(html.indexOf('data-command="tabthrough.review"')).toBeGreaterThan(-1)
-    expect(html.indexOf('data-command="tabthrough.review"')).toBeLessThan(html.indexOf('A rebase left your changes'))
+    expect(html.indexOf('data-id="working-tree"')).toBeGreaterThan(-1)
+    expect(html.indexOf('data-id="working-tree"')).toBeLessThan(html.indexOf('A rebase left your changes'))
   })
 
   it('puts commit metadata on the choice button and Back in chrome', () => {
@@ -153,9 +157,9 @@ describe('sidebar text boundary', () => {
         commits: [commitSummary({ sha: 'abc123def456', shortSha: 'abc123d', subject: 'Add types' })],
       },
     }))
-    expect(html.indexOf('<header class="chrome">')).toBe(0)
-    expect(html).toContain('abc123d · Ada · 2 hours ago')
-    expect(html).toContain('>Use commit</button>')
+    expect(html).toContain('<header class="chrome setup">')
+    expect(html).toContain('abc123d Ada · 2 hours ago')
+    expect(html).toContain('Use commit →')
     expect(html).toContain('for="field-commit-ref"')
     expect(html).toContain('id="field-commit-ref"')
   })
@@ -276,7 +280,6 @@ describe('sidebar text boundary', () => {
     expect(html).toContain('button.primary{')
     expect(html).toContain('--vscode-button-background')
     expect(html).toContain('--vscode-list-inactiveSelectionBackground')
-    expect(html).toContain('--vscode-list-activeSelectionBackground')
     expect(html).toContain('--vscode-inputValidation-errorForeground')
     expect(html).toContain('--vscode-notificationsInfoIcon-foreground')
     expect(html).not.toContain('--vscode-badge-background')
@@ -285,13 +288,15 @@ describe('sidebar text boundary', () => {
     expect(html).not.toContain('--surface-canvas')
     expect(html).not.toContain('--text-primary')
     expect(html).not.toContain('--action-primary-bg')
-    expect(html).toContain('button.choice .hint{color:inherit')
+    expect(html).toContain('class="frame screen-home"')
   })
 
   it('renders target picks as list rows', () => {
     const html = renderSidebarBody(view({ setup: { kind: 'targets' } }))
-    expect(html).toContain('class="list-pick choice"')
+    expect(html).toContain('list-pick')
+    expect(html).toContain('class="choices"')
     expect(html).toContain('data-id="working-tree"')
+    expect(html).toContain('Review a change')
     expect(html).not.toContain('class="secondary choice"')
   })
 })

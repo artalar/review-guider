@@ -22,6 +22,7 @@ import {
   startBlockedReason,
 } from '../model/session'
 import {
+  focusRangeBound,
   generateAgentGuide,
   generateSimpleGuide,
   installWorkspaceSkill,
@@ -32,6 +33,7 @@ import {
   resetSetup,
   selectCommit,
   selectRangeRev,
+  setRangeBound,
   setupBack,
   setupPhase,
   skillInstalled,
@@ -61,10 +63,20 @@ export function useGuideCommands(): void {
     [Commands.selectCommit]: wrap((rev?: unknown) => guard('selectCommit', async () => {
       if (typeof rev !== 'string')
         return
-      if (peek(setupPhase).kind === 'range')
-        selectRangeRev(rev)
-      else
-        selectCommit(rev)
+      if (rev === 'focus:from' || rev === 'focus:to') {
+        focusRangeBound(rev === 'focus:from' ? 'from' : 'to')
+        return
+      }
+      if (peek(setupPhase).kind === 'range') {
+        if (rev.startsWith('from:'))
+          setRangeBound('from', rev.slice(5))
+        else if (rev.startsWith('to:'))
+          setRangeBound('to', rev.slice(3))
+        else
+          selectRangeRev(rev)
+        return
+      }
+      selectCommit(rev)
     })),
     [Commands.submitRange]: wrap((raw?: unknown) => guard('submitRange', async () => {
       if (typeof raw === 'string')

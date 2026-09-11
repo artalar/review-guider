@@ -2,183 +2,127 @@
   "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
   "version": 1,
   "scope": { "kind": "workingTree", "base": "HEAD" },
-  "summary": "The sidebar uses host tokens paired to the surface they sit on: sidebar text and borders, list selection for rows, button colors only on primary and secondary actions. Target and mode choices are list rows, not filled buttons. Range icons inherit the row color. The rest of the walk is the design-system contract: tones, mode copy, and refresh that keeps input and focus.",
+  "summary": "The sidebar is composed as chrome, one scrolling body, and a footer. Setup starts on home; range fields name the next bound. The projection supplies slots and copy; the renderer pins controls and draws the timeline.",
   "files": {
     ".tabthrough-guide.json": { "significance": "skip", "rationale": "The sidecar this walk is written into" },
-    "test/unit/sidebar.test.ts": { "significance": "low", "rationale": "Assertions follow the new copy and list surfaces" },
-    "test/unit/sidebar-html.test.ts": { "significance": "low", "rationale": "Markup checks for labels, paired tokens, and notes continuation" },
-    "test/unit/view.test.ts": { "significance": "low", "rationale": "Status bar complete string" },
-    "test/unit/contributions.test.ts": { "significance": "low", "rationale": "Command palette titles" },
-    "package.json": { "significance": "low", "rationale": "Visible command titles only" }
+    "work-docs/specs/design-system.md": { "significance": "skip", "rationale": "The visual spec this implementation follows" },
+    "work-docs/design/mockups/home-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/home-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/range-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/range-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/range-scrolled-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/range-scrolled-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/range-narrow-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/reading-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/reading-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/reading-scrolled-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/reading-scrolled-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "test/unit/setup.test.ts": { "significance": "low", "rationale": "Back from working-tree generate returns to home" },
+    "test/unit/sidebar.test.ts": { "significance": "low", "rationale": "Assertions follow the new slots and copy" },
+    "test/unit/sidebar-html.test.ts": { "significance": "low", "rationale": "Markup checks for chrome fields and choice rows" }
   },
   "steps": [
     {
-      "id": "item-roles",
+      "id": "home-start",
       "order": 10,
-      "path": "src/model/sidebar.ts",
-      "ranges": [{ "start": 17, "end": 44 }],
-      "significance": "critical",
-      "title": "Rows declare tone and surface",
-      "rationale": "The vocabulary the renderer uses instead of inferring primary from command names",
-      "notes": "tone is the immediate-task signal. surface is notice or disclosure. group repository parks git chrome after the explanation."
-    },
-    {
-      "id": "mode-labels",
-      "order": 20,
-      "path": "src/model/sidebar.ts",
-      "ranges": [{ "start": 46, "end": 71 }],
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 154, "end": 185 }],
       "significance": "high",
-      "title": "Finish and exit name the mode",
-      "rationale": "Read-only and rebase must not share Finish review / Cancel review",
-      "dependsOn": ["item-roles"]
+      "title": "Home is the start screen",
+      "rationale": "Review and Back no longer land on a separate targets page"
     },
     {
-      "id": "walk-hierarchy",
-      "order": 30,
-      "path": "src/model/sidebar.ts",
-      "ranges": [{ "start": 168, "end": 216 }],
+      "id": "range-pick",
+      "order": 20,
+      "path": "src/model/setup.ts",
+      "ranges": [
+        { "start": 38, "end": 43 },
+        { "start": 71, "end": 73 },
+        { "start": 223, "end": 265 }
+      ],
       "significance": "critical",
-      "title": "Thought first, count only in nav",
-      "rationale": "The session line is mode and target; edited on disk is a path notice, not a title suffix",
-      "notes": "Guide summary moves later as a disclosure. Completion copy is All N steps revealed, not a pass mark.",
-      "dependsOn": ["mode-labels"]
+      "title": "Range phase names the next bound",
+      "rationale": "Focus arms a field; the next history click writes that end",
+      "notes": "pick stays on the phase so the heading can say choose start or end. Click order still fills the empty end when a field is not armed.",
+      "dependsOn": ["home-start"]
     },
     {
-      "id": "blocking-git",
+      "id": "select-payloads",
+      "order": 30,
+      "path": "src/commands/index.ts",
+      "ranges": [{ "start": 63, "end": 80 }],
+      "significance": "high",
+      "title": "selectCommit carries bound payloads",
+      "rationale": "First consumer of focus and from:/to: without new commands",
+      "dependsOn": ["range-pick"]
+    },
+    {
+      "id": "item-slots",
       "order": 40,
       "path": "src/model/sidebar.ts",
-      "ranges": [{ "start": 329, "end": 355 }],
-      "significance": "high",
-      "title": "Owned rebase stays out of the banner",
-      "rationale": "Continue rebase is primary only when the rebase is not the walk itself, or a conflict blocks it",
-      "dependsOn": ["walk-hierarchy"]
+      "ranges": [{ "start": 28, "end": 47 }],
+      "significance": "critical",
+      "title": "Rows declare slot and bound",
+      "rationale": "The renderer parks nav, fields, and footer from these fields",
+      "notes": "slot is nav, header, or footer. trailing is the home chevron. input.bound prefixes typed refs so selectCommit can tell Start from End."
     },
     {
-      "id": "choice-list",
+      "id": "reading-copy",
       "order": 50,
       "path": "src/model/sidebar.ts",
-      "ranges": [
-        { "start": 538, "end": 562 },
-        { "start": 718, "end": 735 }
-      ],
+      "ranges": [{ "start": 220, "end": 323 }],
       "significance": "high",
-      "title": "Target and mode are list rows",
-      "rationale": "Choices consume list tokens; they must not render as stacked secondary buttons",
-      "dependsOn": ["item-roles"]
+      "title": "Reading: notes, why, then Open file",
+      "rationale": "The thought is prose first; End walkthrough lives in the footer",
+      "dependsOn": ["item-slots"]
     },
     {
-      "id": "consequence",
+      "id": "home-rows",
       "order": 60,
       "path": "src/model/sidebar.ts",
-      "ranges": [{ "start": 782, "end": 800 }],
+      "ranges": [
+        { "start": 399, "end": 416 },
+        { "start": 598, "end": 676 }
+      ],
       "significance": "high",
-      "title": "Start explains the workspace",
-      "rationale": "Will run: nothing is gone — read-only working changes still save and snapshot",
-      "dependsOn": ["walk-hierarchy"]
+      "title": "Home is three list choices",
+      "rationale": "The target rows are the actions; repository counts stay collapsed",
+      "dependsOn": ["item-slots"]
     },
     {
-      "id": "range-words",
+      "id": "range-rows",
       "order": 70,
-      "path": "src/ui/sidebar-html.ts",
-      "ranges": [{ "start": 68, "end": 75 }],
-      "significance": "normal",
-      "title": "Range bounds are icons only",
-      "rationale": "Start and End stay in aria-label; only commit rows reserve the icon column",
-      "dependsOn": ["consequence"]
+      "path": "src/model/sidebar.ts",
+      "ranges": [{ "start": 834, "end": 924 }],
+      "significance": "high",
+      "title": "Range fields sit above the list",
+      "rationale": "Start and End are header slots; Use range is the footer commitment",
+      "dependsOn": ["range-pick", "item-slots"]
     },
     {
-      "id": "button-tone",
+      "id": "timeline-markup",
       "order": 80,
       "path": "src/ui/sidebar-html.ts",
-      "ranges": [{ "start": 25, "end": 35 }],
+      "ranges": [{ "start": 59, "end": 145 }],
       "significance": "high",
-      "title": "Primary comes from tone",
-      "rationale": "First consumer of the item contract — Next and Continue no longer share a name heuristic",
-      "dependsOn": ["item-roles"]
+      "title": "Commits draw a gutter and bound words",
+      "rationale": "The first consumer of accent and input.bound",
+      "dependsOn": ["range-rows"]
     },
     {
-      "id": "token-pair",
+      "id": "frame-layout",
       "order": 90,
       "path": "src/ui/sidebar-html.ts",
-      "ranges": [{ "start": 186, "end": 228 }],
+      "ranges": [
+        { "start": 248, "end": 305 },
+        { "start": 323, "end": 358 },
+        { "start": 416, "end": 447 }
+      ],
       "significance": "critical",
-      "title": "Each surface keeps its own tokens",
-      "rationale": "Bare buttons are no longer primary — that leak made GitHub and other themes paint every row accent",
-      "notes": "Canvas text is sideBar.foreground falling back to foreground. Borders are sideBar.border falling back to panel.border. button.* applies only to .primary and .secondary. Consequential is a neutral outline, not editorWarning.",
-      "dependsOn": ["button-tone"]
-    },
-    {
-      "id": "hint-contrast",
-      "order": 95,
-      "path": "src/ui/sidebar-html.ts",
-      "ranges": [{ "start": 232, "end": 232 }],
-      "significance": "critical",
-      "title": "Hints inherit the control color",
-      "rationale": "descriptionForeground is a canvas token — on a secondary fill it vanishes",
-      "notes": "List rows on the canvas still use descriptionForeground. Selected list rows inherit the selection foreground, same pairing rule.",
-      "dependsOn": ["token-pair"]
-    },
-    {
-      "id": "list-tokens",
-      "order": 100,
-      "path": "src/ui/sidebar-html.ts",
-      "ranges": [{ "start": 265, "end": 278 }],
-      "significance": "high",
-      "title": "List rows stay in the list family",
-      "rationale": "Selection, hover, and the between rail must not borrow editor, badge, or focusBorder colors",
-      "notes": "Icons use currentColor. Start and end use inactiveSelection. Between is a list-selection rail on a transparent row so hover still shows.",
-      "dependsOn": ["token-pair", "choice-list"]
-    },
-    {
-      "id": "preserve-state",
-      "order": 110,
-      "path": "src/ui/sidebar-html.ts",
-      "ranges": [{ "start": 281, "end": 281 }],
-      "significance": "high",
-      "title": "Refresh keeps input and focus",
-      "rationale": "The update script restores value, caret, disclosures, and Next-to-Finish focus",
-      "notes": "A queued repeat on Next must not activate Amend and continue when the label swaps.",
-      "dependsOn": ["token-pair"]
-    },
-    {
-      "id": "repo-wrap",
-      "order": 120,
-      "path": "src/ui/sidebar-html.ts",
-      "ranges": [{ "start": 289, "end": 301 }],
-      "significance": "normal",
-      "title": "Repository details after the walk",
-      "rationale": "Informational git state is grouped so it cannot push the thought below the fold",
-      "dependsOn": ["blocking-git"]
-    },
-    {
-      "id": "status-complete",
-      "order": 130,
-      "path": "src/model/view.ts",
-      "ranges": [{ "start": 70, "end": 73 }],
-      "significance": "normal",
-      "title": "Status bar does not grade the code",
-      "rationale": "All N steps revealed replaces Walkthrough complete · Finish",
-      "dependsOn": ["walk-hierarchy"]
-    },
-    {
-      "id": "dim-pending",
-      "order": 140,
-      "path": "src/ui/documents.ts",
-      "ranges": [{ "start": 259, "end": 268 }],
-      "significance": "normal",
-      "title": "Dim mode keeps diff colors",
-      "rationale": "Pending lines use a theme background instead of 0.4 opacity",
-      "dependsOn": ["token-pair"]
-    },
-    {
-      "id": "no-last-toast",
-      "order": 150,
-      "path": "src/commands/index.ts",
-      "ranges": [{ "start": 155, "end": 161 }],
-      "significance": "normal",
-      "title": "Tab past the last step is a no-op",
-      "rationale": "Advancing no longer opens a Review complete toast that offers Finish",
-      "dependsOn": ["status-complete"]
+      "title": "One chrome, one body, one footer",
+      "rationale": "Fields pin in the header; only the body scrolls",
+      "notes": "Home keeps its title in the body. Range fields join Back and the title so the divider sits under the inputs.",
+      "dependsOn": ["item-slots", "timeline-markup"]
     }
   ]
 }

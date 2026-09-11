@@ -39,6 +39,7 @@ export interface RangeSetupPhase extends HistorySetupPhase {
   readonly kind: 'range'
   readonly from: string | null
   readonly to: string | null
+  readonly pick: 'from' | 'to'
 }
 
 export type SetupPhase
@@ -68,6 +69,8 @@ const setupKind = atom<SetupKind>('home', 'setup.kind')
 const setupError = atom<string | null>(null, 'setup.error')
 const rangeFrom = atom<string | null>(null, 'setup.rangeFrom')
 const rangeTo = atom<string | null>(null, 'setup.rangeTo')
+const rangePick = atom<'from' | 'to'>('from', 'setup.rangePick')
+const rangePickArmed = atom(false, 'setup.rangePickArmed')
 const generateTarget = atom<ReviewTarget | null>(null, 'setup.generateTarget')
 
 export const recentCommits = computed(async (): Promise<readonly CommitSummary[]> => {
@@ -95,7 +98,7 @@ export const setupPhase = computed((): SetupPhase => {
   if (kind === 'commits')
     return { kind: 'commits', commits, loading, error }
   if (kind === 'range')
-    return { kind: 'range', commits, loading, error, from: rangeFrom(), to: rangeTo() }
+    return { kind: 'range', commits, loading, error, from: rangeFrom(), to: rangeTo(), pick: rangePick() }
   if (kind === 'generate') {
     const target = generateTarget()
     if (target !== null)
@@ -140,6 +143,8 @@ export const resetSetup = action(() => {
   setupError.set(null)
   rangeFrom.set(null)
   rangeTo.set(null)
+  rangePick.set('from')
+  rangePickArmed.set(false)
   generateTarget.set(null)
   pendingEntry.set(null)
   chosenMode.set(null)
@@ -150,7 +155,7 @@ export const openTargetPicker = action(() => {
   if (peek(sessionStatus) !== 'idle')
     return
   setupError.set(null)
-  setupKind.set('targets')
+  setupKind.set('home')
 }, 'setup.openTargets')
 
 export const setupBack = action(() => {
@@ -168,12 +173,12 @@ export const setupBack = action(() => {
       setupKind.set('range')
       return
     }
-    setupKind.set('targets')
+    setupKind.set('home')
     return
   }
   setupError.set(null)
   if (kind === 'commits' || kind === 'range' || kind === 'generate') {
-    setupKind.set('targets')
+    setupKind.set('home')
     return
   }
   setupKind.set('home')
@@ -196,6 +201,8 @@ export const pickRange = action(async (): Promise<void> => {
   setupError.set(null)
   rangeFrom.set(null)
   rangeTo.set(null)
+  rangePick.set('from')
+  rangePickArmed.set(false)
   setupKind.set('range')
   await settleRecentCommits()
 }, 'setup.pickRange')
@@ -213,6 +220,31 @@ export const selectCommit = action((rev: string) => {
   setupKind.set('generate')
 }, 'setup.selectCommit')
 
+export const focusRangeBound = action((bound: 'from' | 'to') => {
+  if (peek(setupKind) !== 'range')
+    return
+  rangePick.set(bound)
+  rangePickArmed.set(true)
+}, 'setup.focusRangeBound')
+
+export const setRangeBound = action((bound: 'from' | 'to', rev: string) => {
+  if (peek(setupKind) !== 'range')
+    return
+  const error = commitRevError(rev)
+  if (error !== null) {
+    setupError.set(error)
+    return
+  }
+  const trimmed = rev.trim()
+  if (bound === 'from')
+    rangeFrom.set(trimmed)
+  else
+    rangeTo.set(trimmed)
+  rangePickArmed.set(false)
+  rangePick.set(bound === 'from' && peek(rangeTo) === null ? 'to' : bound === 'to' && peek(rangeFrom) === null ? 'from' : bound)
+  setupError.set(null)
+}, 'setup.setRangeBound')
+
 export const selectRangeRev = action((rev: string) => {
   if (peek(setupKind) !== 'range')
     return
@@ -221,9 +253,15 @@ export const selectRangeRev = action((rev: string) => {
     setupError.set(error)
     return
   }
-  const next = nextRangeSelection(peek(rangeFrom), peek(rangeTo), rev, peek(recentCommits.data))
+  const trimmed = rev.trim()
+  if (peek(rangePickArmed)) {
+    setRangeBound(peek(rangePick), trimmed)
+    return
+  }
+  const next = nextRangeSelection(peek(rangeFrom), peek(rangeTo), trimmed, peek(recentCommits.data))
   rangeFrom.set(next.from)
   rangeTo.set(next.to)
+  rangePick.set(next.from === null ? 'from' : next.to === null ? 'to' : 'from')
   setupError.set(null)
 }, 'setup.selectRangeRev')
 

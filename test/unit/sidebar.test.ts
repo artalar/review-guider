@@ -56,6 +56,7 @@ function rangeSetup(overrides: Partial<Omit<RangeSetupPhase, 'kind'>> = {}): Ran
     error: null,
     from: null,
     to: null,
+    pick: 'from',
     ...overrides,
   }
 }
@@ -101,26 +102,28 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
 }
 
 describe('sidebar projection', () => {
-  it('offers Review and optional Start while idle', () => {
+  it('opens home on the three review targets', () => {
     const rows = sidebarItems(view())
     expect(rows.map(row => row.command).filter(Boolean)).toEqual([
-      'tabthrough.review',
+      'tabthrough.pickWorkingTree',
+      'tabthrough.pickCommit',
+      'tabthrough.pickRange',
     ])
+    expect(rows.find(row => row.id === 'welcome')?.label).toBe('Review a change')
+    expect(rows.find(row => row.id === 'working-tree')?.description).toContain('Staged')
+    expect(rows.find(row => row.id === 'working-tree')?.surface).toBe('list')
+    expect(rows.find(row => row.id === 'commit')?.surface).toBe('list')
+    expect(rows.find(row => row.id === 'range')?.surface).toBe('list')
   })
 
-  it('lists review targets in the sidebar', () => {
+  it('lists the same targets when setup is still on the legacy targets phase', () => {
     const rows = sidebarItems(view({ setup: { kind: 'targets' } }))
     expect(rows.map(row => row.command).filter(Boolean)).toEqual([
       'tabthrough.pickWorkingTree',
       'tabthrough.pickCommit',
       'tabthrough.pickRange',
-      'tabthrough.setupBack',
     ])
-    expect(rows.find(row => row.id === 'working-tree')?.description).toContain('Uncommitted')
-    expect(rows.find(row => row.id === 'working-tree')?.surface).toBe('list')
-    expect(rows.find(row => row.id === 'commit')?.surface).toBe('list')
-    expect(rows.find(row => row.id === 'range')?.surface).toBe('list')
-    expect(rows.find(row => row.id === 'back')?.slot).toBe('nav')
+    expect(rows.find(row => row.id === 'back')).toBeUndefined()
   })
 
   it('lists commits with a ref input once history is loaded', () => {
@@ -135,8 +138,9 @@ describe('sidebar projection', () => {
     expect(rows.find(row => row.id === 'commit-abc123def456')?.payload).toBe('abc123def456')
     expect(rows.find(row => row.id === 'commit-abc123def456')?.description).toContain('abc123d')
     expect(rows.find(row => row.id === 'commit-ref')?.input?.placeholder).toBe('HEAD~1')
-    expect(rows.find(row => row.id === 'commit-ref')?.input?.submit).toBe('Use commit')
+    expect(rows.find(row => row.id === 'commit-ref')?.input?.submit).toBe('Use commit →')
     expect(rows.find(row => row.id === 'commit-ref')?.enabled).toBe(true)
+    expect(rows.find(row => row.id === 'commit-ref')?.slot).toBe('footer')
     expect(rows.find(row => row.id === 'back')?.slot).toBe('nav')
   })
 
@@ -152,9 +156,10 @@ describe('sidebar projection', () => {
     const rows = sidebarItems(view({
       setup: rangeSetup({ error: 'Enter a commit range, for example main..HEAD.' }),
     }))
-    expect(rows.find(row => row.id === 'range-input')?.input?.error).toContain('main..HEAD')
-    expect(rows.find(row => row.id === 'range-input')?.input?.placeholder).toBe('main..HEAD')
-    expect(rows.find(row => row.id === 'range-input')?.input?.submit).toBe('Use range')
+    expect(rows.find(row => row.id === 'range-start')?.input?.error).toContain('main..HEAD')
+    expect(rows.find(row => row.id === 'range-start')?.input?.bound).toBe('from')
+    expect(rows.find(row => row.id === 'range-end')?.input?.bound).toBe('to')
+    expect(rows.find(row => row.id === 'use-range')?.slot).toBe('footer')
     expect(rows.find(row => row.id === 'back')?.slot).toBe('nav')
   })
 
@@ -174,7 +179,15 @@ describe('sidebar projection', () => {
     expect(rows.find(row => row.id === `commit-${middle.sha}`)?.accent).toBe('between')
     expect(rows.find(row => row.id === `commit-${older.sha}`)?.accent).toBe('start')
     expect(rows.find(row => row.id === 'use-range')?.payload).toBe(`${older.sha}..${newer.sha}`)
-    expect(rows.find(row => row.id === 'use-range')?.label).toContain('ccccccc..aaaaaaa')
+    expect(rows.find(row => row.id === 'use-range')?.label).toBe('Use range')
+    expect(rows.find(row => row.id === 'history-heading')?.label).toBe('Recent commits · choose start')
+  })
+
+  it('names the next range bound from the focused field', () => {
+    const rows = sidebarItems(view({
+      setup: rangeSetup({ pick: 'to', from: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }),
+    }))
+    expect(rows.find(row => row.id === 'history-heading')?.label).toBe('Recent commits · choose end')
   })
 
   it('marks a single range bound as selected until the other end is picked', () => {
@@ -190,9 +203,11 @@ describe('sidebar projection', () => {
     const rows = sidebarItems(view({ guideFocused: true }))
     expect(rows.map(row => row.command).filter(Boolean)).toEqual([
       'tabthrough.startFromGuide',
-      'tabthrough.review',
+      'tabthrough.pickWorkingTree',
+      'tabthrough.pickCommit',
+      'tabthrough.pickRange',
     ])
-    expect(rows.find(row => row.id === 'start-guide')?.label).toBe('Start walkthrough')
+    expect(rows.find(row => row.id === 'start-guide')?.label).toBe('Continue with this guide')
   })
 
   it('offers Simple and Agent after a target is picked, and names the workspace consequence', () => {
@@ -300,19 +315,24 @@ describe('sidebar projection', () => {
     }))
     const byId = new Map(rows.map(row => [row.id, row]))
     expect(byId.get('summary')?.description).toContain('state model')
+    expect(byId.get('summary')?.label).toBe('Guide overview')
     expect(byId.get('summary')?.surface).toBe('disclosure')
     expect(byId.get('session')?.label).toBe('Read-only · Working changes')
-    expect(byId.get('session')?.description).not.toMatch(/\d+ of \d+/)
+    expect(byId.get('rationale')?.label).toBe('Why this comes here')
     expect(byId.get('rationale')?.description).toContain('contract')
     expect(byId.get('notes')?.description).toContain('remain visible')
+    expect(rows.findIndex(row => row.id === 'notes')).toBeLessThan(rows.findIndex(row => row.id === 'rationale'))
+    expect(rows.findIndex(row => row.id === 'rationale')).toBeLessThan(rows.findIndex(row => row.id === 'edit-here'))
+    expect(byId.get('next-step')?.label).toBe('Up next')
     expect(byId.get('previous')?.slot).toBe('nav')
     expect(byId.get('previous')?.enabled).toBe(false)
     expect(byId.get('next')?.command).toBe('tabthrough.next')
     expect(byId.get('next')?.slot).toBe('nav')
-    expect(byId.get('finish')?.slot).toBeUndefined()
-    expect(byId.get('finish')?.label).toBe('Finish walkthrough')
+    expect(byId.get('finish')).toBeUndefined()
     expect(byId.get('cancel')?.command).toBe('tabthrough.cancel')
     expect(byId.get('cancel')?.label).toBe('End walkthrough')
+    expect(byId.get('cancel')?.slot).toBe('footer')
+    expect(byId.get('edit-here')?.label).toBe('Open real file')
     expect(byId.get('edit-here')?.enabled).toBe(true)
   })
 
@@ -336,6 +356,7 @@ describe('sidebar projection', () => {
       currentStep: step(),
     }))
     expect(rows.find(row => row.id === 'edit-here')?.enabled).toBe(false)
+    expect(rows.find(row => row.id === 'edit-here')?.label).toBe('Open real file')
     expect(rows.find(row => row.id === 'edit-here')?.description).toContain('working-changes or rebase')
   })
 
@@ -399,8 +420,8 @@ describe('sidebar projection', () => {
       }),
     }))
     const ids = rows.map(row => row.id)
-    expect(ids.indexOf('review')).toBeLessThan(ids.indexOf('autostash-stash@{0}'))
-    expect(ids.indexOf('review')).toBeLessThan(ids.indexOf('pop-stash@{0}'))
+    expect(ids.indexOf('working-tree')).toBeLessThan(ids.indexOf('autostash-stash@{0}'))
+    expect(ids.indexOf('working-tree')).toBeLessThan(ids.indexOf('pop-stash@{0}'))
     expect(rows.some(row => row.command === 'tabthrough.popAutostash' && row.payload === 'stash@{0}')).toBe(true)
     expect(rows.some(row => row.command === 'tabthrough.showAutostash')).toBe(true)
     expect(rows.some(row => row.command === 'tabthrough.openWorktree')).toBe(true)
