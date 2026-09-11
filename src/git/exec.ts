@@ -16,7 +16,11 @@ export const DEFAULT_TIMEOUT_MS = 30_000
  * host; `GIT_OPTIONAL_LOCKS=0` so read probes never fight the user's own git;
  * `LC_ALL=C` so parsed output does not depend on the user's locale.
  */
+let cachedBaseEnv: Record<string, string> | null = null
+
 export function baseEnv(): Record<string, string> {
+  if (cachedBaseEnv !== null)
+    return cachedBaseEnv
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined)
@@ -26,6 +30,7 @@ export function baseEnv(): Record<string, string> {
   env.GIT_OPTIONAL_LOCKS = '0'
   env.GIT_PAGER = 'cat'
   env.LC_ALL = 'C'
+  cachedBaseEnv = env
   return env
 }
 

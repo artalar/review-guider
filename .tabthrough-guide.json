@@ -1,84 +1,132 @@
 {
   "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
   "version": 1,
-  "scope": { "kind": "workingTree", "base": "HEAD" },
-  "summary": "Primary actions move to the header so Use commit, Use range, and Start stay visible on tall screens. A commit list click only selects; the header confirms. End walkthrough sits under Next, not in the footer.",
+  "scope": { "kind": "workingTree" },
+  "summary": "A save refreshes only the working tree and leaves decorations alone when there is nothing to paint. Whether git is usable, and the full status walk, wait until HEAD moves or the sidebar is open. The home screen and the dirty-file list stay quiet until there is a review to start or a session already running.",
   "files": {
-    ".tabthrough-guide.json": { "significance": "skip", "rationale": "The sidecar this walk is written into" },
-    "work-docs/specs/design-system.md": { "significance": "skip", "rationale": "The visual spec this implementation follows" },
-    "work-docs/design/mockups/home-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/home-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/commit-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/commit-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/prepare-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/prepare-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/range-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/range-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/range-scrolled-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/range-scrolled-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/range-narrow-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/reading-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/reading-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/reading-scrolled-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "work-docs/design/mockups/reading-scrolled-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "test/unit/setup.test.ts": { "significance": "low", "rationale": "Phase shape still matches" },
-    "test/unit/sidebar.test.ts": { "significance": "low", "rationale": "Assertions follow nav slots and pick payloads" },
-    "test/unit/sidebar-html.test.ts": { "significance": "low", "rationale": "Markup checks that actions sit in chrome" }
+    "src/git/exec.ts": { "significance": "skip", "rationale": "Caches the spawn env once; idle path is elsewhere" },
+    "src/git/rebase.ts": { "significance": "skip", "rationale": "Reuses a loaded gitState" },
+    ".tabthrough-guide.json": { "significance": "skip", "rationale": "This sidecar, written into the tree it describes" },
+    "res/skill/tabthrough/SKILL.md": { "significance": "skip", "rationale": "Authoring register; same words as the other skill copies" },
+    ".cursor/skills/tabthrough/SKILL.md": { "significance": "skip", "rationale": "Mirror of the bundled skill" },
+    ".agents/skills/tabthrough/SKILL.md": { "significance": "skip", "rationale": "Mirror of the bundled skill" },
+    "work-docs/guides/agent-guide-authoring.md": { "significance": "skip", "rationale": "Long-form of the same notes register" },
+    "work-docs/architecture/guide-schema.md": { "significance": "skip", "rationale": "One extra notes rule; idle path is elsewhere" },
+    "src/model/setup.ts": { "significance": "skip", "rationale": "Runtime echo of the skill's notes register" }
   },
   "steps": [
     {
-      "id": "commit-selected",
+      "id": "two-tokens",
       "order": 10,
-      "path": "src/model/setup.ts",
-      "ranges": [
-        { "start": 34, "end": 37 },
-        { "start": 75, "end": 75 },
-        { "start": 215, "end": 225 }
-      ],
+      "path": "src/model/session.ts",
+      "ranges": [{ "start": 107, "end": 127 }],
       "significance": "critical",
-      "title": "A commit pick stays selected",
-      "rationale": "History clicks no longer jump to generate",
-      "notes": "pickCommitRev writes selected. Use commit later calls selectCommit with that rev. Back from generate restores the same pick."
+      "title": "Two clocks: tree and HEAD",
+      "rationale": "The split the rest of the idle path consults",
+      "notes": "A checkout records that HEAD must update before the 200ms wait. A save that lands during the wait still lets that checkout finish, so the sidebar shows the new branch. Tests write the clocks directly and skip the wait."
     },
     {
-      "id": "pick-payload",
+      "id": "watchers",
       "order": 20,
-      "path": "src/commands/index.ts",
-      "ranges": [{ "start": 80, "end": 83 }],
+      "path": "src/index.ts",
+      "ranges": [{ "start": 85, "end": 102 }],
       "significance": "high",
-      "title": "pick: selects without confirming",
-      "rationale": "The list posts a prefix; the header button posts the bare rev",
-      "dependsOn": ["commit-selected"]
+      "title": "Index and HEAD are separate watchers",
+      "rationale": "First consumer — fetch splits refs/** from logs/HEAD, so the first commit still arrives",
+      "dependsOn": ["two-tokens"]
     },
     {
-      "id": "nav-actions",
+      "id": "capability-repo",
       "order": 30,
-      "path": "src/model/sidebar.ts",
-      "ranges": [
-        { "start": 305, "end": 314 },
-        { "start": 545, "end": 592 },
-        { "start": 784, "end": 794 },
-        { "start": 901, "end": 912 }
-      ],
-      "significance": "critical",
-      "title": "Use, Start, and End are nav",
-      "rationale": "The footer is only passive context now",
-      "notes": "Start walkthrough stays in the header even when disabled. End walkthrough is nav so the walk chrome can place it under Next.",
-      "dependsOn": ["commit-selected"]
+      "path": "src/model/session.ts",
+      "ranges": [{ "start": 196, "end": 199 }],
+      "significance": "high",
+      "title": "Capability follows HEAD",
+      "rationale": "Start enablement stays honest on init or checkout without a status walk on every save",
+      "dependsOn": ["two-tokens"]
     },
     {
-      "id": "action-row",
+      "id": "preview-idle",
       "order": 40,
-      "path": "src/ui/sidebar-html.ts",
+      "path": "src/model/session.ts",
+      "ranges": [{ "start": 282, "end": 314 }],
+      "significance": "high",
+      "title": "Home screen stays off git until a target",
+      "rationale": "Subscriptions sit after the early return, once a target exists",
+      "notes": "Until a review target exists, startPreview returns the idle constants. Git capability and status wait behind that return, so an idle editor leaves git cold.",
+      "dependsOn": ["capability-repo"]
+    },
+    {
+      "id": "edited-idle",
+      "order": 50,
+      "path": "src/model/session.ts",
+      "ranges": [{ "start": 401, "end": 415 }],
+      "significance": "high",
+      "title": "Dirty-file list stays cold when idle",
+      "rationale": "Same idle cut as capability — no session means no watch, and dirty files come from status first",
+      "dependsOn": ["preview-idle"]
+    },
+    {
+      "id": "surface-gate",
+      "order": 60,
+      "path": "src/model/session.ts",
       "ranges": [
-        { "start": 89, "end": 91 },
-        { "start": 260, "end": 292 }
+        { "start": 185, "end": 188 },
+        { "start": 1123, "end": 1193 }
       ],
       "significance": "critical",
-      "title": "Chrome is Back, title, action",
-      "rationale": "The commitment stays at the top on a tall sidebar",
-      "notes": "Narrow widths wrap the filled button onto a second pinned row. Reading keeps Previous / count / Next, then a quiet End line.",
-      "dependsOn": ["nav-actions"]
+      "title": "Status walk only while someone is looking",
+      "rationale": "Context keys and ownership were keeping a full status walk subscribed from activate",
+      "notes": "Command buttons and rebase-ownership read status only while the sidebar is visible or a review is open. Opening the sidebar is what starts the walk.",
+      "dependsOn": ["two-tokens"]
+    },
+    {
+      "id": "view-gate",
+      "order": 70,
+      "path": "src/model/view.ts",
+      "ranges": [{ "start": 208, "end": 236 }],
+      "significance": "high",
+      "title": "Hidden sidebar uses the idle constants",
+      "rationale": "First consumer of the gate — gitState and startPreview stay cold on a hidden home screen",
+      "dependsOn": ["surface-gate", "preview-idle"]
+    },
+    {
+      "id": "sidebar-live",
+      "order": 80,
+      "path": "src/ui/sidebar.ts",
+      "ranges": [{ "start": 21, "end": 78 }],
+      "significance": "high",
+      "title": "Opening the sidebar starts the walk",
+      "rationale": "The writer for the visibility gate, plus the rewrite that used to run on every new object identity",
+      "dependsOn": ["view-gate"]
+    },
+    {
+      "id": "decorations",
+      "order": 90,
+      "path": "src/ui/documents.ts",
+      "ranges": [{ "start": 260, "end": 290 }],
+      "significance": "high",
+      "title": "Decorations ignore foreign keystrokes",
+      "rationale": "setDecorations was on every document change even when ranges were empty",
+      "dependsOn": ["watchers"]
+    },
+    {
+      "id": "guide-parse",
+      "order": 100,
+      "path": "src/ui/active-guide.ts",
+      "ranges": [{ "start": 21, "end": 53 }],
+      "significance": "low",
+      "title": "Guide validation is debounced once",
+      "rationale": "Footnote — typing a sidecar parses once per burst"
+    },
+    {
+      "id": "watch-tests",
+      "order": 110,
+      "path": "test/unit/git-watch-deps.test.ts",
+      "ranges": [{ "start": 17, "end": 27 }],
+      "significance": "low",
+      "title": "Idle clocks are independent in tests",
+      "rationale": "Confirms the split above — capability ignores a worktree tick"
     }
   ]
 }

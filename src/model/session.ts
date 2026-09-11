@@ -1,3 +1,4 @@
+import type { GitOptions } from '../git/exec'
 import type { IsolationHandle, IsolationPlan } from '../git/isolate'
 import type { GitCapability, RepoStatus } from '../git/probe'
 import type { RebaseRefuseReason } from '../git/rebase'
@@ -12,9 +13,11 @@ import {
   action,
   atom,
   computed,
+  effect,
   framePromise,
   isAbort,
   peek,
+  sleep,
   take,
   throwAbort,
   withAbort,
@@ -102,6 +105,26 @@ export function rebaseCompletedMessage(origHead: string): string {
 export const workspaceRoot = atom<string | null>(null, 'workspaceRoot')
 export const ports = atom<Ports>(inertPorts, 'ports')
 export const gitWatchToken = atom(0, 'git.watchToken')
+export const gitRepoToken = atom(0, 'git.repoToken')
+export const sidebarLive = atom(false, 'ui.sidebarLive')
+
+const pendingGitRepoBump = atom(false, 'git.pendingRepoBump')
+const GIT_WATCH_DEBOUNCE_MS = 200
+
+const flushGitWatch = action(async () => {
+  await wrap(sleep(GIT_WATCH_DEBOUNCE_MS))
+  if (peek(pendingGitRepoBump)) {
+    pendingGitRepoBump.set(false)
+    gitRepoToken.set(value => value + 1)
+  }
+  gitWatchToken.set(value => value + 1)
+}, 'git.flushWatch').extend(withAbort())
+
+export const bumpGitWatch = action((scope: 'repo' | 'worktree') => {
+  if (scope === 'repo')
+    pendingGitRepoBump.set(true)
+  void flushGitWatch()
+}, 'git.bumpWatch')
 
 export type SessionStatus
   = | 'idle'
@@ -163,6 +186,10 @@ export const sessionStatus = atom<SessionStatus>('idle', 'session.status').exten
 export const isSessionActive = computed(() => sessionStatus() === 'active', 'session.isActive')
 export const isSessionOpen = computed(() => sessionStatus() !== 'idle', 'session.isOpen')
 export const isSessionFinishing = computed(() => sessionStatus() === 'finishing', 'session.isFinishing')
+export const gitSurfaceLive = computed(
+  () => sidebarLive() || session()?.mode === 'rebase',
+  'ui.gitSurfaceLive',
+)
 
 const NO_WORKSPACE: GitCapability = {
   ok: false,
@@ -173,7 +200,7 @@ const NO_WORKSPACE: GitCapability = {
 export const gitCapability = computed(async (): Promise<GitCapability | null> => {
   const root = workspaceRoot()
   if (!isSessionOpen())
-    gitWatchToken()
+    gitRepoToken()
 
   if (root === null)
     return NO_WORKSPACE
@@ -228,7 +255,7 @@ export interface StartPreview {
   readonly showRebase: boolean
 }
 
-const IDLE_PREVIEW: StartPreview = {
+export const idleStartPreview: StartPreview = {
   mode: 'readonly',
   willRun: 'nothing',
   notes: 'Read-only — the working tree is not checked out.',
@@ -239,6 +266,9 @@ const IDLE_PREVIEW: StartPreview = {
   showModePicker: false,
   showRebase: false,
 }
+
+const EMPTY_EDITED_PATHS: readonly string[] = []
+export const idleEditedPaths: readonly string[] = EMPTY_EDITED_PATHS
 
 export function previewMode(
   setting: 'ask' | SessionMode,
@@ -257,13 +287,6 @@ export const startPreview = computed(async (): Promise<StartPreview> => {
   const entry = pendingEntry()
   const setting = sessionModeSetting()
   const chosen = chosenMode()
-  const capabilityPromise = gitCapability()
-  const statusPromise = repoStatus()
-  const hooks = finishHooks()
-  const sign = finishSign()
-  const options = heuristicOptions()
-  const guide = guideFile()
-  gitWatchToken()
 
   const requested = setting === 'ask' ? (chosen ?? 'readonly') : setting
   const showModePicker = setting === 'ask' && entry !== null
@@ -272,7 +295,7 @@ export const startPreview = computed(async (): Promise<StartPreview> => {
 
   if (requested === 'worktree') {
     return {
-      ...IDLE_PREVIEW,
+      ...idleStartPreview,
       mode,
       showModePicker,
       showRebase,
@@ -281,14 +304,22 @@ export const startPreview = computed(async (): Promise<StartPreview> => {
     }
   }
 
-  if (entry === null) {
-    return { ...IDLE_PREVIEW, mode, showModePicker, showRebase }
-  }
+  if (entry === null)
+    return mode === idleStartPreview.mode ? idleStartPreview : { ...idleStartPreview, mode }
+
+  const hooks = finishHooks()
+  const sign = finishSign()
+  const options = heuristicOptions()
+  const guide = guideFile()
+  gitWatchToken()
+  const capabilityPromise = gitCapability()
+  const statusPromise = repoStatus()
+  const statePromise = entry.kind === 'workingTree' ? null : gitState()
 
   const capability = await wrap(capabilityPromise)
   if (capability === null || !capability.ok) {
     return {
-      ...IDLE_PREVIEW,
+      ...idleStartPreview,
       mode,
       showModePicker,
       showRebase,
@@ -297,12 +328,14 @@ export const startPreview = computed(async (): Promise<StartPreview> => {
     }
   }
 
+  const signal = abortVar.require().signal
+  const state = statePromise === null ? null : await wrap(statePromise)
   if (entry.kind === 'workingTree' || mode === 'readonly') {
     const applicability = entry.kind === 'workingTree'
       ? { applicable: false, hint: null as string | null, plan: null, after: null }
-      : await wrap(assessRebase(capability.repoRoot, entry))
+      : await wrap(assessRebase(capability.repoRoot, entry, { signal, state }))
     return {
-      ...IDLE_PREVIEW,
+      ...idleStartPreview,
       mode: 'readonly',
       showModePicker,
       showRebase,
@@ -311,10 +344,10 @@ export const startPreview = computed(async (): Promise<StartPreview> => {
     }
   }
 
-  const applicability = await wrap(assessRebase(capability.repoRoot, entry))
+  const applicability = await wrap(assessRebase(capability.repoRoot, entry, { signal, state }))
   if (applicability.plan === null || applicability.after === null) {
     return {
-      ...IDLE_PREVIEW,
+      ...idleStartPreview,
       mode: 'readonly',
       showModePicker,
       showRebase,
@@ -325,7 +358,7 @@ export const startPreview = computed(async (): Promise<StartPreview> => {
 
   if (!applicability.applicable) {
     return {
-      ...IDLE_PREVIEW,
+      ...idleStartPreview,
       mode: 'readonly',
       showModePicker,
       showRebase,
@@ -342,10 +375,11 @@ export const startPreview = computed(async (): Promise<StartPreview> => {
     afterRev: applicability.after,
     options,
     guideFile: guide,
+    signal,
   }))
   const policy = resolveFinishPolicy(guideFinish, { hooks, sign })
-  const above = await wrap(countCommitsAfter(capability.repoRoot, applicability.after))
-  const gpgsign = await wrap(readCommitGpgSign(capability.repoRoot))
+  const above = await wrap(countCommitsAfter(capability.repoRoot, applicability.after, { signal }))
+  const gpgsign = await wrap(readCommitGpgSign(capability.repoRoot, { signal }))
   const status = await wrap(statusPromise)
   const dirty = status === null ? 0 : new Set([...status.staged, ...status.unstaged]).size
   const staged = status?.staged.length ?? 0
@@ -362,7 +396,7 @@ export const startPreview = computed(async (): Promise<StartPreview> => {
     showModePicker,
     showRebase,
   }
-}, 'session.startPreview').extend(withAsyncData({ initState: IDLE_PREVIEW }))
+}, 'session.startPreview').extend(withAsyncData({ initState: idleStartPreview }))
 
 export const willRun = computed((): string => {
   if (sessionStatus() !== 'idle')
@@ -372,21 +406,34 @@ export const willRun = computed((): string => {
 
 export const editedPaths = computed(async (): Promise<readonly string[]> => {
   const model = session()
-  gitWatchToken()
   if (model === null || !diskHoldsAfter(model.entry.kind, model.mode))
-    return []
+    return EMPTY_EDITED_PATHS
 
+  gitWatchToken()
+  const statusPromise = model.mode === 'rebase' ? repoStatus() : null
+  const status = statusPromise === null ? null : await wrap(statusPromise)
+  const dirty = status === null
+    ? null
+    : new Set([
+        ...status.staged,
+        ...status.unstaged,
+        ...status.untracked,
+      ])
+  if (dirty !== null && dirty.size === 0)
+    return EMPTY_EDITED_PATHS
+
+  const signal = abortVar.require().signal
   const out: string[] = []
   for (const file of model.diff.files) {
-    if (file.isBinary)
+    if (file.isBinary || (dirty !== null && !dirty.has(file.path)))
       continue
-    const after = await wrap(showBlob(model.repoRoot, model.afterRev, file.path))
+    const after = await wrap(showBlob(model.repoRoot, model.afterRev, file.path, { signal }))
     const disk = await wrap(readWorktreeFile(model.repoRoot, file.path))
     if (after !== null && disk !== null && after !== disk)
       out.push(file.path)
   }
   return out
-}, 'session.editedPaths').extend(withAsyncData({ initState: [] as readonly string[] }))
+}, 'session.editedPaths').extend(withAsyncData({ initState: EMPTY_EDITED_PATHS }))
 
 export const editHereEnabled = computed((): boolean => {
   const model = session()
@@ -467,6 +514,7 @@ function hintForRefuse(reason: RebaseRefuseReason): string {
 async function assessRebase(
   repoRoot: string,
   entry: ReviewTarget,
+  options: GitOptions & { readonly state?: GitState | null } = {},
 ): Promise<{
   readonly after: string | null
   readonly plan: IsolationPlan | null
@@ -474,10 +522,10 @@ async function assessRebase(
   readonly hint: string | null
 }> {
   try {
-    const plan = await planIsolation(repoRoot, { entry })
+    const plan = await planIsolation(repoRoot, { entry }, options)
     if (plan.afterRev === null)
       return { after: null, plan, applicable: false, hint: WORKTREE_HINT }
-    const reason = await rebaseRefuseReason(repoRoot, plan.afterRev, plan.baseRev)
+    const reason = await rebaseRefuseReason(repoRoot, plan.afterRev, plan.baseRev, options)
     return {
       after: plan.afterRev,
       plan,
@@ -1077,10 +1125,26 @@ export const canStart = computed(
   'ui.canStart',
 )
 
-export const rebaseInProgress = computed(() => gitState.data()?.rebase !== null, 'ui.rebaseInProgress')
-export const hasAutostash = computed(() => (gitState.data()?.autostashes.length ?? 0) > 0, 'ui.hasAutostash')
-export const hasTabthroughWorktree = computed(() => (gitState.data()?.worktrees.length ?? 0) > 0, 'ui.hasTabthroughWorktree')
-export const hasConflicts = computed(() => (gitState.data()?.conflicts.length ?? 0) > 0, 'ui.hasConflicts')
+export const rebaseInProgress = computed(() => {
+  if (!gitSurfaceLive())
+    return false
+  return gitState.data()?.rebase !== null
+}, 'ui.rebaseInProgress')
+export const hasAutostash = computed(() => {
+  if (!gitSurfaceLive())
+    return false
+  return (gitState.data()?.autostashes.length ?? 0) > 0
+}, 'ui.hasAutostash')
+export const hasTabthroughWorktree = computed(() => {
+  if (!gitSurfaceLive())
+    return false
+  return (gitState.data()?.worktrees.length ?? 0) > 0
+}, 'ui.hasTabthroughWorktree')
+export const hasConflicts = computed(() => {
+  if (!gitSurfaceLive())
+    return false
+  return (gitState.data()?.conflicts.length ?? 0) > 0
+}, 'ui.hasConflicts')
 
 export const startBlockedReason = computed((): string | null => {
   const capability = gitCapability.data()
@@ -1124,7 +1188,14 @@ export function describeClosed(reason: CancelReason): string {
 }
 
 export function connectOwnershipWatch(): () => void {
-  return gitState.data.subscribe(() => {
-    void syncRebaseOwnership()
-  })
+  return effect(() => {
+    if (sessionStatus() !== 'active')
+      return
+    if (session()?.mode !== 'rebase')
+      return
+    gitState.data()
+    abortVar.spawn(() => {
+      void syncRebaseOwnership()
+    })
+  }, 'session.ownershipWatch').unsubscribe
 }

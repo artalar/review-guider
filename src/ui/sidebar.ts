@@ -3,7 +3,7 @@ import type { SidebarViewModel } from '../model/view'
 import { effect, peek, wrap } from '@reatom/core'
 import { useDisposable, watch } from 'reactive-vscode'
 import { commands as VscodeCommands, window } from 'vscode'
-import { sessionStatus } from '../model/session'
+import { sessionStatus, sidebarLive } from '../model/session'
 import { resetSetup, skillEpoch } from '../model/setup'
 import { sidebarItems } from '../model/sidebar'
 import { sidebarViewModel } from '../model/view'
@@ -14,9 +14,17 @@ import { renderSidebarBody, renderSidebarHtml } from './sidebar-html'
 class SidebarWebviewProvider implements WebviewViewProvider {
   private view: WebviewView | undefined
   private listener: { dispose: () => void } | undefined
+  private visibility: { dispose: () => void } | undefined
+  private disposed: { dispose: () => void } | undefined
   private ready = false
+  private lastBody: string | null = null
+  private readonly setLive: (live: boolean) => void
 
-  constructor(private readonly current: () => SidebarViewModel) {}
+  constructor(private readonly current: () => SidebarViewModel) {
+    this.setLive = wrap((live: boolean) => {
+      sidebarLive.set(live)
+    })
+  }
 
   resolveWebviewView(view: WebviewView): void {
     this.view = view
@@ -33,13 +41,24 @@ class SidebarWebviewProvider implements WebviewViewProvider {
       else
         void VscodeCommands.executeCommand(message.command).then(undefined, () => undefined)
     })
-    view.onDidDispose(() => {
+    this.visibility?.dispose()
+    this.visibility = view.onDidChangeVisibility(() => {
+      this.setLive(view.visible)
+    })
+    this.disposed?.dispose()
+    this.disposed = view.onDidDispose(() => {
       this.listener?.dispose()
       this.listener = undefined
+      this.visibility?.dispose()
+      this.visibility = undefined
       this.view = undefined
       this.ready = false
+      this.lastBody = null
+      this.setLive(false)
     })
+    this.setLive(true)
     view.show(true)
+    this.lastBody = renderSidebarBody(this.current())
     view.webview.html = renderSidebarHtml(this.current())
     this.ready = true
   }
@@ -47,19 +66,29 @@ class SidebarWebviewProvider implements WebviewViewProvider {
   update(): void {
     if (this.view === undefined)
       return
+    const body = renderSidebarBody(this.current())
+    if (body === this.lastBody)
+      return
+    this.lastBody = body
     if (!this.ready) {
       this.view.webview.html = renderSidebarHtml(this.current())
       this.ready = true
       return
     }
-    void this.view.webview.postMessage({ type: 'update', body: renderSidebarBody(this.current()) })
+    void this.view.webview.postMessage({ type: 'update', body })
   }
 
   dispose(): void {
     this.listener?.dispose()
     this.listener = undefined
+    this.visibility?.dispose()
+    this.visibility = undefined
+    this.disposed?.dispose()
+    this.disposed = undefined
     this.view = undefined
     this.ready = false
+    this.lastBody = null
+    this.setLive(false)
   }
 }
 

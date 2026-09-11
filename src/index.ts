@@ -2,16 +2,16 @@ import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { connectLogger, sleep, wrap } from '@reatom/core'
-import { defineExtension, useFileSystemWatcher, useWorkspaceFolders, watchEffect } from 'reactive-vscode'
+import { defineExtension, useDisposable, useFileSystemWatcher, useWorkspaceFolders, watchEffect } from 'reactive-vscode'
 import { useGuideCommands } from './commands'
 import { config } from './config'
 import {
+  bumpGitWatch,
   cancelSession,
   canStart,
   connectOwnershipWatch,
   finishHooks,
   finishSign,
-  gitWatchToken,
   guideFile,
   heuristicOptions,
   revealMode,
@@ -42,7 +42,7 @@ const { activate, deactivate: disposeScope } = defineExtension(() => {
   bindGitWatcher()
   sequenceEditorPath.set(join(dirname(fileURLToPath(import.meta.url)), 'sequence-editor.cjs'))
   sequenceEditorExecPath.set(process.execPath)
-  connectOwnershipWatch()
+  useDisposable({ dispose: connectOwnershipWatch() })
 
   useGuideDiagnostics()
   useReviewDocuments()
@@ -83,11 +83,21 @@ function bindConfig(): void {
 }
 
 function bindGitWatcher(): void {
-  const bump = wrap(() => gitWatchToken.set(value => value + 1))
-  useFileSystemWatcher('**/.git/{HEAD,index,MERGE_HEAD,REBASE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD,BISECT_LOG,refs/**,rebase-merge/**,rebase-apply/**}', {
-    onDidCreate: bump,
-    onDidChange: bump,
-    onDidDelete: bump,
+  const bumpRepo = wrap(() => {
+    void bumpGitWatch('repo')
+  })
+  const bumpWorktree = wrap(() => {
+    void bumpGitWatch('worktree')
+  })
+  useFileSystemWatcher('**/.git/{HEAD,logs/HEAD,MERGE_HEAD,REBASE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD,BISECT_LOG,rebase-merge/**,rebase-apply/**}', {
+    onDidCreate: bumpRepo,
+    onDidChange: bumpRepo,
+    onDidDelete: bumpRepo,
+  })
+  useFileSystemWatcher('**/.git/{index,refs/stash}', {
+    onDidCreate: bumpWorktree,
+    onDidChange: bumpWorktree,
+    onDidDelete: bumpWorktree,
   })
 }
 

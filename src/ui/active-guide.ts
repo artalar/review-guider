@@ -1,6 +1,6 @@
 import type { Uri } from 'vscode'
 import { basename, join, relative } from 'node:path'
-import { atom, peek, wrap } from '@reatom/core'
+import { action, atom, peek, sleep, withAbort, wrap } from '@reatom/core'
 import { useActiveTextEditor, useDisposable, useVscodeContext, watchEffect } from 'reactive-vscode'
 import { window, workspace } from 'vscode'
 import { entryFromGuideScope, isGuideFileName } from '../guide/from-file'
@@ -18,6 +18,11 @@ import { pickCommitEntry, promptRangeEntry } from './entry'
 
 /** Bumped when a guide buffer changes so schema enablement stays honest. */
 const activeGuideBump = atom(0, 'ui.activeGuideBump')
+const bumpActiveGuide = action(async () => {
+  await wrap(sleep(150))
+  activeGuideBump.set(value => value + 1)
+}, 'ui.bumpActiveGuide').extend(withAbort())
+const activeGuideValid = atom(false, 'ui.activeGuideValid')
 
 /**
  * True when the active editor is a `*.guide.json` whose buffer validates as
@@ -27,26 +32,26 @@ export function useActiveGuideContext(): void {
   const editor = useActiveTextEditor()
   const bump = useAtomRef(activeGuideBump)
 
-  useDisposable(workspace.onDidChangeTextDocument((event) => {
+  useDisposable(workspace.onDidChangeTextDocument(wrap((event) => {
     if (isGuideFileName(basename(event.document.fileName)))
-      activeGuideBump.set(value => value + 1)
-  }))
+      void bumpActiveGuide()
+  })))
 
-  const validGuide = (): boolean => {
-    void bump.value
-    const document = editor.value?.document
-    if (document === undefined || document.uri.scheme !== 'file')
-      return false
-    if (!isGuideFileName(basename(document.fileName)))
-      return false
-    return loadSidecar({ path: basename(document.fileName), text: document.getText() }).doc !== null
-  }
-
-  useVscodeContext('tabthrough.activeGuideValid', validGuide)
+  const valid = useAtomRef(activeGuideValid)
+  useVscodeContext('tabthrough.activeGuideValid', () => valid.value)
 
   watchEffect(wrap(() => {
+    void bump.value
     const document = editor.value?.document
-    if (!validGuide() || document === undefined || document.uri.scheme !== 'file') {
+    if (document === undefined || document.uri.scheme !== 'file' || !isGuideFileName(basename(document.fileName))) {
+      activeGuideValid.set(false)
+      focusedGuidePath.set(null)
+      return
+    }
+    const loaded = loadSidecar({ path: basename(document.fileName), text: document.getText() })
+    const ok = loaded.doc !== null
+    activeGuideValid.set(ok)
+    if (!ok) {
       focusedGuidePath.set(null)
       return
     }

@@ -1,5 +1,5 @@
 import type { GitOptions } from './exec'
-import type { GitCommandResult, RebaseState } from './state'
+import type { GitCommandResult, GitState, RebaseState } from './state'
 import type { ReviewTarget } from './types'
 import { resolveCommit } from './diff'
 import { tryGit } from './exec'
@@ -127,9 +127,9 @@ export async function rebaseRefuseReason(
   repoRoot: string,
   after: string,
   base: string,
-  options: GitOptions = {},
+  options: GitOptions & { readonly state?: GitState | null } = {},
 ): Promise<RebaseRefuseReason | null> {
-  const state = await readGitState(repoRoot, options)
+  const state = options.state ?? await readGitState(repoRoot, options)
   if (state.rebase !== null || state.operation !== null)
     return 'in-progress'
   if (!await isAncestor(repoRoot, after, 'HEAD', options))

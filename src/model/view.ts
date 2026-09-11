@@ -13,6 +13,9 @@ import {
   editedPaths,
   editHereEnabled,
   gitState,
+  gitSurfaceLive,
+  idleEditedPaths,
+  idleStartPreview,
   pendingEntry,
   session,
   canStart as sessionCanStart,
@@ -202,6 +205,8 @@ export const sidebarViewModel = computed((): SidebarViewModel => {
   const configuredGuide = guideFile().trim()
   const pending = pendingEntry()
   const diagnostics = model?.guide.diagnostics ?? []
+  const live = gitSurfaceLive()
+  const preview = pending === null || !live ? idleStartPreview : startPreview.data()
 
   return {
     status,
@@ -224,20 +229,20 @@ export const sidebarViewModel = computed((): SidebarViewModel => {
     sidecarReady: sidecarExists.data(),
     focusedGuideMismatch: focusedGuidePath() !== null && focusedGuidePath() !== resolveGuideFile(guideFile()),
     guideFileName: resolveGuideFile(configuredGuide),
-    gitState: gitState.data(),
-    willRun: willRun(),
-    willRunNotes: startPreview.data().notes,
+    gitState: live ? gitState.data() : null,
+    willRun: status !== 'idle' || (pending !== null && live) ? willRun() : 'nothing',
+    willRunNotes: preview.notes,
     editHereEnabled: editHereEnabled(),
-    editedPaths: editedPaths.data(),
-    startEnabled: startPreview.data().startEnabled,
-    startHint: startPreview.data().startHint,
-    showModePicker: startPreview.data().showModePicker,
-    showRebase: startPreview.data().showRebase,
-    rebaseApplicable: startPreview.data().rebaseApplicable,
-    rebaseHint: startPreview.data().rebaseHint,
+    editedPaths: model === null ? idleEditedPaths : editedPaths.data(),
+    startEnabled: preview.startEnabled,
+    startHint: preview.startHint,
+    showModePicker: preview.showModePicker,
+    showRebase: preview.showRebase,
+    rebaseApplicable: preview.rebaseApplicable,
+    rebaseHint: preview.rebaseHint,
     chosenMode: chosenMode(),
     askMode: sessionModeSetting() === 'ask',
-    previewMode: startPreview.data().mode,
+    previewMode: preview.mode,
     guideProvenance: model === null
       ? null
       : (model.guide.steps.some(step => step.source === 'sidecar') ? 'repository' : 'simple'),

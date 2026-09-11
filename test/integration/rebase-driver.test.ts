@@ -2,7 +2,7 @@ import { access, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { context, peek } from '@reatom/core'
+import { context, peek, take, throwAbort, wrap } from '@reatom/core'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execGit } from '../../src/git/exec'
 import {
@@ -307,6 +307,24 @@ describe('rebase session ownership', () => {
     gitWatchToken.set(value => value + 1)
     await gitState()
     await syncRebaseOwnership()
+    expect(peek(sessionStatus)).toBe('idle')
+    expect(harness.notifications.some(note => note.message === OWNERSHIP_LOST)).toBe(true)
+    harness.dispose()
+  })
+
+  it('closes the review from the ownership effect after a terminal abort', async () => {
+    const { repo, after } = await threeCommitRepo()
+    const harness = await bootstrapModel(repo.root)
+    sessionModeSetting.set('rebase')
+
+    await startSession({ entry: { kind: 'commit', rev: after } })
+    expect(peek(sessionStatus)).toBe('active')
+
+    const closed = take(sessionStatus, status => status === 'idle' || throwAbort(), 'ownershipClosed')
+    await repo.git('rebase', '--abort')
+    gitWatchToken.set(value => value + 1)
+    await gitState()
+    await wrap(closed)
     expect(peek(sessionStatus)).toBe('idle')
     expect(harness.notifications.some(note => note.message === OWNERSHIP_LOST)).toBe(true)
     harness.dispose()

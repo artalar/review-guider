@@ -53,6 +53,11 @@ function withActivePath(view: ReviewViewModel | null): (ReviewViewModel & { acti
     : null
 }
 
+function focusKey(view: ReviewViewModel & { activePath: string }): string {
+  const ranges = view.ranges.map(range => `${range.start}-${range.end}`).join(',')
+  return `${view.sessionId}:${view.activePath}:${view.progress.index}:${ranges}`
+}
+
 function isRevealDocument(uri: VscodeUri): boolean {
   return uri.scheme === REVIEW_SCHEME && uri.authority === 'reveal'
 }
@@ -167,6 +172,7 @@ export function useReviewDocuments(): void {
 
   const view = useAtomRef(reviewViewModel)
   let openedFor: string | null = null
+  let focusedFor: string | null = null
   let updateGeneration = 0
 
   const publish = (uri: VscodeUri, text: string | null): void => {
@@ -188,6 +194,7 @@ export function useReviewDocuments(): void {
         ended.add(key)
       contents.clear()
       openedFor = null
+      focusedFor = null
       await closeReviewTabs()
       return
     }
@@ -218,6 +225,10 @@ export function useReviewDocuments(): void {
     }
     if (generation !== updateGeneration)
       return
+    const nextFocus = focusKey(active)
+    if (focusedFor === nextFocus)
+      return
+    focusedFor = nextFocus
     focusCurrentStep()
   }
 
@@ -245,7 +256,8 @@ export function useReviewDecorations(): void {
     return toEditorRanges(pick(active), target)
   }
 
-  useEditorDecorations(
+  const decorationWatch = { watchDocumentChange: false } as const
+  const current = useEditorDecorations(
     editor,
     {
       isWholeLine: true,
@@ -254,9 +266,10 @@ export function useReviewDecorations(): void {
       overviewRulerLane: OverviewRulerLane.Center,
     },
     ranges(model => model.ranges),
+    decorationWatch,
   )
 
-  useEditorDecorations(
+  const pending = useEditorDecorations(
     editor,
     {
       isWholeLine: true,
@@ -265,5 +278,17 @@ export function useReviewDecorations(): void {
       overviewRulerLane: OverviewRulerLane.Right,
     },
     ranges(model => model.pendingRanges),
+    decorationWatch,
   )
+
+  const refresh = (): void => {
+    void current.update()
+    void pending.update()
+  }
+  watch(view, refresh)
+  watch(editor, refresh)
+  useDisposable(workspace.onDidChangeTextDocument((event) => {
+    if (isRevealDocument(event.document.uri) && editor.value?.document === event.document)
+      refresh()
+  }))
 }
