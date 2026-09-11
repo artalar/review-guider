@@ -14,16 +14,24 @@ import {
   wrap,
 } from '@reatom/core'
 import { readDiff } from '../git/diff'
-import { planIsolation } from '../git/isolate'
+import { planIsolation, readHeadPosition } from '../git/isolate'
 import { DEFAULT_COMMIT_LIMIT, readRecentCommits } from '../git/log'
 import { readWorkingTreeCaptureDiff } from '../git/snapshot'
 import { commitRevError, describeTarget, parseRangeInput, rangeInputError } from '../git/types'
 import { buildHeuristicGuide } from '../guide/heuristic'
 import { parseUnifiedDiff } from '../guide/parse-diff'
 import { formatGuideJson, serializeGuide } from '../guide/serialize'
-import { resolveSafeSidecarPath } from '../guide/sidecar'
+import { isSafeRepoPath, resolveSafeSidecarPath } from '../guide/sidecar'
+import {
+  DEFAULT_GUIDE_TOPIC,
+  guideFileNameForTopic,
+  slugifyTopic,
+  TABTHROUGH_GITIGNORE,
+  topicFromLabel,
+  withGitignorePattern,
+} from '../guide/topic'
 import { guideFile, heuristicOptions } from './config'
-import { chosenMode, EmptyDiffError, gitCapability, pendingEntry, ports, sessionStatus } from './session'
+import { chosenMode, EmptyDiffError, gitCapability, gitState, pendingEntry, ports, sessionStatus } from './session'
 
 export interface HistorySetupPhase {
   readonly commits: readonly CommitSummary[]
@@ -57,7 +65,7 @@ export const SKILL_TARGETS = [
 
 export const COMMAND_TARGET = '.cursor/commands/tabthrough.md'
 
-export const COMMAND_BODY = `Follow the Tabthrough skill and write \`.tabthrough-guide.json\` for the review target in this chat.
+export const COMMAND_BODY = `Follow the Tabthrough skill and write a \`.tabthrough.{topic}.guide.json\` for the review target in this chat.
 
 Study the real git patch first. One thought per Tab step; \`ranges\` when a file has more than one thought, anchored with new-file line numbers from \`git diff -U0\` hunk headers. Every step gets a \`title\` that names the thought, a \`rationale\` that says why it comes here, and \`notes\` only where the code cannot explain itself (plain text). Notes read like a journal figure discussion: consequence or invariant first, then the name — not a mechanism chain. State what is true; never "it's not A, it's B". No quizzes, no restating the diff.
 `
@@ -114,6 +122,13 @@ export const setupPhase = computed((): SetupPhase => {
 export const skillEpoch = atom(0, 'setup.skillEpoch')
 export const sidecarEpoch = atom(0, 'setup.sidecarEpoch')
 export const focusedGuidePath = atom<string | null>(null, 'setup.focusedGuide')
+export const guideTopic = atom(DEFAULT_GUIDE_TOPIC, 'setup.guideTopic')
+export const generateGuideFile = computed(() => guideFileNameForTopic(guideTopic()), 'setup.generateGuideFile')
+
+export const setGuideTopic = action((raw: string) => {
+  guideTopic.set(slugifyTopic(raw))
+  sidecarEpoch.set(value => value + 1)
+}, 'setup.setGuideTopic')
 
 export const skillInstalled = computed(async () => {
   skillEpoch()
@@ -132,7 +147,9 @@ export const skillInstalled = computed(async () => {
 
 export const sidecarExists = computed(async () => {
   sidecarEpoch()
-  const sidecarPath = resolveSafeSidecarPath(guideFile())
+  const sidecarPath = setupKind() === 'generate'
+    ? generateGuideFile()
+    : resolveSafeSidecarPath(guideFile())
   if (sidecarPath === null)
     return false
   const capability = await wrap(gitCapability())
@@ -151,6 +168,7 @@ export const resetSetup = action(() => {
   generateTarget.set(null)
   pendingEntry.set(null)
   chosenMode.set(null)
+  guideTopic.set(DEFAULT_GUIDE_TOPIC)
   setupKind.set('home')
 }, 'setup.reset')
 
@@ -188,11 +206,12 @@ export const setupBack = action(() => {
   setupKind.set('home')
 }, 'setup.back')
 
-export const pickWorkingTree = action(() => {
+export const pickWorkingTree = action(async () => {
   setupError.set(null)
   generateTarget.set({ kind: 'workingTree' })
   pendingEntry.set({ kind: 'workingTree' })
   setupKind.set('generate')
+  await applyTopicForTarget({ kind: 'workingTree' })
 }, 'setup.pickWorkingTree')
 
 export const loadCommits = action(async (): Promise<void> => {
@@ -235,6 +254,7 @@ export const selectCommit = action((rev: string) => {
   generateTarget.set({ kind: 'commit', rev: rev.trim() })
   pendingEntry.set({ kind: 'commit', rev: rev.trim() })
   setupKind.set('generate')
+  void applyTopicForTarget({ kind: 'commit', rev: rev.trim() })
 }, 'setup.selectCommit')
 
 export const focusRangeBound = action((bound: 'from' | 'to') => {
@@ -299,6 +319,7 @@ export const submitRange = action((raw: string) => {
   generateTarget.set({ kind: 'range', from: range.from, to: range.to })
   pendingEntry.set({ kind: 'range', from: range.from, to: range.to })
   setupKind.set('generate')
+  void applyTopicForTarget({ kind: 'range', from: range.from, to: range.to })
 }, 'setup.submitRange')
 
 function scopeFor(target: ReviewTarget, baseRev: string, afterRev: string | null): GuideScopeDoc {
@@ -324,7 +345,7 @@ function gitDiffHint(target: ReviewTarget, baseRev: string, afterRev: string | n
   return [patch, anchors].join('\n')
 }
 
-export function agentPromptFor(target: ReviewTarget, sidecarPath: string, baseRev: string, afterRev: string | null): string {
+export function agentPromptFor(target: ReviewTarget, sidecarPath: string, baseRev: string, afterRev: string | null, topic = DEFAULT_GUIDE_TOPIC): string {
   const review = describeTarget(target)
   const workingTreeNotes = target.kind === 'workingTree'
     ? [
@@ -346,6 +367,7 @@ export function agentPromptFor(target: ReviewTarget, sidecarPath: string, baseRe
     '',
     'Then emit a valid v1 sidecar at the repo root:',
     `- path: ${sidecarPath}`,
+    `- topic: ${topic}`,
     `- scope.kind: ${target.kind}`,
     target.kind === 'commit' ? `- scope.head: ${afterRev ?? target.rev}` : '',
     target.kind === 'range' ? `- scope.base / scope.head: ${target.from} .. ${target.to}` : '',
@@ -387,9 +409,9 @@ export const generateSimpleGuide = action(async (): Promise<void> => {
   }
 
   const { repoRoot } = capability
-  const sidecarPath = resolveSafeSidecarPath(peek(guideFile))
-  if (sidecarPath === null) {
-    await wrap(peek(ports).ui.notify('warn', 'tabthrough.guideFile is not a safe repository path.'))
+  const sidecarPath = peek(generateGuideFile)
+  if (!isSafeRepoPath(sidecarPath)) {
+    await wrap(peek(ports).ui.notify('warn', 'That review topic is not a safe repository path.'))
     return
   }
 
@@ -413,6 +435,7 @@ export const generateSimpleGuide = action(async (): Promise<void> => {
     guide: heuristic,
     scope: phase.target.kind === 'workingTree' ? scope : { ...scope, diffDigest: diff.digest },
     sidecarPath,
+    topic: peek(guideTopic),
     createdAt: new Date().toISOString(),
   })
   await wrap(peek(ports).ui.writeTextFile(repoRoot, sidecarPath, formatGuideJson(doc)))
@@ -433,9 +456,9 @@ export const generateAgentGuide = action(async (): Promise<void> => {
     return
   }
 
-  const sidecarPath = resolveSafeSidecarPath(peek(guideFile))
-  if (sidecarPath === null) {
-    await wrap(peek(ports).ui.notify('warn', 'tabthrough.guideFile is not a safe repository path.'))
+  const sidecarPath = peek(generateGuideFile)
+  if (!isSafeRepoPath(sidecarPath)) {
+    await wrap(peek(ports).ui.notify('warn', 'That review topic is not a safe repository path.'))
     return
   }
 
@@ -447,7 +470,7 @@ export const generateAgentGuide = action(async (): Promise<void> => {
   ))
   if (await refuseEmptyPlan(phase.target, plan.changedLineCount, plan.substantiveLineCount))
     return
-  const prompt = agentPromptFor(phase.target, sidecarPath, plan.baseRev, plan.afterRev)
+  const prompt = agentPromptFor(phase.target, sidecarPath, plan.baseRev, plan.afterRev, peek(guideTopic))
   await wrap(peek(ports).ui.openAgentChat(prompt))
 }, 'setup.generateAgent').extend(withAsync(), withAbort('first-in-win'))
 
@@ -482,11 +505,13 @@ export const installWorkspaceSkill = action(async (): Promise<void> => {
     await wrap(ui.writeTextFile(repoRoot, COMMAND_TARGET, COMMAND_BODY))
     wrote = true
   }
+  const ignored = await wrap(ensureTabthroughGitignore(repoRoot, ui))
+  wrote = wrote || ignored
   skillEpoch.set(value => value + 1)
   if (wrote) {
     await wrap(ui.notify(
       'info',
-      'Installed /tabthrough in this workspace. Agent can now generate .tabthrough-guide.json.',
+      'Installed /tabthrough in this workspace. Agent can now generate .tabthrough.{topic}.guide.json.',
     ))
     return
   }
@@ -557,4 +582,43 @@ function sameCommitRev(left: string | null, right: string, commits: readonly Com
 
 function matchesRev(commit: CommitSummary, rev: string): boolean {
   return commit.sha === rev || commit.shortSha === rev
+}
+
+async function applyTopicForTarget(target: ReviewTarget): Promise<void> {
+  guideTopic.set(await suggestedTopic(target))
+  sidecarEpoch.set(value => value + 1)
+}
+
+function shortRev(rev: string): string {
+  return /^[0-9a-f]{40}$/i.test(rev) ? rev.slice(0, 7) : rev
+}
+
+async function suggestedTopic(target: ReviewTarget): Promise<string> {
+  if (target.kind === 'workingTree') {
+    const capability = peek(gitCapability.data)
+    if (capability !== null && capability.ok) {
+      const head = await wrap(readHeadPosition(capability.repoRoot))
+      if (head.kind === 'branch' && head.name !== '')
+        return topicFromLabel(head.name)
+    }
+    const branch = peek(gitState.data)?.branch
+    return topicFromLabel(branch ?? 'working-tree')
+  }
+  if (target.kind === 'commit') {
+    const commit = peek(recentCommits.data).find(entry => matchesRev(entry, target.rev))
+    return topicFromLabel(commit?.subject ?? shortRev(target.rev))
+  }
+  return slugifyTopic(`${shortRev(target.from)}-${shortRev(target.to)}`)
+}
+
+async function ensureTabthroughGitignore(
+  repoRoot: string,
+  ui: { readTextFile: (repoRoot: string, path: string) => Promise<string | null>, writeTextFile: (repoRoot: string, path: string, text: string) => Promise<void> },
+): Promise<boolean> {
+  const existing = await wrap(ui.readTextFile(repoRoot, '.gitignore'))
+  const next = withGitignorePattern(existing, TABTHROUGH_GITIGNORE)
+  if (!next.changed)
+    return false
+  await wrap(ui.writeTextFile(repoRoot, '.gitignore', next.text))
+  return true
 }

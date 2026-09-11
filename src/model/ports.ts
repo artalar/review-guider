@@ -28,6 +28,7 @@ export interface UiPort {
   openFolder: (dir: string, newWindow: boolean) => Promise<void>
   saveDocuments: (repoRoot: string, paths: readonly string[]) => Promise<SaveDocumentsResult>
   writeTextFile: (repoRoot: string, path: string, text: string) => Promise<void>
+  readTextFile: (repoRoot: string, path: string) => Promise<string | null>
   fileExists: (repoRoot: string, path: string) => Promise<boolean>
   readBundledSkill: () => Promise<string | null>
   openAgentChat: (prompt: string) => Promise<void>
@@ -54,6 +55,7 @@ export const inertPorts: Ports = {
     openFolder: async () => {},
     saveDocuments: async () => ({ ok: true }),
     writeTextFile: async () => {},
+    readTextFile: async () => null,
     fileExists: async () => false,
     readBundledSkill: async () => null,
     openAgentChat: async () => {},

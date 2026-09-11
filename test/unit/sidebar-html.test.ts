@@ -66,6 +66,7 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     sidecarReady: false,
     focusedGuideMismatch: false,
     guideFileName: '.tabthrough-guide.json',
+    guideTopic: 'review',
     gitState: null,
     willRun: 'nothing',
     willRunNotes: 'Read-only — the working tree is not checked out.',
@@ -279,6 +280,18 @@ describe('sidebar text boundary', () => {
     expect(html).toContain('data-command="tabthrough.finish"')
     expect(html).not.toContain('data-command="tabthrough.next"')
     expect(html.indexOf('data-command="tabthrough.finish"')).toBeLessThan(html.indexOf('A long last-step note'))
+  })
+
+  it('wires Tab to Finish when the walk is complete', () => {
+    const html = renderSidebarHtml(view({
+      status: 'active',
+      mode: 'readonly',
+      complete: true,
+      progress: { index: 2, total: 2 },
+    }))
+    expect(html).toContain('data-command="tabthrough.finish"')
+    expect(html).toContain("event.key!=='Tab'")
+    expect(html).toContain("post('tabthrough.finish')")
   })
 
   it('uses host theme tokens instead of a private color palette', () => {

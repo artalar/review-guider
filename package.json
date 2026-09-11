@@ -125,6 +125,12 @@
         "enablement": "tabthrough.canStart"
       },
       {
+        "command": "tabthrough.setGuideTopic",
+        "title": "Set Guide Topic",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
         "command": "tabthrough.generateSimple",
         "title": "Generate Simple Guide",
         "category": "Tabthrough",
@@ -296,6 +302,10 @@
           "when": "false"
         },
         {
+          "command": "tabthrough.setGuideTopic",
+          "when": "false"
+        },
+        {
           "command": "tabthrough.generateSimple",
           "when": "false"
         },
@@ -338,6 +348,8 @@
           "**/.tabthrough-guide.json",
           "*.tabthrough-guide.json",
           "**/*.tabthrough-guide.json",
+          ".tabthrough.*.guide.json",
+          "**/.tabthrough.*.guide.json",
           ".guide.json",
           "**/.guide.json",
           "*.guide.json",
@@ -425,7 +437,7 @@
         "tabthrough.guideFile": {
           "type": "string",
           "default": ".tabthrough-guide.json",
-          "description": "Repository-relative path of the optional guide sidecar that overrides the heuristic step order."
+          "description": "Fallback sidecar path when no .tabthrough.{topic}.guide.json is focused. Generated reviews write .tabthrough.{topic}.guide.json."
         },
         "tabthrough.keybinding.useTab": {
           "type": "boolean",

@@ -7,6 +7,7 @@ export interface SerializeGuideArgs {
   readonly guide: Guide
   readonly scope: GuideScopeDoc
   readonly sidecarPath: string
+  readonly topic?: string
   readonly createdAt?: string
   readonly generatorName?: string
 }
@@ -66,6 +67,7 @@ export function serializeGuide(args: SerializeGuideArgs): GuideDoc & { readonly 
       [args.sidecarPath]: { significance: 'skip', rationale: 'The sidecar this walk is written into' },
     },
     generator: { name: args.generatorName ?? 'tabthrough-heuristic' },
+    ...(args.topic === undefined ? {} : { topic: args.topic }),
     ...(args.createdAt === undefined ? {} : { createdAt: args.createdAt }),
   }
 }

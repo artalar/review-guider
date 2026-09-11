@@ -22,6 +22,7 @@ export interface SessionInit {
   readonly diff: ReviewDiff
   readonly guide: Guide
   readonly mode: SessionMode
+  readonly guideFile: string | null
 }
 
 export interface SessionProgress {
@@ -163,6 +164,7 @@ export function reatomSession(init: SessionInit) {
     diff: init.diff,
     guide: init.guide,
     mode: init.mode,
+    guideFile: init.guideFile,
     files,
     fileByPath,
     cursor,

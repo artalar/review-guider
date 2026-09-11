@@ -224,13 +224,10 @@ function addWalkItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
       add({
         id: 'edit-here',
         label: 'Open real file',
-        description: view.editHereEnabled
-          ? undefined
-          : 'Opens the real file during a working-changes or rebase walkthrough.',
         command: Commands.editHere,
         icon: 'go-to-file',
         contextValue: 'action',
-        enabled: view.editHereEnabled,
+        enabled: true,
         tone: 'quiet',
       })
     }
@@ -698,6 +695,17 @@ function addGenerateItems(
     description: view.sidecarReady
       ? `A guide is already in ${view.guideFileName}.`
       : `Write ${view.guideFileName}, then start the walkthrough.`,
+  })
+  add({
+    id: 'topic',
+    label: 'Topic',
+    command: Commands.setGuideTopic,
+    contextValue: 'input',
+    input: {
+      placeholder: 'my-feature',
+      value: view.guideTopic,
+      submit: 'Set',
+    },
   })
   if (view.sidecarReady) {
     add({

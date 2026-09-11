@@ -68,6 +68,30 @@ describe('validateGuideDoc — accepting', () => {
     expect(doc.steps[0].ranges).toEqual([{ start: 7, end: 7, side: 'new' }])
   })
 
+  it('parses optional topic and cursor', () => {
+    const { doc } = expectOk({
+      version: 1,
+      topic: 'my-feature',
+      cursor: 2,
+      steps: [{ id: 'a', path: 'a.ts', rationale: 'r' }],
+    })
+    expect(doc.topic).toBe('my-feature')
+    expect(doc.cursor).toBe(2)
+  })
+
+  it('rejects a hostile topic or cursor', () => {
+    expectErrorCode({
+      version: 1,
+      topic: '../etc',
+      steps: [{ id: 'a', path: 'a.ts', rationale: 'r' }],
+    }, 'invalid-document')
+    expectErrorCode({
+      version: 1,
+      cursor: -2,
+      steps: [{ id: 'a', path: 'a.ts', rationale: 'r' }],
+    }, 'invalid-document')
+  })
+
   it('parses optional defaults.finish', () => {
     const { doc } = expectOk({
       version: 1,

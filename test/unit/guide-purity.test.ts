@@ -40,6 +40,7 @@ describe('the pure layer stays pure', () => {
       'sidecar.ts',
       'steps.ts',
       'text.ts',
+      'topic.ts',
       'types.ts',
     ])
   })

@@ -40,6 +40,7 @@ function makeSession(paths: readonly string[]) {
     diff: { files: [], digest: 'sha256:test' },
     guide: { steps: paths.map(step), stale: false, diagnostics: [] },
     mode: 'readonly',
+    guideFile: null,
   })
 }
 

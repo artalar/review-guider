@@ -9,6 +9,7 @@ import {
   bumpGitWatch,
   cancelSession,
   canStart,
+  connectGuideCursorPersist,
   connectOwnershipWatch,
   finishHooks,
   finishSign,
@@ -43,6 +44,7 @@ const { activate, deactivate: disposeScope } = defineExtension(() => {
   sequenceEditorPath.set(join(dirname(fileURLToPath(import.meta.url)), 'sequence-editor.cjs'))
   sequenceEditorExecPath.set(process.execPath)
   useDisposable({ dispose: connectOwnershipWatch() })
+  useDisposable({ dispose: connectGuideCursorPersist() })
 
   useGuideDiagnostics()
   useReviewDocuments()

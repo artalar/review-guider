@@ -1,18 +1,17 @@
-import type { Uri } from 'vscode'
+import type { TextDocument, Uri } from 'vscode'
 import { basename, join, relative } from 'node:path'
 import { action, atom, peek, sleep, withAbort, wrap } from '@reatom/core'
 import { useActiveTextEditor, useDisposable, useVscodeContext, watchEffect } from 'reactive-vscode'
-import { window, workspace } from 'vscode'
-import { entryFromGuideScope, isGuideFileName } from '../guide/from-file'
-import { isSafeRepoPath, loadSidecar, normalizeRepoPath, resolveSafeSidecarPath } from '../guide/sidecar'
-import { guideFile } from '../model/config'
+import { commands, window, workspace } from 'vscode'
+import { entryFromGuideScope, isGuideFileName, isTabthroughGuideFileName } from '../guide/from-file'
+import { isSafeRepoPath, loadSidecar, normalizeRepoPath } from '../guide/sidecar'
 import {
   canStart,
   gitCapability,
   startBlockedReason,
   startSession,
 } from '../model/session'
-import { focusedGuidePath, setupPhase } from '../model/setup'
+import { focusedGuidePath, generateGuideFile, setupPhase } from '../model/setup'
 import { useAtomRef } from './binding'
 import { pickCommitEntry, promptRangeEntry } from './entry'
 
@@ -23,6 +22,7 @@ const bumpActiveGuide = action(async () => {
   activeGuideBump.set(value => value + 1)
 }, 'ui.bumpActiveGuide').extend(withAbort())
 const activeGuideValid = atom(false, 'ui.activeGuideValid')
+const lastAutoStartedUri = atom<string | null>(null, 'ui.lastAutoStartedGuide')
 
 /**
  * True when the active editor is a `*.guide.json` whose buffer validates as
@@ -46,6 +46,7 @@ export function useActiveGuideContext(): void {
     if (document === undefined || document.uri.scheme !== 'file' || !isGuideFileName(basename(document.fileName))) {
       activeGuideValid.set(false)
       focusedGuidePath.set(null)
+      lastAutoStartedUri.set(null)
       return
     }
     const loaded = loadSidecar({ path: basename(document.fileName), text: document.getText() })
@@ -62,6 +63,25 @@ export function useActiveGuideContext(): void {
     }
     const repoRelative = normalizeRepoPath(relative(capability.repoRoot, document.uri.fsPath))
     focusedGuidePath.set(isSafeRepoPath(repoRelative) && !repoRelative.startsWith('..') ? repoRelative : null)
+  }))
+
+  watchEffect(wrap(() => {
+    const document = editor.value?.document
+    if (document === undefined || document.uri.scheme !== 'file') {
+      lastAutoStartedUri.set(null)
+      return
+    }
+    if (!isTabthroughGuideFileName(basename(document.fileName))) {
+      lastAutoStartedUri.set(null)
+      return
+    }
+    if (!activeGuideValid() || !canStart())
+      return
+    const uri = document.uri.toString()
+    if (peek(lastAutoStartedUri) === uri)
+      return
+    lastAutoStartedUri.set(uri)
+    void beginFromGuideDocument(document)
   }))
 }
 
@@ -90,10 +110,10 @@ export async function beginFromActiveGuide(uri?: Uri): Promise<void> {
   }
 
   const phase = peek(setupPhase)
-  if (phase.kind === 'generate') {
-    const sidecarPath = resolveSafeSidecarPath(peek(guideFile))
-    if (sidecarPath === null) {
-      await window.showWarningMessage('tabthrough.guideFile is not a safe repository path.')
+  if (phase.kind === 'generate' && uri === undefined) {
+    const sidecarPath = peek(generateGuideFile)
+    if (!isSafeRepoPath(sidecarPath)) {
+      await window.showWarningMessage('That review topic is not a safe repository path.')
       return
     }
     const documentForTarget = await wrap(workspace.openTextDocument(join(capability.repoRoot, sidecarPath)))
@@ -105,7 +125,13 @@ export async function beginFromActiveGuide(uri?: Uri): Promise<void> {
       )
       return
     }
-    await wrap(startSession({ entry: phase.target, guideFile: sidecarPath, sidecar: targetSidecar }))
+    await wrap(commands.executeCommand('tabthrough.sidebar.focus'))
+    await wrap(startSession({
+      entry: phase.target,
+      guideFile: sidecarPath,
+      sidecar: targetSidecar,
+      ...(targetLoaded.doc.cursor === undefined ? {} : { cursor: targetLoaded.doc.cursor }),
+    }))
     return
   }
 
@@ -113,7 +139,32 @@ export async function beginFromActiveGuide(uri?: Uri): Promise<void> {
     ? await wrap(workspace.openTextDocument(uri))
     : window.activeTextEditor?.document
   if (document === undefined || document.uri.scheme !== 'file') {
-    await window.showWarningMessage('Open a .tabthrough-guide.json file to start a review from it.')
+    await window.showWarningMessage('Open a .tabthrough.{topic}.guide.json file to start a review from it.')
+    return
+  }
+  await wrap(beginFromGuideDocument(document))
+}
+
+export async function beginFromGuideDocument(document: TextDocument): Promise<void> {
+  if (!peek(canStart)) {
+    await window.showWarningMessage(peek(startBlockedReason) ?? 'Tabthrough cannot start right now.')
+    return
+  }
+
+  const capability = await wrap(gitCapability())
+  if (capability === null || !capability.ok) {
+    await window.showWarningMessage(
+      capability === null
+        ? 'Tabthrough is still checking the repository.'
+        : capability.hint === undefined
+          ? capability.message
+          : `${capability.message} ${capability.hint}`,
+    )
+    return
+  }
+
+  if (document.uri.scheme !== 'file') {
+    await window.showWarningMessage('Open a .tabthrough.{topic}.guide.json file to start a review from it.')
     return
   }
   if (!isGuideFileName(basename(document.fileName))) {
@@ -145,5 +196,11 @@ export async function beginFromActiveGuide(uri?: Uri): Promise<void> {
   if (entry === null)
     return
 
-  await wrap(startSession({ entry, guideFile: repoRelative, sidecar }))
+  await wrap(commands.executeCommand('tabthrough.sidebar.focus'))
+  await wrap(startSession({
+    entry,
+    guideFile: repoRelative,
+    sidecar,
+    ...(loaded.doc.cursor === undefined ? {} : { cursor: loaded.doc.cursor }),
+  }))
 }

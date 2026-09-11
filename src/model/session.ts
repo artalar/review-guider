@@ -6,6 +6,8 @@ import type { GitCommandResult, GitState } from '../git/state'
 import type { ReviewTarget, SessionMode } from '../git/types'
 import type { SidecarSource } from '../guide/sidecar'
 import type { GuideDiagnostic } from '../guide/types'
+import { isSafeRepoPath } from '../guide/sidecar'
+import { applyGuideCursor, isTabthroughGuideFileName } from '../guide/topic'
 import type { Ports } from './ports'
 import type { Session } from './steps'
 import {
@@ -60,7 +62,7 @@ import {
 } from '../git/state'
 import { describeTarget } from '../git/types'
 import { readWorktreeFile } from '../git/workdir'
-import { projectEditHere } from '../guide/edit-here'
+import { EDIT_HERE_HINT, projectEditHere } from '../guide/edit-here'
 import { resolveFinishPolicy } from '../guide/merge'
 import {
   finishHooks,
@@ -437,7 +439,7 @@ export const editedPaths = computed(async (): Promise<readonly string[]> => {
 
 export const editHereEnabled = computed((): boolean => {
   const model = session()
-  return model !== null && sessionStatus() === 'active' && diskHoldsAfter(model.entry.kind, model.mode)
+  return model !== null && sessionStatus() === 'active' && model.currentStep() !== null
 }, 'session.editHereEnabled')
 
 export interface StartRequest {
@@ -445,6 +447,7 @@ export interface StartRequest {
   readonly guideFile?: string
   readonly sidecar?: SidecarSource
   readonly sessionMode?: SessionMode
+  readonly cursor?: number
 }
 
 const startAttempt = atom(0, 'session.startAttempt')
@@ -746,6 +749,7 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
   if (peek(cancelledStartAttempt) === attempt)
     throwAbort()
 
+  const persistPath = request.sidecar?.path ?? request.guideFile
   const model = reatomSession({
     id,
     repoRoot,
@@ -756,12 +760,19 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
     diff: built.diff,
     guide: built.guide,
     mode: resolvedMode,
+    guideFile: persistPath !== undefined && isSafeRepoPath(persistPath) && isTabthroughGuideFileName(persistPath)
+      ? persistPath
+      : null,
   })
+
+  if (request.cursor !== undefined)
+    model.jumpTo(request.cursor)
+  else
+    model.next()
 
   guideDiagnostics.set(built.diagnostics)
   session.set(model)
   sessionStatus.to('active')
-  model.next()
   cancelledStartAttempt.set(null)
   startSettled(attempt)
   return model
@@ -960,6 +971,17 @@ export const finishSession = action(async (): Promise<void> => {
   }
 }, 'session.finish').extend(withAsync({ status: true }), withAbort('first-in-win'))
 
+export const advanceSession = action(async (): Promise<void> => {
+  const model = peek(session)
+  if (model === null || peek(sessionStatus) !== 'active')
+    return
+  if (peek(model.isComplete)) {
+    await wrap(finishSession())
+    return
+  }
+  model.next()
+}, 'session.advance')
+
 export const commitHandoff = action(async (): Promise<void> => {
   await wrap(peek(ports).ui.openSourceControl())
 }, 'session.commitHandoff').extend(withAsync())
@@ -1001,9 +1023,7 @@ export const editHere = action(async (): Promise<void> => {
   }
 
   const base = peek(file.baseText.data) ?? ''
-  const disk = diskHoldsAfter(model.entry.kind, model.mode)
-    ? await wrap(readWorktreeFile(model.repoRoot, step.path))
-    : null
+  const disk = await wrap(readWorktreeFile(model.repoRoot, step.path))
   const target = projectEditHere({
     entryKind: model.entry.kind,
     sessionMode: model.mode,
@@ -1013,7 +1033,7 @@ export const editHere = action(async (): Promise<void> => {
     diskText: disk,
   })
   if (!target.enabled) {
-    await wrap(peek(ports).ui.notify('info', target.hint ?? 'Edit here is not available for this review.'))
+    await wrap(peek(ports).ui.notify('info', target.hint ?? EDIT_HERE_HINT))
     return
   }
   await wrap(peek(ports).ui.openFileAt(model.repoRoot, target.path, target.line, target.ranges))
@@ -1198,4 +1218,35 @@ export function connectOwnershipWatch(): () => void {
       void syncRebaseOwnership()
     })
   }, 'session.ownershipWatch').unsubscribe
+}
+
+export const persistGuideCursor = action(async (path: string, cursor: number): Promise<void> => {
+  await wrap(sleep(80))
+  const root = peek(workspaceRoot)
+  if (root === null)
+    return
+  const existing = await wrap(peek(ports).ui.readTextFile(root, path))
+  if (existing === null)
+    return
+  const next = applyGuideCursor(existing, cursor)
+  if (next === null)
+    return
+  await wrap(peek(ports).ui.writeTextFile(root, path, next))
+}, 'session.persistGuideCursor').extend(withAsync(), withAbort())
+
+export function connectGuideCursorPersist(): () => void {
+  return effect(() => {
+    if (sessionStatus() !== 'active')
+      return
+    const model = session()
+    if (model === null)
+      return
+    const path = model.guideFile
+    if (path === null)
+      return
+    const cursor = model.cursor()
+    abortVar.spawn(() => {
+      void persistGuideCursor(path, cursor)
+    })
+  }, 'session.guideCursorPersist').unsubscribe
 }

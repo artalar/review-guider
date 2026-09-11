@@ -2,10 +2,12 @@ import { context, peek } from '@reatom/core'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { afterRefName, resolveRef } from '../../src/git/refs'
 import {
+  advanceSession,
   cancelSession,
   canStart,
   EmptyDiffError,
   GitUnavailableError,
+  editHere,
   isolation,
   ports,
   session,
@@ -57,6 +59,30 @@ describe('session lifecycle', () => {
     expect(await resolveRef(repo.root, afterRefName('entry-session'))).toBeNull()
     expect(await repo.fingerprint()).toEqual(before)
     expect(harness.notifications.at(-1)?.message).toContain('finished')
+    harness.dispose()
+  })
+
+  it('finishes the walk when next is requested on the last step', async () => {
+    const repo = await dirtyRepo()
+    const harness = await bootstrapModel(repo.root)
+    const model = await startReview(harness, { kind: 'workingTree' })
+    model.jumpTo(model.guide.steps.length - 1)
+    expect(peek(model.isComplete)).toBe(true)
+    await advanceSession()
+    expect(peek(sessionStatus)).toBe('idle')
+    expect(harness.notifications.at(-1)?.message).toContain('finished')
+    harness.dispose()
+  })
+
+  it('opens the workspace file for a commit review', async () => {
+    const repo = await makeTempRepo({ files: { 'src/app.ts': 'export const n = 1\n' } })
+    await repo.write('src/app.ts', 'export const n = 2\n')
+    await repo.git('add', '-A')
+    await repo.commit('change app')
+    const harness = await bootstrapModel(repo.root)
+    await startReview(harness, { kind: 'commit', rev: 'HEAD' })
+    await editHere()
+    expect(harness.openedAt.some(entry => entry.path === 'src/app.ts')).toBe(true)
     harness.dispose()
   })
 

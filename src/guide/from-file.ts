@@ -1,9 +1,11 @@
 import type { GuideScopeDoc } from './schema'
+import { isTabthroughGuideFileName } from './topic'
 
-/** Basename match for `.tabthrough-guide.json` and legacy `*.guide.json`. */
 export function isGuideFileName(fileName: string): boolean {
-  return fileName.endsWith('.tabthrough-guide.json') || fileName.endsWith('.guide.json')
+  return isTabthroughGuideFileName(fileName) || fileName.endsWith('.guide.json')
 }
+
+export { isTabthroughGuideFileName } from './topic'
 
 /**
  * Review target implied by a guide's `scope`. Structurally matches

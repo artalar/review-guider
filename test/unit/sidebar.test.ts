@@ -81,6 +81,7 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     sidecarReady: false,
     focusedGuideMismatch: false,
     guideFileName: '.tabthrough-guide.json',
+    guideTopic: 'review',
     gitState: null,
     willRun: 'nothing',
     willRunNotes: 'Read-only — the working tree is not checked out.',
@@ -232,6 +233,7 @@ describe('sidebar projection', () => {
       setup: { kind: 'generate', target: { kind: 'workingTree' } },
     }))
     expect(rows.map(row => row.command).filter(Boolean)).toEqual([
+      'tabthrough.setGuideTopic',
       'tabthrough.generateSimple',
       'tabthrough.generateAgent',
       'tabthrough.startFromGuide',
@@ -287,6 +289,18 @@ describe('sidebar projection', () => {
       if (row.payload !== undefined)
         expect(PAYLOAD_COMMANDS.has(row.command)).toBe(true)
     }
+  })
+
+  it('lets the reviewer name the topic sidecar', () => {
+    const rows = sidebarItems(view({
+      setup: { kind: 'generate', target: { kind: 'workingTree' } },
+      guideTopic: 'my-feature',
+      guideFileName: '.tabthrough.my-feature.guide.json',
+    }))
+    const topic = rows.find(row => row.id === 'topic')
+    expect(topic?.command).toBe('tabthrough.setGuideTopic')
+    expect(topic?.input?.value).toBe('my-feature')
+    expect(PAYLOAD_COMMANDS.has('tabthrough.setGuideTopic')).toBe(true)
   })
 
   it('shows Start in generate when the sidecar is already on disk', () => {
@@ -367,17 +381,17 @@ describe('sidebar projection', () => {
     expect(rows.find(row => row.id === 'edited')?.label).toBe('Edited on disk')
   })
 
-  it('disables Edit here for a commit review', () => {
+  it('offers Open real file on a commit review', () => {
     const rows = sidebarItems(view({
       status: 'active',
       mode: 'readonly',
       entry: 'commit abc',
-      editHereEnabled: false,
+      editHereEnabled: true,
       currentStep: step(),
     }))
-    expect(rows.find(row => row.id === 'edit-here')?.enabled).toBe(false)
+    expect(rows.find(row => row.id === 'edit-here')?.enabled).toBe(true)
     expect(rows.find(row => row.id === 'edit-here')?.label).toBe('Open real file')
-    expect(rows.find(row => row.id === 'edit-here')?.description).toContain('working-changes or rebase')
+    expect(rows.find(row => row.id === 'edit-here')?.command).toBe('tabthrough.editHere')
   })
 
   it('shows starting with a cancel', () => {

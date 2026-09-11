@@ -35,7 +35,7 @@ describe('setup machine', () => {
     const harness = await bootstrapModel(repo.root)
     dispose = harness.dispose
 
-    pickWorkingTree()
+    await pickWorkingTree()
     expect(peek(setupPhase)).toEqual({ kind: 'generate', target: { kind: 'workingTree' } })
     setupBack()
     expect(peek(setupPhase).kind).toBe('home')
@@ -147,7 +147,7 @@ describe('setup machine', () => {
     const harness = await bootstrapModel(repo.root)
     dispose = harness.dispose
 
-    pickWorkingTree()
+    await pickWorkingTree()
     await generateSimpleGuide()
     expect(harness.writes).toEqual([])
     expect(harness.notifications.some(note => note.message.includes('Nothing to review'))).toBe(true)
@@ -159,16 +159,18 @@ describe('setup machine', () => {
     const harness = await bootstrapModel(repo.root)
     dispose = harness.dispose
 
-    pickWorkingTree()
+    await pickWorkingTree()
     await generateSimpleGuide()
 
-    expect(harness.openedFiles).toEqual(['.tabthrough-guide.json'])
-    const written = harness.writes.find(entry => entry.path === '.tabthrough-guide.json')
+    expect(harness.openedFiles).toEqual(['.tabthrough.main.guide.json'])
+    const written = harness.writes.find(entry => entry.path === '.tabthrough.main.guide.json')
     expect(written).toBeDefined()
     const doc = JSON.parse(written?.text ?? '{}') as {
       scope?: { kind?: string, diffDigest?: string }
+      topic?: string
       steps?: readonly { path: string }[]
     }
+    expect(doc.topic).toBe('main')
     expect(doc.scope?.kind).toBe('workingTree')
     expect(doc.scope?.diffDigest).toBeUndefined()
     expect(doc.steps?.some(step => step.path === 'src/app.ts')).toBe(true)
@@ -180,10 +182,10 @@ describe('setup machine', () => {
     const harness = await bootstrapModel(repo.root)
     dispose = harness.dispose
 
-    pickWorkingTree()
+    await pickWorkingTree()
     await generateAgentGuide()
     expect(harness.agentPrompts[0]).toContain('/tabthrough')
-    expect(harness.agentPrompts[0]).toContain('.tabthrough-guide.json')
+    expect(harness.agentPrompts[0]).toContain('.tabthrough.main.guide.json')
     expect(harness.agentPrompts[0]).toContain('working tree')
   })
 
@@ -197,5 +199,17 @@ describe('setup machine', () => {
     expect(await repo.read('.cursor/skills/tabthrough/SKILL.md')).toBe('custom skill\n')
     expect(harness.writes.some(entry => entry.path === '.cursor/skills/tabthrough/SKILL.md')).toBe(false)
     expect(harness.writes.some(entry => entry.path === '.cursor/commands/tabthrough.md')).toBe(true)
+    expect(await repo.read('.gitignore')).toContain('.tabthrough*')
+  })
+
+  it('adds .tabthrough* to an existing gitignore once', async () => {
+    const repo = await makeTempRepo({ files: { 'README.md': '# fixture\n', '.gitignore': 'dist\n' } })
+    const harness = await bootstrapModel(repo.root)
+    dispose = harness.dispose
+
+    await installWorkspaceSkill()
+    expect(await repo.read('.gitignore')).toBe('dist\n.tabthrough*\n')
+    await installWorkspaceSkill()
+    expect(await repo.read('.gitignore')).toBe('dist\n.tabthrough*\n')
   })
 })

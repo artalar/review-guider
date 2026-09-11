@@ -32,12 +32,14 @@ describe('serializeGuide', () => {
         ],
       },
       scope: { kind: 'workingTree', base: 'HEAD' },
-      sidecarPath: '.tabthrough-guide.json',
+      sidecarPath: '.tabthrough.main.guide.json',
+      topic: 'main',
     })
 
+    expect(doc.topic).toBe('main')
     expect(doc.steps[0]?.id).toBe('s10')
     expect(doc.steps[0]?.ranges).toEqual([{ side: 'new', start: 10, end: 18 }])
-    expect(doc.files['.tabthrough-guide.json']?.significance).toBe('skip')
+    expect(doc.files['.tabthrough.main.guide.json']?.significance).toBe('skip')
     const validated = validateGuideDoc(JSON.parse(formatGuideJson(doc)))
     expect(validated.ok).toBe(true)
   })
@@ -136,9 +138,10 @@ describe('agentPromptFor', () => {
   it('asks a working-tree walk to include untracked files and skip the digest', () => {
     const prompt = agentPromptFor(
       { kind: 'workingTree' },
-      '.tabthrough-guide.json',
+      '.tabthrough.main.guide.json',
       'HEAD',
       null,
+      'main',
     )
     expect(prompt).toContain('git status --porcelain=v1 --untracked-files=all')
     expect(prompt).toContain('Omit scope.diffDigest')
@@ -148,21 +151,24 @@ describe('agentPromptFor', () => {
   it('asks for /tabthrough and the sidecar path', () => {
     const prompt = agentPromptFor(
       { kind: 'commit', rev: 'abc123' },
-      '.tabthrough-guide.json',
+      '.tabthrough.retry-rule.guide.json',
       'base',
       'abc123',
+      'retry-rule',
     )
     expect(prompt).toContain('/tabthrough')
-    expect(prompt).toContain('.tabthrough-guide.json')
+    expect(prompt).toContain('.tabthrough.retry-rule.guide.json')
+    expect(prompt).toContain('topic: retry-rule')
     expect(prompt).toContain('abc123')
   })
 
   it('spells out the words contract and the -U0 anchor recipe', () => {
     const prompt = agentPromptFor(
       { kind: 'range', from: 'main', to: 'HEAD' },
-      '.tabthrough-guide.json',
+      '.tabthrough.main-head.guide.json',
       'base',
       'HEAD',
+      'main-head',
     )
     expect(prompt).toContain('-U0 base HEAD')
     expect(prompt).toContain('`title` names the thought')

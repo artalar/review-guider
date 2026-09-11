@@ -1,18 +1,18 @@
 ---
 name: tabthrough
-description: Emits a Tabthrough `.tabthrough-guide.json` v1 sidecar alongside a PR, commit, or working-tree change, so a human can unfold the diff step by step in order that builds understanding. Use whenever you finish producing a code change that another person will review, or when asked to write, fix, or validate a `.tabthrough-guide.json`.
+description: Emits a Tabthrough `.tabthrough.{topic}.guide.json` v1 sidecar alongside a PR, commit, or working-tree change, so a human can unfold the diff step by step in order that builds understanding. Use whenever you finish producing a code change that another person will review, or when asked to write, fix, or validate a `.tabthrough.*.guide.json`.
 ---
 
 # Tabthrough sidecar
 
-`.tabthrough-guide.json` is the script for a guided diff walk. The reviewer presses Tab; each press reveals **one thought** of your change in a diff editor and shows your words for it in a sidebar. You decide two things: **the order** and **the words for each step**. It is not a review, a changelog, or a quiz.
+`.tabthrough.{topic}.guide.json` is the script for a guided diff walk. The reviewer presses Tab; each press reveals **one thought** of your change in a diff editor and shows your words for it in a sidebar. You decide two things: **the order** and **the words for each step**. It is not a review, a changelog, or a quiz.
 
 Write one whenever you hand a non-trivial change to a human. Skip it for a one-file, one-hunk, one-thought change — there is no order to convey.
 
 ## Contract
 
 - **Schema:** `$schema` is `https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json`. `additionalProperties: false` — only the fields in the cheatsheet exist.
-- **Location:** `.tabthrough-guide.json` at repo root (or `tabthrough.guideFile`). Legacy `.guide.json` is still read.
+- **Location:** `.tabthrough.{topic}.guide.json` at repo root, kebab topic in the filename (`my-feature` → `.tabthrough.my-feature.guide.json`). Include `"topic"` to match. Legacy `.tabthrough-guide.json` and `.guide.json` are still read. Skill install adds `.tabthrough*` to `.gitignore`. The extension writes `"cursor"` as the reviewer walks — do not invent it.
 - **Guarantee:** a broken guide never breaks a session — heuristic fallback + one warning. Nobody else will catch your merges or misplaced anchors; check them yourself.
 
 ## What the reviewer sees
@@ -91,7 +91,7 @@ Voice: load-bearing journal prose — active, calm, precise. IEEE Software / Nat
    `@@ -a,b +c,d @@` → the changed new-side lines are `c..c+d-1` (a missing count means 1). `d = 0` is a pure deletion: anchor it with `"side": "old"` on `a..a+b-1`. Ranges **intersect** changed lines, so the enclosing function's span is enough — the hunk header is your check that the range hits something.
 
    A contiguous run of changed lines is **atomic**: a range cannot split it, and two runs separated by a single unchanged line count as one run. Two steps aimed at one run → the second is dropped as `range-overlap`. When two thoughts share a run, write one step: the title names the block, `notes` names the second thought.
-6. Write `.tabthrough-guide.json`. Use **`ranges` whenever one file has more than one thought**; a whole-file claim is only correct when the whole file is one thought.
+6. Write `.tabthrough.{topic}.guide.json`. Use **`ranges` whenever one file has more than one thought**; a whole-file claim is only correct when the whole file is one thought.
 7. Run **Before you emit**.
 
 ## One thought per Tab
@@ -185,6 +185,8 @@ Read the titles top to bottom: a table of contents. Read the rationales: a story
 | `steps[].significance` | `critical` / `high` / `normal` / `low` / `skip` |
 | `steps[].grouping` | `atomic` (default) / `split` (long *uniform* region) / `mergeWithNext` (genuinely inseparable adjacent hunks — never to glue two thoughts) |
 | `steps[].dependsOn` | Earlier step ids; refines `order`; a cycle drops all edges |
+| `topic` | Kebab label matching the filename (`.tabthrough.{topic}.guide.json`) |
+| `cursor` | Extension-owned walk position. Omit when writing; the reviewer’s Tab updates it |
 | `scope` | `workingTree` / `commit` / `range` with `base` / `head`. Omit `diffDigest` for working-tree guides |
 
 ## Order recipes

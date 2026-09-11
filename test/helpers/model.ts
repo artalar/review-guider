@@ -3,12 +3,13 @@ import type { LineRange } from '../../src/guide/types'
 import type { NotifyLevel, Ports } from '../../src/model/ports'
 import type { StartRequest } from '../../src/model/session'
 import type { Session } from '../../src/model/steps'
-import { access, mkdir, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import {
   canStart,
+  connectGuideCursorPersist,
   connectOwnershipWatch,
   gitCapability,
   gitState,
@@ -123,6 +124,14 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
         await writeFile(absolute, text, 'utf8')
         harness.writes.push({ path, text })
       },
+      readTextFile: async (repoRoot, path) => {
+        try {
+          return await readFile(join(repoRoot, path), 'utf8')
+        }
+        catch {
+          return null
+        }
+      },
       fileExists: async (repoRoot, path) => {
         try {
           await access(join(repoRoot, path))
@@ -163,6 +172,7 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
     gitState.subscribe(() => {}),
     startPreview.subscribe(() => {}),
     connectOwnershipWatch(),
+    connectGuideCursorPersist(),
     skillInstalled.subscribe(() => {}),
     sidecarExists.subscribe(() => {}),
     setupPhase.subscribe(() => {}),

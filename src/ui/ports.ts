@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { extensionContext } from 'reactive-vscode'
-import { commands, env, Position, Range, Selection, Uri, window, workspace } from 'vscode'
+import { commands, env, Position, Range, Selection, Uri, window, workspace, WorkspaceEdit } from 'vscode'
 import { ports } from '../model/session'
 import { logger } from '../utils'
 
@@ -104,8 +104,45 @@ export const windowUi: UiPort = {
     const absolute = canonicalPath(join(repoRoot, path))
     if (!isWithin(root, absolute))
       throw new Error(`Refusing to write a path outside the repository: ${path}`)
+    const uri = Uri.file(absolute)
+    const open = workspace.textDocuments.find((document) => {
+      if (document.uri.scheme !== 'file')
+        return false
+      return canonicalPath(document.uri.fsPath) === absolute
+    })
+    if (open !== undefined) {
+      const last = open.lineCount === 0
+        ? new Position(0, 0)
+        : open.lineAt(open.lineCount - 1).range.end
+      const edit = new WorkspaceEdit()
+      edit.replace(uri, new Range(new Position(0, 0), last), text)
+      const applied = await workspace.applyEdit(edit)
+      if (!applied)
+        throw new Error(`Could not update ${path}`)
+      await open.save()
+      return
+    }
     await workspace.fs.createDirectory(Uri.file(dirname(absolute)))
-    await workspace.fs.writeFile(Uri.file(absolute), new TextEncoder().encode(text))
+    await workspace.fs.writeFile(uri, new TextEncoder().encode(text))
+  },
+  async readTextFile(repoRoot, path) {
+    const root = canonicalPath(repoRoot)
+    const absolute = canonicalPath(join(repoRoot, path))
+    if (!isWithin(root, absolute))
+      return null
+    const open = workspace.textDocuments.find((document) => {
+      if (document.uri.scheme !== 'file')
+        return false
+      return canonicalPath(document.uri.fsPath) === absolute
+    })
+    if (open !== undefined)
+      return open.getText()
+    try {
+      return new TextDecoder().decode(await workspace.fs.readFile(Uri.file(absolute)))
+    }
+    catch {
+      return null
+    }
   },
   async fileExists(repoRoot, path) {
     const root = canonicalPath(repoRoot)

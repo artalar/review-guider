@@ -9,6 +9,7 @@ export const SIDEBAR_COMMANDS = new Set([
   'tabthrough.submitRange',
   'tabthrough.generateSimple',
   'tabthrough.generateAgent',
+  'tabthrough.setGuideTopic',
   'tabthrough.setupBack',
   'tabthrough.chooseMode',
   'tabthrough.next',
@@ -31,6 +32,7 @@ export const SIDEBAR_COMMANDS = new Set([
 
 export const PAYLOAD_COMMANDS = new Set([
   'tabthrough.selectCommit',
+  'tabthrough.setGuideTopic',
   'tabthrough.submitRange',
   'tabthrough.chooseMode',
   'tabthrough.popAutostash',

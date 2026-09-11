@@ -4,6 +4,7 @@ import { Uri, commands as VscodeCommands, window } from 'vscode'
 import { commands as Commands } from '../generated/meta'
 import {
   abortRebase,
+  advanceSession,
   cancelSession,
   canStart,
   chooseMode,
@@ -34,6 +35,7 @@ import {
   resetSetup,
   selectCommit,
   selectRangeRev,
+  setGuideTopic,
   setRangeBound,
   setupBack,
   setupPhase,
@@ -87,6 +89,10 @@ export function useGuideCommands(): void {
       if (typeof raw === 'string')
         submitRange(raw)
     })),
+    [Commands.setGuideTopic]: wrap((raw?: unknown) => guard('setGuideTopic', async () => {
+      if (typeof raw === 'string')
+        setGuideTopic(raw)
+    })),
     [Commands.generateSimple]: wrap(() => guard('generateSimple', () => generateSimpleGuide())),
     [Commands.generateAgent]: wrap(() => guard('generateAgent', async () => {
       if (peek(skillInstalled.data) === false) {
@@ -106,7 +112,7 @@ export function useGuideCommands(): void {
       if (mode === 'readonly' || mode === 'rebase' || mode === 'worktree')
         chooseMode(mode)
     })),
-    [Commands.next]: wrap(() => guard('next', advance)),
+    [Commands.next]: wrap(() => guard('next', () => advanceSession())),
     [Commands.previous]: wrap(() => guard('previous', retreat)),
     [Commands.showStepDetail]: wrap(() => guard('showStepDetail', revealCurrentStep)),
     [Commands.showWalkthrough]: wrap(() => guard('showWalkthrough', async () => {
@@ -167,14 +173,6 @@ async function beginRangePicker(): Promise<void> {
     return
   await wrap(VscodeCommands.executeCommand('tabthrough.sidebar.focus'))
   await wrap(pickRange())
-}
-
-async function advance(): Promise<void> {
-  const model = peek(session)
-  if (model === null)
-    return
-
-  model.next()
 }
 
 async function retreat(): Promise<void> {

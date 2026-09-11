@@ -163,7 +163,7 @@ describe('projectEditHere', () => {
     expect(hit.hint).toBeNull()
   })
 
-  it('disables commit and range reviews with the Rebase / Worktree hint', () => {
+  it('opens a commit or range review at the after-side range', () => {
     const group = calc.groups[0]
     if (group === undefined)
       throw new Error('fixture missing groups')
@@ -176,8 +176,25 @@ describe('projectEditHere', () => {
         baseText: CALC_BASE,
         diskText: CALC_AFTER,
       })
-      expect(hit.enabled).toBe(false)
-      expect(hit.hint).toBe(EDIT_HERE_HINT)
+      expect(hit.enabled).toBe(true)
+      expect(hit.hint).toBeNull()
+      expect(hit.line).toBe(1)
     }
+  })
+
+  it('refuses when the file is not on disk', () => {
+    const group = calc.groups[0]
+    if (group === undefined)
+      throw new Error('fixture missing groups')
+
+    const hit = projectEditHere({
+      entryKind: 'commit',
+      file: calc,
+      step: guideStep(calc, [group]),
+      baseText: CALC_BASE,
+      diskText: null,
+    })
+    expect(hit.enabled).toBe(false)
+    expect(hit.hint).toBe(EDIT_HERE_HINT)
   })
 })

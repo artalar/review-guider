@@ -1,0 +1,133 @@
+{
+  "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
+  "version": 1,
+  "topic": "guide-topic",
+  "scope": { "kind": "workingTree" },
+  "summary": "A review is named by a topic, not a theme. The file is `.tabthrough.{topic}.guide.json`. Defaults come from the branch or the first words of the commit, not the whole subject. Focusing the file starts the walk; Tab writes `cursor` back.",
+  "files": {
+    ".tabthrough.guide-topic.guide.json": { "significance": "skip", "rationale": "This sidecar, written into the tree it describes" },
+    ".tabthrough-guide.json": { "significance": "skip", "rationale": "Stale walk for an earlier idle-path change" },
+    "res/skill/tabthrough/SKILL.md": { "significance": "skip", "rationale": "Authoring copy of the topic-path contract" },
+    ".cursor/skills/tabthrough/SKILL.md": { "significance": "skip", "rationale": "Mirror of the bundled skill" },
+    ".agents/skills/tabthrough/SKILL.md": { "significance": "skip", "rationale": "Mirror of the bundled skill" },
+    "README.md": { "significance": "skip", "rationale": "Setting and command titles" },
+    "package.json": { "significance": "skip", "rationale": "Command and schema glob wiring" },
+    "schema/guide-v1.json": { "significance": "skip", "rationale": "Published echo of the reader you walk" },
+    "test/unit/topic.test.ts": { "significance": "skip", "rationale": "Unit coverage of the helpers you just read" },
+    "test/unit/from-file.test.ts": { "significance": "skip", "rationale": "Name-match cases" },
+    "test/unit/guide-purity.test.ts": { "significance": "skip", "rationale": "Lists topic.ts" },
+    "test/unit/schema.test.ts": { "significance": "skip", "rationale": "topic/cursor parse cases" },
+    "test/unit/serialize.test.ts": { "significance": "skip", "rationale": "Prompt names the topic" },
+    "test/unit/setup.test.ts": { "significance": "skip", "rationale": "Topic path and gitignore install" },
+    "test/unit/sidebar.test.ts": { "significance": "skip", "rationale": "Topic row assertions" },
+    "test/unit/sidebar-html.test.ts": { "significance": "skip", "rationale": "View fixture field" },
+    "test/unit/contributions.test.ts": { "significance": "skip", "rationale": "Hidden command list" },
+    "test/unit/steps.test.ts": { "significance": "skip", "rationale": "guideFile: null on fixtures" },
+    "test/unit/view.test.ts": { "significance": "skip", "rationale": "guideFile: null on fixtures" },
+    "test/integration/setup-guide.test.ts": { "significance": "skip", "rationale": "Cursor restore/persist" },
+    "test/helpers/model.ts": { "significance": "skip", "rationale": "Harness read/write and persist effect" },
+    "src/commands/index.ts": { "significance": "skip", "rationale": "Wires setGuideTopic" },
+    "src/ui/sidebar-commands.ts": { "significance": "skip", "rationale": "Allows the topic payload" },
+    "src/model/ports.ts": { "significance": "skip", "rationale": "Adds readTextFile to the port" },
+    "src/model/steps.ts": { "significance": "skip", "rationale": "Stores guideFile on the session" },
+    "src/model/view.ts": { "significance": "skip", "rationale": "Exposes topic and generated filename" },
+    "src/guide/from-file.ts": { "significance": "skip", "rationale": "Re-exports the topic-name check" },
+    "src/guide/serialize.ts": { "significance": "skip", "rationale": "Passes topic through; generate is the consumer" },
+    "src/index.ts": { "significance": "skip", "rationale": "Subscribes the persist effect" },
+    "src/ui/ports.ts": { "significance": "skip", "rationale": "Read/write the open guide buffer" }
+  },
+  "steps": [
+    {
+      "id": "filename-contract",
+      "order": 10,
+      "path": "src/guide/topic.ts",
+      "ranges": [{ "start": 12, "end": 25 }],
+      "significance": "critical",
+      "title": ".tabthrough.{topic}.guide.json",
+      "rationale": "The label every later write and focus check uses",
+      "notes": "A typed topic may be 48 characters. A suggested topic is four words, 32 characters, and drops a conventional-commit prefix so a long subject does not become the filename."
+    },
+    {
+      "id": "schema-topic-cursor",
+      "order": 20,
+      "path": "src/guide/schema.ts",
+      "ranges": [{ "start": 201, "end": 221 }],
+      "significance": "high",
+      "title": "topic and cursor are optional fields",
+      "rationale": "The document shape the filename contract is stored in",
+      "dependsOn": ["filename-contract"],
+      "notes": "Agents omit `cursor`. A path-like topic or a cursor outside −1…499 fails the whole document."
+    },
+    {
+      "id": "topic-from-target",
+      "order": 30,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 592, "end": 611 }],
+      "significance": "high",
+      "title": "Defaults from branch or first words",
+      "rationale": "First consumer — the field you saw filled with a truncated subject",
+      "dependsOn": ["filename-contract"]
+    },
+    {
+      "id": "generate-topic-path",
+      "order": 40,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 411, "end": 443 }],
+      "significance": "high",
+      "title": "Simple writes the topic sidecar",
+      "rationale": "Same topic atom, now on disk and opened",
+      "dependsOn": ["topic-from-target"]
+    },
+    {
+      "id": "start-restores-cursor",
+      "order": 50,
+      "path": "src/model/session.ts",
+      "ranges": [{ "start": 752, "end": 771 }],
+      "significance": "critical",
+      "title": "Start jumps to the stored step",
+      "rationale": "Restore before the session is published, so persist sees the landed cursor",
+      "dependsOn": ["schema-topic-cursor"],
+      "notes": "Only an explicit topic sidecar path is stored on the session. A heuristic start does not bind `.tabthrough-guide.json`."
+    },
+    {
+      "id": "persist-on-walk",
+      "order": 60,
+      "path": "src/model/session.ts",
+      "ranges": [{ "start": 1214, "end": 1242 }],
+      "significance": "high",
+      "title": "Tab writes cursor back to the file",
+      "rationale": "Last-in-win after 80ms",
+      "dependsOn": ["start-restores-cursor"]
+    },
+    {
+      "id": "focus-starts-walk",
+      "order": 70,
+      "path": "src/ui/active-guide.ts",
+      "ranges": [{ "start": 68, "end": 85 }],
+      "significance": "critical",
+      "title": "Focusing a topic guide starts the walk",
+      "rationale": "The entry the filename and cursor were built for",
+      "dependsOn": ["start-restores-cursor"]
+    },
+    {
+      "id": "install-gitignore",
+      "order": 80,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 614, "end": 623 }],
+      "significance": "normal",
+      "title": "Skill install appends .tabthrough*",
+      "rationale": "Sidecars stay out of commits unless someone force-adds them",
+      "dependsOn": ["filename-contract"]
+    },
+    {
+      "id": "topic-input",
+      "order": 90,
+      "path": "src/model/sidebar.ts",
+      "ranges": [{ "start": 702, "end": 712 }],
+      "significance": "low",
+      "title": "Topic field on the generate screen",
+      "rationale": "The reviewer can rename the file before Generate",
+      "dependsOn": ["topic-from-target"]
+    }
+  ]
+}

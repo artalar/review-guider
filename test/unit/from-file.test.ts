@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { entryFromGuideScope, isGuideFileName } from '../../src/guide/from-file'
+import { entryFromGuideScope, isGuideFileName, isTabthroughGuideFileName } from '../../src/guide/from-file'
 
 describe('isGuideFileName', () => {
   it('matches *.guide.json including the default sidecar name', () => {
@@ -7,7 +7,7 @@ describe('isGuideFileName', () => {
     expect(isGuideFileName('pr-42.guide.json')).toBe(true)
     expect(isGuideFileName('nested/name.guide.json')).toBe(true)
     expect(isGuideFileName('.tabthrough-guide.json')).toBe(true)
-    expect(isGuideFileName('review.tabthrough-guide.json')).toBe(true)
+    expect(isGuideFileName('.tabthrough.my-feature.guide.json')).toBe(true)
   })
 
   it('rejects plain guide.json and other JSON', () => {
@@ -43,5 +43,14 @@ describe('entryFromGuideScope', () => {
       entry: { kind: 'range', from: 'main', to: 'HEAD' },
     })
     expect(entryFromGuideScope({ kind: 'range', base: 'main' })).toEqual({ kind: 'needs-range' })
+  })
+})
+
+describe('isTabthroughGuideFileName', () => {
+  it('matches topic and legacy default names only', () => {
+    expect(isTabthroughGuideFileName('.tabthrough.my-feature.guide.json')).toBe(true)
+    expect(isTabthroughGuideFileName('.tabthrough-guide.json')).toBe(true)
+    expect(isTabthroughGuideFileName('pr-42.guide.json')).toBe(false)
+    expect(isTabthroughGuideFileName('.guide.json')).toBe(false)
   })
 })

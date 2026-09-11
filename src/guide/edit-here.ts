@@ -19,8 +19,7 @@ export interface EditHereProjection {
   readonly hint: string | null
 }
 
-export const EDIT_HERE_HINT
-  = 'Start in Rebase or Worktree mode to edit the real file.'
+export const EDIT_HERE_HINT = 'This file is not on disk in the working tree.'
 
 export function projectEditHere(input: {
   readonly entryKind: 'workingTree' | 'commit' | 'range'
@@ -35,8 +34,8 @@ export function projectEditHere(input: {
     .map(group => after.groupRanges.get(group.id))
     .filter(isRange)
 
-  const diskHoldsAfter = input.entryKind === 'workingTree' || input.sessionMode === 'rebase'
-  if (!diskHoldsAfter) {
+  const diskText = input.diskText
+  if (diskText === null) {
     return {
       path: input.step.path,
       line: firstLine(snapshotRanges),
@@ -47,9 +46,8 @@ export function projectEditHere(input: {
     }
   }
 
-  const diskText = input.diskText
-  const editedOnDisk = diskText !== null && diskText !== after.text
-  if (!editedOnDisk || diskText === null) {
+  const editedOnDisk = diskText !== after.text
+  if (!editedOnDisk) {
     return {
       path: input.step.path,
       line: firstLine(snapshotRanges),

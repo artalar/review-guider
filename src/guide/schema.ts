@@ -64,6 +64,8 @@ export interface GuideDoc {
   readonly steps: readonly GuideStepDoc[]
   readonly scope?: GuideScopeDoc
   readonly summary?: string
+  readonly topic?: string
+  readonly cursor?: number
   readonly defaults: GuideDefaultsDoc
   readonly files: Readonly<Record<string, GuideFileOverrideDoc>>
   readonly generator?: GuideGeneratorDoc
@@ -96,6 +98,8 @@ const TOP_LEVEL_KEYS: readonly string[] = [
   'steps',
   'scope',
   'summary',
+  'topic',
+  'cursor',
   'defaults',
   'files',
   'generator',
@@ -187,6 +191,30 @@ function readOptionalString(
     return undefined
   if (typeof value !== 'string') {
     c.fail('invalid-document', `\`${key}\` must be a string`, `${at}.${key}`)
+    return undefined
+  }
+  return value
+}
+
+const TOPIC_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+function readOptionalTopic(source: Record<string, unknown>, c: Collector): string | undefined {
+  const value = source.topic
+  if (value === undefined)
+    return undefined
+  if (typeof value !== 'string' || !TOPIC_PATTERN.test(value) || value.length > 48) {
+    c.fail('invalid-document', '`topic` must be a kebab-case label', 'topic')
+    return undefined
+  }
+  return value
+}
+
+function readOptionalCursor(source: Record<string, unknown>, c: Collector): number | undefined {
+  const value = source.cursor
+  if (value === undefined)
+    return undefined
+  if (!isInteger(value) || value < -1 || value > MAX_STEPS - 1) {
+    c.fail('invalid-document', '`cursor` must be an integer from -1 to 499', 'cursor')
     return undefined
   }
   return value
@@ -520,6 +548,8 @@ export function validateGuideDoc(input: unknown): Result<GuideDocValidation, Gui
   const files = validateFiles(input.files, c)
   const generator = validateGenerator(input.generator, c)
   const summary = readOptionalString(input, 'summary', '$', c)
+  const topic = readOptionalTopic(input, c)
+  const cursor = readOptionalCursor(input, c)
   const createdAt = readOptionalString(input, 'createdAt', '$', c)
 
   if (c.errors.length > 0)
@@ -531,6 +561,8 @@ export function validateGuideDoc(input: unknown): Result<GuideDocValidation, Gui
       steps,
       ...(scope === undefined ? {} : { scope }),
       ...(summary === undefined ? {} : { summary }),
+      ...(topic === undefined ? {} : { topic }),
+      ...(cursor === undefined ? {} : { cursor }),
       defaults,
       files,
       ...(generator === undefined ? {} : { generator }),

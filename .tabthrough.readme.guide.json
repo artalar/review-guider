@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
+  "version": 1,
+  "topic": "readme",
+  "scope": { "kind": "workingTree" },
+  "summary": "The README leads with what Tabthrough is and why it differs, then install, then the walk. Generated settings and command tables stay at the bottom.",
+  "files": {
+    ".tabthrough.readme.guide.json": {
+      "significance": "skip",
+      "rationale": "Working-tree sidecar for this README rewrite"
+    }
+  },
+  "steps": [
+    {
+      "id": "opening-first",
+      "order": 10,
+      "path": "README.md",
+      "significance": "critical",
+      "title": "Benefits before install steps",
+      "rationale": "The whole rewrite exists to put the pitch above the how-to",
+      "notes": "Evil Martians call this a progressive JPEG: readers stop at the first stretch that does not show a benefit. The opening paragraph, facts list, and sidecar example come first. Install commands follow. The limitations table states rebase is landed and worktree is not shipped."
+    }
+  ]
+}

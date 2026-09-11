@@ -27,6 +27,8 @@ import {
 } from './session'
 import {
   focusedGuidePath,
+  generateGuideFile,
+  guideTopic,
   setupPhase,
   sidecarExists,
   skillInstalled,
@@ -179,6 +181,7 @@ export interface SidebarViewModel {
   readonly sidecarReady: boolean
   readonly focusedGuideMismatch: boolean
   readonly guideFileName: string
+  readonly guideTopic: string
   readonly gitState: GitState | null
   readonly willRun: string
   readonly willRunNotes: string
@@ -227,8 +230,11 @@ export const sidebarViewModel = computed((): SidebarViewModel => {
     skillInstalled: skillInstalled.data(),
     guideFocused: focusedGuidePath() !== null,
     sidecarReady: sidecarExists.data(),
-    focusedGuideMismatch: focusedGuidePath() !== null && focusedGuidePath() !== resolveGuideFile(guideFile()),
-    guideFileName: resolveGuideFile(configuredGuide),
+    focusedGuideMismatch: focusedGuidePath() !== null && focusedGuidePath() !== (
+      setupPhase().kind === 'generate' ? generateGuideFile() : resolveGuideFile(guideFile())
+    ),
+    guideFileName: setupPhase().kind === 'generate' ? generateGuideFile() : resolveGuideFile(configuredGuide),
+    guideTopic: guideTopic(),
     gitState: live ? gitState.data() : null,
     willRun: status !== 'idle' || (pending !== null && live) ? willRun() : 'nothing',
     willRunNotes: preview.notes,
