@@ -1,5 +1,6 @@
 import type { GitOptions } from './exec'
 import { splitNul, tryGit } from './exec'
+import { commitRevError } from './types'
 
 /** Recent history, for the commit picker. Read-only, and never fails a start. */
 
@@ -20,6 +21,7 @@ export const DEFAULT_COMMIT_LIMIT = 50
 
 export interface LogOptions extends GitOptions {
   readonly limit?: number
+  readonly rev?: string
 }
 
 /**
@@ -28,9 +30,17 @@ export interface LogOptions extends GitOptions {
  */
 export async function readRecentCommits(repoRoot: string, options: LogOptions = {}): Promise<CommitSummary[]> {
   const limit = options.limit ?? DEFAULT_COMMIT_LIMIT
+  const rev = options.rev
+  if (rev !== undefined && commitRevError(rev) !== null)
+    return []
+
+  const args = ['log', '--no-color', '-z', `--max-count=${limit}`, `--format=${FORMAT}`]
+  if (rev !== undefined)
+    args.push(rev)
+
   const result = await tryGit(
     repoRoot,
-    ['log', '--no-color', '-z', `--max-count=${limit}`, `--format=${FORMAT}`],
+    args,
     options,
   )
   // An unborn branch has no history to offer; that is not an error here.

@@ -36,7 +36,10 @@ describe('setup machine', () => {
     dispose = harness.dispose
 
     await pickWorkingTree()
-    expect(peek(setupPhase)).toEqual({ kind: 'generate', target: { kind: 'workingTree' } })
+    expect(peek(setupPhase)).toMatchObject({
+      kind: 'home',
+      selection: { kind: 'workingTree' },
+    })
     setupBack()
     expect(peek(setupPhase).kind).toBe('home')
     setupBack()

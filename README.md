@@ -34,9 +34,10 @@ Git sorts by path. Explanation order is different: types before callers, schema 
 
 ## Walk a change
 
-1. Open the sidebar and choose working changes, a commit, or a commit range.
-2. Generate a Simple or Agent guide, or start from a sidecar already on disk. Dirty file buffers are saved before a working-tree snapshot; a failed save stops the review. The sidebar shows **Will run: nothing** — read-only does not check out or stash.
-3. Read each explanation and press **Tab** (or use the sidebar) to reveal the next step.
+1. Open the sidebar. The first screen lists recent commits, working changes when the checkout is dirty, and remote/branch selectors.
+2. Click a commit to select it; a second click sets a range (Start/End). With nothing picked, **Review** walks the selected branch against the default base (`upstream`, else `origin`, then local `main`/`master`).
+3. Press **Review** to start. A sidecar is optional — Generate Simple or Ask editor agent remain available after picking a target from the command palette. Dirty file buffers are saved before a working-tree snapshot; a failed save stops the review. Read-only does not check out or stash.
+4. Read each explanation and press **Tab** (or use the sidebar) to reveal the next step.
 
 | Mode | What it does | Landed |
 |------|----------------|--------|
@@ -53,10 +54,10 @@ Tabthrough never creates a commit for you.
 | Command | Target |
 |---------|--------|
 | **Tabthrough: Review Working Changes** | Staged + unstaged + untracked (ignored files stay ignored) |
-| **Tabthrough: Review a Commit…** | One commit vs its parent (pick from recent history or type a ref) |
+| **Tabthrough: Review a Commit…** | One commit vs its parent (palette still opens the commit picker) |
 | **Tabthrough: Review a Commit Range…** | `main..HEAD` style ranges, resolved through the merge base |
 
-Native one-click GitHub/GitLab PR entry is planned; today you review the local commits that make up the change.
+The idle sidebar is the usual path: select a commit or range in the list, pick a remote branch to review a PR without checking it out, then press **Review**. Native one-click GitHub/GitLab PR lists are planned; today you choose the ref.
 
 ## Plain git underneath
 
@@ -90,18 +91,18 @@ Malformed guides never block a review: every failure falls back to the heuristic
 
 <!-- configs -->
 
-| Key                              | Description                                                                                                                  | Type      | Default                    |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------- | -------------------------- |
-| `tabthrough.showRationale`       | Show the one-line reason each step was ordered where it is (for example "types before callers") in the status bar.           | `boolean` | `true`                     |
-| `tabthrough.reveal.mode`         | How the reviewed change is revealed as you advance through steps.                                                            | `string`  | `"progressive"`            |
-| `tabthrough.session.mode`        | Which git primitive a session uses. Read-only and rebase are landed; worktree comes later.                                   | `string`  | `"ask"`                    |
-| `tabthrough.finish.hooks`        | Run git hooks (pre-rebase, pre-commit, commit-msg) when starting and finishing a rebase review. Off by default.              | `boolean` | `false`                    |
-| `tabthrough.finish.sign`         | GPG-sign the amended commit and replayed commits. Off by default; replayed commits stay unsigned unless this is on.          | `boolean` | `false`                    |
-| `tabthrough.guideFile`           | Repository-relative path of the optional guide sidecar that overrides the heuristic step order.                              | `string`  | `".tabthrough-guide.json"` |
-| `tabthrough.keybinding.useTab`   | Bind Tab to the next review step while a review document is focused. Alt+] and Alt+[ always work regardless of this setting. | `boolean` | `true`                     |
-| `tabthrough.maxLinesPerStep`     | Upper bound on how many low-significance changed lines are coalesced into a single step.                                     | `number`  | `24`                       |
-| `tabthrough.hideFormattingSteps` | Drop steps whose changes are whitespace or comments only.                                                                    | `boolean` | `false`                    |
-| `tabthrough.worktree.dir`        | Root directory for Tabthrough worktrees. Empty uses the OS temp directory under tabthrough/.                                 | `string`  | `""`                       |
+| Key                              | Description                                                                                                                      | Type      | Default                    |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------- | -------------------------- |
+| `tabthrough.showRationale`       | Show the one-line reason each step was ordered where it is (for example "types before callers") in the status bar.               | `boolean` | `true`                     |
+| `tabthrough.reveal.mode`         | How the reviewed change is revealed as you advance through steps.                                                                | `string`  | `"progressive"`            |
+| `tabthrough.session.mode`        | Which git primitive a session uses. Read-only and rebase are landed; worktree comes later.                                       | `string`  | `"ask"`                    |
+| `tabthrough.finish.hooks`        | Run git hooks (pre-rebase, pre-commit, commit-msg) when starting and finishing a rebase review. Off by default.                  | `boolean` | `false`                    |
+| `tabthrough.finish.sign`         | GPG-sign the amended commit and replayed commits. Off by default; replayed commits stay unsigned unless this is on.              | `boolean` | `false`                    |
+| `tabthrough.guideFile`           | Fallback sidecar path when no .tabthrough.{topic}.guide.json is focused. Generated reviews write .tabthrough.{topic}.guide.json. | `string`  | `".tabthrough-guide.json"` |
+| `tabthrough.keybinding.useTab`   | Bind Tab to the next review step while a review document is focused. Alt+] and Alt+[ always work regardless of this setting.     | `boolean` | `true`                     |
+| `tabthrough.maxLinesPerStep`     | Upper bound on how many low-significance changed lines are coalesced into a single step.                                         | `number`  | `24`                       |
+| `tabthrough.hideFormattingSteps` | Drop steps whose changes are whitespace or comments only.                                                                        | `boolean` | `false`                    |
+| `tabthrough.worktree.dir`        | Root directory for Tabthrough worktrees. Empty uses the OS temp directory under tabthrough/.                                     | `string`  | `""`                       |
 
 <!-- configs -->
 
@@ -120,8 +121,14 @@ Malformed guides never block a review: every failure falls back to the heuristic
 | `tabthrough.pickWorkingTree` | Tabthrough: Pick Working Changes              |
 | `tabthrough.pickCommit`      | Tabthrough: Pick a Commit                     |
 | `tabthrough.pickRange`       | Tabthrough: Pick a Commit Range               |
+| `tabthrough.selectHomeRev`   | Tabthrough: Select Home Revision              |
+| `tabthrough.setRemote`       | Tabthrough: Set Remote                        |
+| `tabthrough.setBranch`       | Tabthrough: Set Branch                        |
+| `tabthrough.fetchRemote`     | Tabthrough: Fetch Remote                      |
+| `tabthrough.reviewSelection` | Tabthrough: Review Selection                  |
 | `tabthrough.selectCommit`    | Tabthrough: Select Commit                     |
 | `tabthrough.submitRange`     | Tabthrough: Use Commit Range                  |
+| `tabthrough.setGuideTopic`   | Tabthrough: Set Guide Topic                   |
 | `tabthrough.generateSimple`  | Tabthrough: Generate Simple Guide             |
 | `tabthrough.generateAgent`   | Tabthrough: Ask Editor Agent                  |
 | `tabthrough.setupBack`       | Tabthrough: Back                              |
@@ -152,7 +159,7 @@ Malformed guides never block a review: every failure falls back to the heuristic
 | **Multi-root workspaces** | First folder’s repository only |
 | **Rebase / merge / cherry-pick in progress** | Start still works; the sidebar shows git's state and the native buttons |
 | **Shallow clones missing parents** | Refused with a fetch hint |
-| **One-click remote PR URLs** | Planned — use commit/range locally for now |
+| **One-click remote PR URLs** | Planned — pick a remote branch in the sidebar today |
 | **LLM-generated guides** | Planned (BYOK); default path is offline |
 | **Binary / rename / mode / symlink / generated changes** | Explanation stub steps; Edit here is for text files |
 | **Whitespace-only diffs** | Start refused |

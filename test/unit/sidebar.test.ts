@@ -1,7 +1,7 @@
 import type { CommitSummary } from '../../src/git/log'
 import type { GitState } from '../../src/git/state'
 import type { GuideStep } from '../../src/guide/types'
-import type { RangeSetupPhase } from '../../src/model/setup'
+import type { HomeSetupPhase, RangeSetupPhase } from '../../src/model/setup'
 import type { SidebarViewModel } from '../../src/model/view'
 import { describe, expect, it } from 'vitest'
 import { safeSidebarText, sidebarItems } from '../../src/model/sidebar'
@@ -61,6 +61,24 @@ function rangeSetup(overrides: Partial<Omit<RangeSetupPhase, 'kind'>> = {}): Ran
   }
 }
 
+function idleHome(overrides: Partial<HomeSetupPhase> = {}): HomeSetupPhase {
+  return {
+    kind: 'home',
+    commits: [],
+    loading: false,
+    error: null,
+    remotes: [],
+    selectedRemote: null,
+    branches: [],
+    selectedBranch: 'main',
+    defaultBase: 'main',
+    selection: { kind: 'none' },
+    fetching: false,
+    fetchError: null,
+    ...overrides,
+  }
+}
+
 function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
   const base: SidebarViewModel = {
     status: 'idle',
@@ -75,7 +93,7 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     canAdvance: false,
     canRetreat: false,
     idleReason: null,
-    setup: { kind: 'home' },
+    setup: idleHome(),
     skillInstalled: true,
     guideFocused: false,
     sidecarReady: false,
@@ -103,28 +121,30 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
 }
 
 describe('sidebar projection', () => {
-  it('opens home on the three review targets', () => {
-    const rows = sidebarItems(view())
-    expect(rows.map(row => row.command).filter(Boolean)).toEqual([
-      'tabthrough.pickWorkingTree',
-      'tabthrough.pickCommit',
-      'tabthrough.pickRange',
-    ])
-    expect(rows.find(row => row.id === 'welcome')?.label).toBe('Review a change')
-    expect(rows.find(row => row.id === 'working-tree')?.description).toContain('Staged')
-    expect(rows.find(row => row.id === 'working-tree')?.surface).toBe('list')
-    expect(rows.find(row => row.id === 'commit')?.surface).toBe('list')
-    expect(rows.find(row => row.id === 'range')?.surface).toBe('list')
+  it('opens home with Review, history, and ref selectors', () => {
+    const newer = commitSummary({ sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', shortSha: 'aaaaaaa', subject: 'Tip' })
+    const rows = sidebarItems(view({
+      setup: idleHome({
+        commits: [newer],
+        remotes: [{ name: 'origin', fetchUrl: 'https://example.invalid/tabthrough.git' }],
+        selectedRemote: 'origin',
+        selection: { kind: 'workingTree' },
+      }),
+      gitState: gitState({ unstaged: 1 }),
+    }))
+    expect(rows.find(row => row.command === 'tabthrough.reviewSelection')?.slot).toBe('nav')
+    expect(rows.find(row => row.id === `commit-${newer.sha}`)?.command).toBe('tabthrough.selectHomeRev')
+    expect(rows.find(row => row.id === 'working-tree')?.label).toBe('Working changes')
+    expect(rows.find(row => row.id === 'remote')?.command).toBe('tabthrough.setRemote')
+    expect(rows.find(row => row.id === 'welcome')).toBeUndefined()
+    expect(rows.map(row => row.command).filter(Boolean)).not.toContain('tabthrough.pickCommit')
   })
 
-  it('lists the same targets when setup is still on the legacy targets phase', () => {
+  it('lists the same home chrome when setup is still on the legacy targets phase', () => {
     const rows = sidebarItems(view({ setup: { kind: 'targets' } }))
-    expect(rows.map(row => row.command).filter(Boolean)).toEqual([
-      'tabthrough.pickWorkingTree',
-      'tabthrough.pickCommit',
-      'tabthrough.pickRange',
-    ])
+    expect(rows.find(row => row.command === 'tabthrough.reviewSelection')?.slot).toBe('nav')
     expect(rows.find(row => row.id === 'back')).toBeUndefined()
+    expect(rows.find(row => row.id === 'welcome')).toBeUndefined()
   })
 
   it('lists commits with a ref input once history is loaded', () => {
@@ -217,15 +237,11 @@ describe('sidebar projection', () => {
     expect(rows.find(row => row.id === 'use-range')?.enabled).toBe(false)
   })
 
-  it('shows Start when a guide is focused at home', () => {
+  it('shows Continue when a guide is focused at home', () => {
     const rows = sidebarItems(view({ guideFocused: true }))
-    expect(rows.map(row => row.command).filter(Boolean)).toEqual([
-      'tabthrough.startFromGuide',
-      'tabthrough.pickWorkingTree',
-      'tabthrough.pickCommit',
-      'tabthrough.pickRange',
-    ])
     expect(rows.find(row => row.id === 'start-guide')?.label).toBe('Continue with this guide')
+    expect(rows.find(row => row.command === 'tabthrough.reviewSelection')?.slot).toBe('nav')
+    expect(rows.map(row => row.command).filter(Boolean)).toContain('tabthrough.startFromGuide')
   })
 
   it('offers Simple and Agent after a target is picked, and names the workspace consequence', () => {
@@ -449,6 +465,7 @@ describe('sidebar projection', () => {
   it('lists autostash Pop / Show and worktree Open / Remove / Prune', () => {
     const rows = sidebarItems(view({
       gitState: gitState({
+        unstaged: 1,
         autostashes: [{ selector: 'stash@{0}', subject: 'On main: autostash' }],
         worktrees: [{ path: '/tmp/tabthrough/ours', head: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', dirty: false }],
       }),

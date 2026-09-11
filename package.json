@@ -113,6 +113,36 @@
         "enablement": "tabthrough.canStart"
       },
       {
+        "command": "tabthrough.selectHomeRev",
+        "title": "Select Home Revision",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
+        "command": "tabthrough.setRemote",
+        "title": "Set Remote",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.gitUsable"
+      },
+      {
+        "command": "tabthrough.setBranch",
+        "title": "Set Branch",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.gitUsable"
+      },
+      {
+        "command": "tabthrough.fetchRemote",
+        "title": "Fetch Remote",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.gitUsable"
+      },
+      {
+        "command": "tabthrough.reviewSelection",
+        "title": "Review Selection",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
         "command": "tabthrough.selectCommit",
         "title": "Select Commit",
         "category": "Tabthrough",
@@ -319,6 +349,26 @@
         },
         {
           "command": "tabthrough.chooseMode",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.selectHomeRev",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.setRemote",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.setBranch",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.fetchRemote",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.reviewSelection",
           "when": "false"
         }
       ]

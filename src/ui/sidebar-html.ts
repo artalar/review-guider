@@ -87,7 +87,14 @@ function boundWord(accent: SidebarItemData['accent']): string {
 }
 
 function isHeaderAction(row: SidebarItemData): boolean {
-  return row.tone === 'primary' && (row.id === 'use-range' || row.id === 'use-commit' || row.id === 'start-guide' || row.id === 'next' || row.id === 'finish')
+  return row.tone === 'primary' && (
+    row.id === 'use-range'
+    || row.id === 'use-commit'
+    || row.id === 'start-guide'
+    || row.id === 'next'
+    || row.id === 'finish'
+    || row.id === 'review'
+  )
 }
 
 function buttonInner(row: SidebarItemData): string {
@@ -224,6 +231,8 @@ function textRow(row: SidebarItemData): string {
 }
 
 function bodyRow(row: SidebarItemData): string {
+  if (row.choices !== undefined)
+    return selectRow(row)
   if (row.command !== undefined && row.contextValue === 'input')
     return inputRow(row)
   if (row.surface === 'notice')
@@ -233,6 +242,22 @@ function bodyRow(row: SidebarItemData): string {
   if (row.command !== undefined && row.contextValue === 'action')
     return button(row)
   return textRow(row)
+}
+
+function selectRow(row: SidebarItemData): string {
+  const command = row.command ?? ''
+  const enabled = row.enabled !== false
+  const fieldId = `field-${row.id}`
+  const selected = row.payload ?? ''
+  const options = (row.choices ?? []).map((choice) => {
+    const isSelected = choice.value === selected ? ' selected' : ''
+    return `<option value="${htmlAttr(choice.value, 200)}"${isSelected}>${htmlText(choice.label, 200)}</option>`
+  }).join('')
+  return `<label class="select-row" data-id="${htmlAttr(row.id, 80)}"><span class="field-label">${htmlText(row.label, 80)}</span><select id="${fieldId}" data-command="${htmlAttr(command, 100)}" data-id="${htmlAttr(row.id, 80)}"${enabled ? '' : ' disabled'}>${options}</select></label>`
+}
+
+function isRefControl(row: SidebarItemData): boolean {
+  return row.id === 'remote' || row.id === 'branch' || row.id === 'fetch'
 }
 
 function screenName(view: SidebarViewModel): string {
@@ -299,13 +324,26 @@ function isChoiceRow(row: SidebarItemData): boolean {
 function bodyRows(rows: readonly SidebarItemData[]): string {
   const html: string[] = []
   let choices: SidebarItemData[] = []
+  let refs: SidebarItemData[] = []
   const flushChoices = (): void => {
     if (choices.length === 0)
       return
     html.push(`<div class="choices">${choices.map(button).join('')}</div>`)
     choices = []
   }
+  const flushRefs = (): void => {
+    if (refs.length === 0)
+      return
+    html.push(`<div class="refs-bar">${refs.map(refControl).join('')}</div>`)
+    refs = []
+  }
   for (const row of rows) {
+    if (isRefControl(row)) {
+      flushChoices()
+      refs.push(row)
+      continue
+    }
+    flushRefs()
     if (isChoiceRow(row)) {
       choices.push(row)
       continue
@@ -313,8 +351,15 @@ function bodyRows(rows: readonly SidebarItemData[]): string {
     flushChoices()
     html.push(bodyRow(row))
   }
+  flushRefs()
   flushChoices()
   return html.join('')
+}
+
+function refControl(row: SidebarItemData): string {
+  if (row.id === 'fetch')
+    return button(row)
+  return selectRow(row)
 }
 
 function repositoryDisclosure(rows: readonly SidebarItemData[], summary: string): string {
@@ -390,6 +435,13 @@ const SIDEBAR_STYLE = [
   'form.input-row .fields input:focus-visible{outline:var(--focus-width) solid var(--vscode-focusBorder);outline-offset:2px}',
   'form.input-row .fields button{width:auto;margin:0}',
   '.field-error{margin:var(--space-1) 0 0;color:var(--vscode-inputValidation-errorForeground,var(--vscode-errorForeground));font-size:var(--type-meta)}',
+  `.refs-bar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-2);margin:0 0 var(--space-3)}`,
+  '.refs-bar .select-row{flex:1 1 8rem;min-width:0;margin:0;display:flex;flex-direction:column;gap:2px}',
+  '.refs-bar .select-row .field-label{font-size:var(--type-meta);color:var(--vscode-descriptionForeground);font-weight:400}',
+  `select{width:100%;min-height:var(--control-height);box-sizing:border-box;padding:4px 8px;border:var(--border-width) solid var(--vscode-dropdown-border,${SUBTLE_BORDER});border-radius:var(--radius-control);background:var(--vscode-dropdown-background,var(--vscode-input-background));color:var(--vscode-dropdown-foreground,${CANVAS_FG});font:inherit}`,
+  'select:focus-visible{outline:var(--focus-width) solid var(--vscode-focusBorder);outline-offset:2px}',
+  'select:disabled{opacity:0.6}',
+  '.refs-bar button.quiet{margin:0;align-self:flex-end}',
   `button.list-pick{display:flex;width:100%;align-items:center;gap:var(--space-3);margin:0;padding:10px 8px;min-height:58px;background:transparent;color:${CANVAS_FG};border:none;border-radius:0;font-weight:400}`,
   'button.list-pick.commit-row{border-bottom:none}',
   'button.list-pick:hover{background:var(--vscode-list-hoverBackground)}',
@@ -408,6 +460,7 @@ const SIDEBAR_STYLE = [
   'button.commit-row .meta{margin-top:2px}',
   'button.commit-row .bound-word{flex:0 0 auto;font-size:var(--type-meta);color:var(--vscode-descriptionForeground);padding-top:4px}',
   `button.commit-row.range-start,button.commit-row.range-end,button.commit-row.range-selected{background:var(--vscode-list-inactiveSelectionBackground);color:var(--vscode-list-inactiveSelectionForeground,${CANVAS_FG})}`,
+  `button.list-pick.range-selected{background:var(--vscode-list-inactiveSelectionBackground);color:var(--vscode-list-inactiveSelectionForeground,${CANVAS_FG})}`,
   'button.commit-row.range-between{background:transparent}',
   `.notice{margin:var(--space-3) 0;padding:var(--space-3);border:var(--border-width) solid ${SUBTLE_BORDER};border-radius:var(--radius-control);border-left-width:3px}`,
   '.notice-info{border-left-color:var(--vscode-notificationsInfoIcon-foreground,var(--vscode-inputValidation-infoBorder,var(--vscode-editorInfo-foreground)))}',
@@ -422,13 +475,13 @@ const SIDEBAR_STYLE = [
   'footer.bar button{margin:0}',
   '.notes-more{margin-top:var(--space-2)}',
   '.notes-more summary{color:var(--vscode-textLink-foreground);cursor:pointer}',
-  '@media (max-width:280px){.body,header.chrome,footer.bar{padding-left:var(--space-3);padding-right:var(--space-3)}.range-fields{flex-direction:column;align-items:stretch}.range-arrow{display:none}footer.bar{flex-wrap:wrap}header.chrome.setup .action-row{flex-wrap:wrap}header.chrome.setup .action-row .primary{flex:1 0 100%;justify-content:center;margin-left:0}header.chrome.walk .progress{order:-1;flex:1 0 100%}}',
+  '@media (max-width:280px){.body,header.chrome,footer.bar{padding-left:var(--space-3);padding-right:var(--space-3)}.range-fields{flex-direction:column;align-items:stretch}.range-arrow{display:none}footer.bar{flex-wrap:wrap}header.chrome.setup .action-row{flex-wrap:wrap}header.chrome.setup .action-row .primary{flex:1 0 100%;justify-content:center;margin-left:0}header.chrome.walk .progress{order:-1;flex:1 0 100%}.refs-bar{flex-direction:column;align-items:stretch}.refs-bar button.quiet{align-self:flex-start}}',
   '@media (max-height:520px){header.chrome .lede{display:none}}',
   '@media (prefers-reduced-motion:reduce){button{transition:none}}',
   '@media (forced-colors:active){button,form.input-row .fields input,header.chrome,footer.bar,.notice{border-color:var(--vscode-contrastBorder)}}',
 ].join('')
 
-const SIDEBAR_SCRIPT = `const api=acquireVsCodeApi();const bodyEl=()=>document.querySelector('.body');const post=(command,payload)=>{if(!command)return;api.postMessage(payload===undefined||payload===null||payload===''?{command}:{command,payload})};const formPayload=(form,value)=>{const bound=form.getAttribute('data-bound');return bound?bound+':'+value:value};const wire=()=>{for(const button of document.querySelectorAll('button[data-command]'))button.addEventListener('click',()=>post(button.getAttribute('data-command'),button.getAttribute('data-payload')));for(const form of document.querySelectorAll('form[data-command]')){form.addEventListener('submit',event=>{event.preventDefault();const input=form.querySelector('input');post(form.getAttribute('data-command'),formPayload(form,input?input.value:''))});const input=form.querySelector('input');const bound=form.getAttribute('data-bound');if(input&&bound)input.addEventListener('focus',()=>post('tabthrough.selectCommit','focus:'+bound))}for(const details of document.querySelectorAll('details[data-id]'))details.addEventListener('toggle',()=>{const state=api.getState()??{};const open=state.open??{};open[details.getAttribute('data-id')??'']=details.open;api.setState({...state,open})})};const capture=()=>{const active=document.activeElement;const inputs={};for(const input of document.querySelectorAll('input[name="payload"]')){const form=input.closest('form');const key=form?.getAttribute('data-id')??form?.getAttribute('data-command')??'';inputs[key]={value:input.value,start:input.selectionStart,end:input.selectionEnd,focus:input===active,dirty:input.value!==(input.getAttribute('data-rendered')??'')}}const open={};for(const details of document.querySelectorAll('details[data-id]'))open[details.getAttribute('data-id')??'']=details.open;return{command:active?.getAttribute?.('data-command')??null,payload:active?.getAttribute?.('data-payload')??'',id:active?.getAttribute?.('data-id')??null,tag:active?.tagName??'',inputs,open,top:bodyEl()?.scrollTop??0}};const restore=(snap)=>{const remembered=api.getState()?.open??{};for(const details of document.querySelectorAll('details[data-id]')){const key=details.getAttribute('data-id')??'';if(Object.hasOwn(snap.open,key))details.open=snap.open[key];else if(Object.hasOwn(remembered,key))details.open=remembered[key]}for(const form of document.querySelectorAll('form[data-command]')){const key=form.getAttribute('data-id')??form.getAttribute('data-command')??'';const saved=snap.inputs[key];if(!saved||!(saved.focus||saved.dirty))continue;const input=form.querySelector('input');if(!input)continue;input.value=saved.value;try{input.setSelectionRange(saved.start??saved.value.length,saved.end??saved.value.length)}catch{}}let focused=false;if(snap.tag==='INPUT'){for(const form of document.querySelectorAll('form[data-command]')){const key=form.getAttribute('data-id')??form.getAttribute('data-command')??'';if(snap.inputs[key]?.focus){form.querySelector('input')?.focus({preventScroll:true});focused=true;break}}}if(!focused&&snap.command){for(const next of document.querySelectorAll('[data-command]')){if(next.getAttribute('data-command')!==snap.command)continue;if((next.getAttribute('data-payload')??'')!==snap.payload)continue;next.focus({preventScroll:true});focused=true;break}}if(!focused&&snap.command==='tabthrough.next'){const finish=document.querySelector('[data-command="tabthrough.finish"]');if(finish)finish.focus({preventScroll:true})}const scroller=bodyEl();if(scroller)scroller.scrollTop=(snap.command==='tabthrough.next'||snap.command==='tabthrough.previous')?0:snap.top};wire();window.addEventListener('message',event=>{if(event.data?.type!=='update')return;const snap=capture();const frame=document.querySelector('.frame');if(frame)frame.outerHTML=event.data.body;wire();restore(snap)});document.addEventListener('keydown',event=>{if(event.key!=='Tab'||event.shiftKey||event.altKey||event.ctrlKey||event.metaKey)return;const finish=document.querySelector('[data-command="tabthrough.finish"]');if(!finish||finish.hasAttribute('disabled'))return;event.preventDefault();post('tabthrough.finish')});`
+const SIDEBAR_SCRIPT = `const api=acquireVsCodeApi();const bodyEl=()=>document.querySelector('.body');const post=(command,payload)=>{if(!command)return;api.postMessage(payload===undefined||payload===null||payload===''?{command}:{command,payload})};const formPayload=(form,value)=>{const bound=form.getAttribute('data-bound');return bound?bound+':'+value:value};const wire=()=>{for(const button of document.querySelectorAll('button[data-command]'))button.addEventListener('click',()=>post(button.getAttribute('data-command'),button.getAttribute('data-payload')));for(const select of document.querySelectorAll('select[data-command]'))select.addEventListener('change',()=>post(select.getAttribute('data-command'),select.value));for(const form of document.querySelectorAll('form[data-command]')){form.addEventListener('submit',event=>{event.preventDefault();const input=form.querySelector('input');post(form.getAttribute('data-command'),formPayload(form,input?input.value:''))});const input=form.querySelector('input');const bound=form.getAttribute('data-bound');if(input&&bound)input.addEventListener('focus',()=>post('tabthrough.selectCommit','focus:'+bound))}for(const details of document.querySelectorAll('details[data-id]'))details.addEventListener('toggle',()=>{const state=api.getState()??{};const open=state.open??{};open[details.getAttribute('data-id')??'']=details.open;api.setState({...state,open})})};const capture=()=>{const active=document.activeElement;const inputs={};for(const input of document.querySelectorAll('input[name="payload"]')){const form=input.closest('form');const key=form?.getAttribute('data-id')??form?.getAttribute('data-command')??'';inputs[key]={value:input.value,start:input.selectionStart,end:input.selectionEnd,focus:input===active,dirty:input.value!==(input.getAttribute('data-rendered')??'')}}const open={};for(const details of document.querySelectorAll('details[data-id]'))open[details.getAttribute('data-id')??'']=details.open;return{command:active?.getAttribute?.('data-command')??null,payload:active?.getAttribute?.('data-payload')??'',id:active?.getAttribute?.('data-id')??null,tag:active?.tagName??'',inputs,open,top:bodyEl()?.scrollTop??0}};const restore=(snap)=>{const remembered=api.getState()?.open??{};for(const details of document.querySelectorAll('details[data-id]')){const key=details.getAttribute('data-id')??'';if(Object.hasOwn(snap.open,key))details.open=snap.open[key];else if(Object.hasOwn(remembered,key))details.open=remembered[key]}for(const form of document.querySelectorAll('form[data-command]')){const key=form.getAttribute('data-id')??form.getAttribute('data-command')??'';const saved=snap.inputs[key];if(!saved||!(saved.focus||saved.dirty))continue;const input=form.querySelector('input');if(!input)continue;input.value=saved.value;try{input.setSelectionRange(saved.start??saved.value.length,saved.end??saved.value.length)}catch{}}let focused=false;if(snap.tag==='INPUT'){for(const form of document.querySelectorAll('form[data-command]')){const key=form.getAttribute('data-id')??form.getAttribute('data-command')??'';if(snap.inputs[key]?.focus){form.querySelector('input')?.focus({preventScroll:true});focused=true;break}}}if(!focused&&snap.command){for(const next of document.querySelectorAll('[data-command]')){if(next.getAttribute('data-command')!==snap.command)continue;if((next.getAttribute('data-payload')??'')!==snap.payload)continue;next.focus({preventScroll:true});focused=true;break}}if(!focused&&snap.command==='tabthrough.next'){const finish=document.querySelector('[data-command="tabthrough.finish"]');if(finish)finish.focus({preventScroll:true})}const scroller=bodyEl();if(scroller)scroller.scrollTop=(snap.command==='tabthrough.next'||snap.command==='tabthrough.previous')?0:snap.top};wire();window.addEventListener('message',event=>{if(event.data?.type!=='update')return;const snap=capture();const frame=document.querySelector('.frame');if(frame)frame.outerHTML=event.data.body;wire();restore(snap)});document.addEventListener('keydown',event=>{if(event.key!=='Tab'||event.shiftKey||event.altKey||event.ctrlKey||event.metaKey)return;const finish=document.querySelector('[data-command="tabthrough.finish"]');if(!finish||finish.hasAttribute('disabled'))return;event.preventDefault();post('tabthrough.finish')});`
 
 /** Secure plain HTML: escaped guide text, no remote resources, fixed commands. */
 export function renderSidebarHtml(view: SidebarViewModel): string {

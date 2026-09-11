@@ -14,6 +14,7 @@ import {
   finishSession,
   openConflict,
   openWorktree,
+  pendingEntry,
   popAutostash,
   ports,
   pruneWorktrees,
@@ -21,8 +22,10 @@ import {
   session,
   showAutostash,
   startBlockedReason,
+  startSession,
 } from '../model/session'
 import {
+  fetchRemote,
   focusRangeBound,
   generateAgentGuide,
   generateSimpleGuide,
@@ -33,10 +36,14 @@ import {
   pickRange,
   pickWorkingTree,
   resetSetup,
+  reviewSelection,
   selectCommit,
+  selectHomeRev,
   selectRangeRev,
+  setBranch,
   setGuideTopic,
   setRangeBound,
+  setRemote,
   setupBack,
   setupPhase,
   skillInstalled,
@@ -63,6 +70,28 @@ export function useGuideCommands(): void {
     [Commands.pickWorkingTree]: wrap(() => guard('pickWorkingTree', async () => pickWorkingTree())),
     [Commands.pickCommit]: wrap(() => guard('pickCommit', () => loadCommits())),
     [Commands.pickRange]: wrap(() => guard('pickRange', () => pickRange())),
+    [Commands.selectHomeRev]: wrap((rev?: unknown) => guard('selectHomeRev', async () => {
+      if (typeof rev === 'string')
+        selectHomeRev(rev)
+    })),
+    [Commands.setRemote]: wrap((name?: unknown) => guard('setRemote', async () => {
+      if (typeof name === 'string')
+        setRemote(name)
+    })),
+    [Commands.setBranch]: wrap((name?: unknown) => guard('setBranch', async () => {
+      if (typeof name === 'string')
+        setBranch(name)
+    })),
+    [Commands.fetchRemote]: wrap(() => guard('fetchRemote', () => fetchRemote())),
+    [Commands.reviewSelection]: wrap(() => guard('reviewSelection', async () => {
+      await wrap(reviewSelection())
+      const entry = peek(pendingEntry)
+      if (entry === null)
+        return
+      if (!await refuseIfBlocked())
+        return
+      await wrap(startSession({ entry }))
+    })),
     [Commands.selectCommit]: wrap((rev?: unknown) => guard('selectCommit', async () => {
       if (typeof rev !== 'string')
         return
@@ -158,7 +187,11 @@ async function beginWorkingTree(): Promise<void> {
   if (!await refuseIfBlocked())
     return
   await wrap(VscodeCommands.executeCommand('tabthrough.sidebar.focus'))
-  pickWorkingTree()
+  await wrap(pickWorkingTree())
+  const entry = peek(pendingEntry)
+  if (entry === null)
+    return
+  await wrap(startSession({ entry }))
 }
 
 async function beginCommitPicker(): Promise<void> {

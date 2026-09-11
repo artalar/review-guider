@@ -64,6 +64,7 @@ describe('contributed commands', () => {
       'tabthrough.commitHandoff',
       'tabthrough.continueRebase',
       'tabthrough.editHere',
+      'tabthrough.fetchRemote',
       'tabthrough.finish',
       'tabthrough.generateAgent',
       'tabthrough.generateSimple',
@@ -79,8 +80,12 @@ describe('contributed commands', () => {
       'tabthrough.pruneWorktrees',
       'tabthrough.removeWorktree',
       'tabthrough.review',
+      'tabthrough.reviewSelection',
       'tabthrough.selectCommit',
+      'tabthrough.selectHomeRev',
+      'tabthrough.setBranch',
       'tabthrough.setGuideTopic',
+      'tabthrough.setRemote',
       'tabthrough.setupBack',
       'tabthrough.showAutostash',
       'tabthrough.showStepDetail',
@@ -287,6 +292,11 @@ describe('keybindings', () => {
       'tabthrough.generateAgent',
       'tabthrough.setupBack',
       'tabthrough.chooseMode',
+      'tabthrough.selectHomeRev',
+      'tabthrough.setRemote',
+      'tabthrough.setBranch',
+      'tabthrough.fetchRemote',
+      'tabthrough.reviewSelection',
     ])
       expect(hidden.has(command), command).toBe(true)
   })
