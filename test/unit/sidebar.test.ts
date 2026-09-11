@@ -5,6 +5,7 @@ import type { RangeSetupPhase } from '../../src/model/setup'
 import type { SidebarViewModel } from '../../src/model/view'
 import { describe, expect, it } from 'vitest'
 import { safeSidebarText, sidebarItems } from '../../src/model/sidebar'
+import { PAYLOAD_COMMANDS, SIDEBAR_COMMANDS } from '../../src/ui/sidebar-commands'
 
 function step(overrides: Partial<GuideStep> = {}): GuideStep {
   return {
@@ -215,6 +216,30 @@ describe('sidebar projection', () => {
     expect(rows.find(row => row.id === 'mode-rebase')?.enabled).toBe(false)
     expect(rows.find(row => row.id === 'mode-rebase')?.description).toContain('Worktree')
     expect(rows.find(row => row.command === 'tabthrough.startFromGuide')?.enabled).toBe(false)
+  })
+
+  it('allowlists mode picker clicks so Read-only and Rebase reach chooseMode', () => {
+    const rows = sidebarItems(view({
+      setup: { kind: 'generate', target: { kind: 'commit', rev: 'abc' } },
+      showModePicker: true,
+      showRebase: true,
+      rebaseApplicable: true,
+    }))
+    const readonly = rows.find(row => row.id === 'mode-readonly')
+    const rebase = rows.find(row => row.id === 'mode-rebase')
+    expect(readonly?.command).toBe('tabthrough.chooseMode')
+    expect(readonly?.payload).toBe('readonly')
+    expect(rebase?.command).toBe('tabthrough.chooseMode')
+    expect(rebase?.payload).toBe('rebase')
+    expect(SIDEBAR_COMMANDS.has('tabthrough.chooseMode')).toBe(true)
+    expect(PAYLOAD_COMMANDS.has('tabthrough.chooseMode')).toBe(true)
+    for (const row of rows) {
+      if (row.command === undefined)
+        continue
+      expect(SIDEBAR_COMMANDS.has(row.command)).toBe(true)
+      if (row.payload !== undefined)
+        expect(PAYLOAD_COMMANDS.has(row.command)).toBe(true)
+    }
   })
 
   it('shows Start in generate when the sidecar is already on disk', () => {

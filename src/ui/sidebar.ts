@@ -8,47 +8,8 @@ import { resetSetup, skillEpoch } from '../model/setup'
 import { sidebarItems } from '../model/sidebar'
 import { sidebarViewModel } from '../model/view'
 import { useAtomRef } from './binding'
+import { PAYLOAD_COMMANDS, SIDEBAR_COMMANDS } from './sidebar-commands'
 import { renderSidebarBody, renderSidebarHtml } from './sidebar-html'
-
-const SIDEBAR_COMMANDS = new Set([
-  'tabthrough.review',
-  'tabthrough.startFromGuide',
-  'tabthrough.installSkill',
-  'tabthrough.pickWorkingTree',
-  'tabthrough.pickCommit',
-  'tabthrough.pickRange',
-  'tabthrough.selectCommit',
-  'tabthrough.submitRange',
-  'tabthrough.generateSimple',
-  'tabthrough.generateAgent',
-  'tabthrough.setupBack',
-  'tabthrough.next',
-  'tabthrough.previous',
-  'tabthrough.finish',
-  'tabthrough.cancel',
-  'tabthrough.editHere',
-  'tabthrough.showStepDetail',
-  'tabthrough.showWalkthrough',
-  'tabthrough.commitHandoff',
-  'tabthrough.continueRebase',
-  'tabthrough.abortRebase',
-  'tabthrough.popAutostash',
-  'tabthrough.showAutostash',
-  'tabthrough.openWorktree',
-  'tabthrough.removeWorktree',
-  'tabthrough.pruneWorktrees',
-  'tabthrough.openConflict',
-])
-
-const PAYLOAD_COMMANDS = new Set([
-  'tabthrough.selectCommit',
-  'tabthrough.submitRange',
-  'tabthrough.popAutostash',
-  'tabthrough.showAutostash',
-  'tabthrough.openWorktree',
-  'tabthrough.removeWorktree',
-  'tabthrough.openConflict',
-])
 
 class SidebarWebviewProvider implements WebviewViewProvider {
   private view: WebviewView | undefined
