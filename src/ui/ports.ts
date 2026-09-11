@@ -152,6 +152,22 @@ export const windowUi: UiPort = {
     await window.showInformationMessage('Guide prompt copied. Paste it into Chat and send.')
   },
   logGit: logGitResult,
+  async pickUntracked(paths) {
+    if (paths.length === 0)
+      return []
+    const picked = await window.showQuickPick(
+      paths.map(path => ({ label: path, picked: false })),
+      {
+        canPickMany: true,
+        title: 'Stage untracked files into the amended commit?',
+        placeHolder: 'None are staged unless you tick them',
+        ignoreFocusOut: true,
+      },
+    )
+    if (picked === undefined)
+      return undefined
+    return picked.map(item => item.label)
+  },
 }
 
 function canonicalPath(path: string): string {

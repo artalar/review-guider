@@ -36,6 +36,7 @@ describe('validateGuideDoc — accepting', () => {
       steps: [{ id: 'a', path: 'src/types.ts', rationale: 'Types before callers' }],
     })
     expect(doc.defaults).toEqual({ mergeStrategy: 'merge' })
+    expect(doc.defaults.finish).toBeUndefined()
     expect(doc.files).toEqual({})
     expect(doc.steps[0]).toMatchObject({
       order: 0,
@@ -65,6 +66,23 @@ describe('validateGuideDoc — accepting', () => {
       steps: [{ id: 'a', path: 'a.ts', rationale: 'r', ranges: [{ start: 7 }] }],
     })
     expect(doc.steps[0].ranges).toEqual([{ start: 7, end: 7, side: 'new' }])
+  })
+
+  it('parses optional defaults.finish', () => {
+    const { doc } = expectOk({
+      version: 1,
+      defaults: { finish: { hooks: true, sign: false } },
+      steps: [{ id: 'a', path: 'a.ts', rationale: 'r' }],
+    })
+    expect(doc.defaults.finish).toEqual({ hooks: true, sign: false })
+  })
+
+  it('rejects a non-boolean defaults.finish field', () => {
+    expectErrorCode({
+      version: 1,
+      defaults: { finish: { hooks: 'yes' } },
+      steps: [{ id: 'a', path: 'a.ts', rationale: 'r' }],
+    }, 'invalid-document')
   })
 
   it('accepts the full example fixture', () => {
@@ -236,6 +254,19 @@ describe('sidecar loading', () => {
     const load = loadSidecar({ path: '.guide.json', text: readGuideFixtureText('valid.guide.json') })
     expect(load.doc?.steps).toHaveLength(3)
     expect(load.diagnostics.filter(diagnostic => diagnostic.severity === 'warning')).toHaveLength(0)
+  })
+
+  it('surfaces defaults.finish from a valid sidecar', () => {
+    const load = loadSidecar({
+      path: '.tabthrough-guide.json',
+      text: JSON.stringify({
+        version: 1,
+        defaults: { finish: { hooks: true } },
+        steps: [{ id: 'a', path: 'a.ts', rationale: 'r' }],
+      }),
+    })
+    expect(load.finish).toEqual({ hooks: true })
+    expect(load.doc?.defaults.finish).toEqual({ hooks: true })
   })
 
   it('resolves the guide file from the setting, falling back to .tabthrough-guide.json', () => {

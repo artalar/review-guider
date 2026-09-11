@@ -32,6 +32,7 @@ export interface UiPort {
   readBundledSkill: () => Promise<string | null>
   openAgentChat: (prompt: string) => Promise<void>
   logGit: (result: GitCommandResult) => void
+  pickUntracked: (paths: readonly string[]) => Promise<readonly string[] | undefined>
 }
 
 export interface ClockPort {
@@ -57,6 +58,7 @@ export const inertPorts: Ports = {
     readBundledSkill: async () => null,
     openAgentChat: async () => {},
     logGit: () => {},
+    pickUntracked: async () => [],
   },
   clock: {
     sessionId: () => 'inert',

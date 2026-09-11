@@ -146,6 +146,23 @@ describe('projectEditHere', () => {
     expect(hit.ranges[0]).toEqual({ start: 1, end: 0 })
   })
 
+  it('enables a commit review in rebase mode', () => {
+    const group = calc.groups[0]
+    if (group === undefined)
+      throw new Error('fixture missing groups')
+
+    const hit = projectEditHere({
+      entryKind: 'commit',
+      sessionMode: 'rebase',
+      file: calc,
+      step: guideStep(calc, [group]),
+      baseText: CALC_BASE,
+      diskText: CALC_AFTER,
+    })
+    expect(hit.enabled).toBe(true)
+    expect(hit.hint).toBeNull()
+  })
+
   it('disables commit and range reviews with the Rebase / Worktree hint', () => {
     const group = calc.groups[0]
     if (group === undefined)

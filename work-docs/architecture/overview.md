@@ -2,7 +2,7 @@
 
 **Version:** 1.2 (ADR 0005 git-first)
 **Owner:** Architect
-**Status:** Phase 12 landed in code — read-only + git state; rebase / worktree phases follow
+**Status:** Phase 13 landed in code — read-only + rebase; worktree follows
 **Last updated:** 2026-09-10
 **Companions:** [reatom-model.md](reatom-model.md) · [guide-schema.md](guide-schema.md) · [ADR 0002](../decisions/0002-architecture.md) · [ADR 0005](../decisions/0005-git-first-sessions.md)
 **Reconciles with:** [plan.md](../progress/plan.md) · [ADR 0001](../decisions/0001-mvp-scope.md) · [product.md](../specs/product.md)
@@ -294,7 +294,7 @@ Reads run in parallel and take no optional locks. The only write on Start is the
 
 ### 3.5 git-first sessions (ADR 0005)
 
-Three modes, each one git primitive. Phase 12 ships read-only plus the git-state sidebar. Rebase and worktree land in later phases.
+Three modes, each one git primitive. Read-only and rebase are landed. Worktree follows.
 
 #### 3.5.1 Snapshot ref (read-only)
 
@@ -332,7 +332,7 @@ The pre-flight modal is gone. The generate row shows `Will run: nothing` for rea
 
 #### 3.5.5 Later primitives
 
-- **Rebase (Phase 13):** `git rebase -i --autostash` stopped at `after`; Finish amends and `--continue`; Cancel is `--abort`.
+- **Rebase:** `git rebase -i --autostash` stopped at `after`; Finish amends and `--continue`; Cancel is `--abort`.
 - **Worktree (Phase 14):** squash `base → after`, `worktree add --detach`.
 
 Never `reset --hard`, `checkout -f`, `clean`, or `worktree remove --force`.

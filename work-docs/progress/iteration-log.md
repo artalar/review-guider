@@ -885,3 +885,80 @@ Deleted the isolation protocol (`stash`, `journal`, `apply`, lock, heartbeat, re
 Tests: deleted isolation / apply suites; added `snapshot-ref`, `git-state`, `edit-here`; trimmed lifecycle, contributions, sidebar, probe.
 
 - **Next:** Implementer P0-N3 (Phase 13, rebase mode).
+
+## Implementer — 2026-09-11 — Phase 13: rebase mode (P0-N3)
+
+Landed `git rebase -i --autostash` stopped at `after`. Bundled `dist/sequence-editor.cjs` rewrites the reviewed `pick`/`p` line to `edit`. Finish is `add -u`, optional ticked untracked, `commit --amend --no-edit`, `rebase --continue`. Cancel is `--abort`. Hooks and signing are off by default (`tabthrough.finish.hooks` / `sign`) and overridable via `defaults.finish`. Ownership watch closes the review if the rebase leaves `after`. Working-tree hides Rebase; non-ancestors disable Start with the Worktree hint. Edit here is on for every rebase session.
+
+Tests: `rebase-driver`, `sequence-editor`; `defaults.finish` in schema / published-schema / merge; settings and Start-line copy in contributions / sidebar-html.
+
+- **Next:** Implementer P0-N4 (Phase 14, worktree mode).
+
+## Reviewer (Fable) — 2026-09-11 — Phase 13 / P0-N3 rebase mode
+
+[Review 008](./reviews/008.md): **request fixes** — 2 blockers, 4 majors, 7 minors, 8 test gaps. Suite re-run in full: lint / typecheck clean, 457 tests / 31 files green. Command fidelity, the bundled editor, start-failure auto-abort, the ownership watch and import boundaries all verified clean (several by execution).
+
+- **B1** Finish awaits the untracked pick unguarded; Cancel or a terminal abort in that window makes the resumed Finish `add -u` + `commit --amend` the user's real branch tip with their WIP (verified: `HEAD:app.ts = wip`, then "fatal: no rebase in progress"). Review 007's confirm-window race, one phase later.
+- **B2** A merge commit as `after` passes `isAncestor`; `rebase -i after^1` drops the merge from the todo, runs to completion with exit 0, flattens the branch, and the session goes `active` in rebase mode (verified). Same hole for merges above `after` and `autoSquash` fixups.
+- **M1–M4** autostash pop conflict on `--continue` exits 0 → "Review finished." over `UU` + a live stash (verified); "Will run:" ≠ the argv for ranges (`to^` vs merge-base, verified), guide `defaults.finish`, root commits; Finish never `saveDocuments`; Cancel during `starting` SIGKILLs `git rebase -i`.
+- Backlog: P0-N3 → **Fixes requested**, **P0-N3-F1…F9** filed. P0-N4 may proceed in parallel.
+- **Next:** Implementer P0-N3-F1 → F2 → F6 → F5 → F4 → F3 → F7 → F8 → F9, then §10.6 drills and re-review.
+
+## Implementer — 2026-09-11 — Phase 13 / P0-N3-F1…F9 (review 008)
+
+Landed the review-008 guards. Finish re-checks session identity and ownership after every await (including the untracked pick) and will not `add -u` / amend a cancelled or terminal-aborted rebase. Start refuses merge-as-`after` and merges above `after`, and verifies ownership before `active` — if git ran through, the notice names `ORIG_HEAD` and does not reset. Cancel during `starting` no longer SIGKILLs `git rebase -i`; the action waits, then `--abort`. Finish saves dirty editors, forwards `--continue` / `--abort` output, and says "stopped on a conflict" instead of "Review finished." "Will run:" comes from `planIsolation` + `peekSidecarFinish`. Retry without hooks re-runs only amend + `--continue`. `GIT_EDITOR=true` on Start; dirty count is a path union; staged-WIP note; editor path escapes `$` `` ` `` `\`; `.ts` strip-types hack removed from production.
+
+Tests: T1–T7 in `rebase-driver.test.ts` (Finish/Cancel race, merge-as-after, model Finish/Cancel/deactivate, autostash pop conflict, Will-run argv, shipped `dist/sequence-editor.cjs`, staged round trip) plus Cancel-during-start. `pnpm lint && typecheck && test:ci` green: **475 tests, 31 files**.
+
+**Still open:** T8 — §10.6 drills and Phase 13 / product v0.3 boxes. Reatom lows in 008 (ownership-watch `effect`, `reatomBoolean`, `peekSidecarFinish` rename) left untouched.
+
+- **Next:** Reviewer re-review of 008. Do not start Phase 14 from this pass.
+
+## Reviewer (Fable) — 2026-09-11 — Re-review of 008 (Phase 13 / P0-N3-F1…F9)
+
+[Review 008 § Re-review](./reviews/008.md#re-review--reviewer-fable--2026-09-11): **request fixes.** Suite re-run in full: lint / typecheck clean, **475 tests / 31 files** green. Four probes run through the model (Cancel after `rebase -i` returned; clean Finish notice; Cancel during Finish's `commit --amend`; terminal `--abort` under the Retry notice).
+
+- **Confirmed closed:** F1, F2, F3, F4, F5, F7, F8, F9 — read and, for B1 / B2 / M1 / M2, exercised via the new suite rows.
+- **F6 reopened (Major).** The F2 fix put `await readOwnership` between `startRebase` returning and `rebaseOwnership.set`, and the no-`abort()` guard is already cleared there: a Cancel in that window aborts the action, `startFailed` sees no ownership, and the rebase is left stopped at `after` with the WIP in its autostash — silently (verified).
+- **M5 new (Major).** Cancel is enabled while Finish runs `add -u` / `commit --amend` / `--continue`; `rebase --abort` ran during the amend and only git's compare-and-swap on HEAD saved the branch (`cannot lock ref 'HEAD'`); the Edit-here change was lost and no `finishSessionStillOpen` re-check follows `runFinishRebase` (verified).
+- **m8–m10.** Clean Finish forwards `Rebasing (n/m)\r…Successfully rebased…` instead of "Review finished."; terminal `--abort` under the Retry notice leaves a zombie `active` session; `rebase.autoSquash` still reorders the todo.
+- Backlog: P0-N3 → **Fixes requested (re-review)**; **F6 Reopened**, **F10 / F11 filed**. T8 unchanged. Phase 14 may proceed in parallel.
+- **Next:** Implementer F6 → F10 → F11 (+ T9 / T10), then §10.6 drills and re-review.
+
+## Implementer — 2026-09-11 — Phase 13 / P0-N3-F6, F10, F11 (008 re-review)
+
+Closed the three re-review items. Cancel after `rebase -i` returns now has ownership already recorded and the no-`abort()` guard held until that claim is verified or `--abort`ed, so `startFailed` can clean up (spawned so the aborted start frame cannot kill `wrap`). Finish writes go `finishing` — Cancel is a no-op, sidebar already hides it — and `finishSessionStillOpen` is re-checked after every `runFinishRebase`; declined Retry / plain failure returns `finishing → active`. Clean Finish says "Review finished."; leftover `--continue` text is forwarded only when conflicts or an autostash remain, with `\r` progress stripped. Terminal `--abort` under the Retry notice tears down with `ownership` after unpause. Start argv includes `--no-autosquash`.
+
+Tests: T9 (orphan-after-start), T10 (Cancel during Finish writes), clean Finish copy, Retry+terminal-abort zombie, `--no-autosquash` in Start argv. Did not start Phase 14. T8 still open.
+
+- **Next:** Reviewer re-review of 008 F6 / F10 / F11. Do not start Phase 14 from this pass.
+
+## Reviewer (Fable) — 2026-09-11 — Second re-review of 008 (Phase 13 / P0-N3-F6, F10, F11)
+
+[Review 008 § Second re-review](./reviews/008.md#second-re-review--reviewer-fable--2026-09-11): **request fixes.** Suite re-run in full: lint / typecheck clean, **481 tests / 31 files** green. Eight probes through the model (Cancel at five offsets after `rebase -i` returned and once after the `try/finally`; Cancel during a failing `rebase -i` with a foreign rebase stopped; Cancel while Finish holds `finishing`; Cancel's teardown mid-flight when Finish resumes from the pick, real timing and with `--abort` slowed; terminal `--abort` under the Retry notice without a watcher tick; clean Finish with WIP).
+
+- **Confirmed closed:** F6 (ownership recorded before any await, `startRebaseInFlight` held through `readOwnership`; `--abort` reached from every unwind, `abortVar.spawn` around `startFailed` verified), F11 (exactly "Review finished." on the clean path, `\r` stripped; `!ours` tears down; stale-tick self-heals; `--no-autosquash` in argv and Will-run).
+- **F10 reopened (Major).** `finishSessionStillOpen` now accepts `finishing` at the five pre-write checkpoints too; `teardownSession` claims `finishing` synchronously, so a Cancel whose `--abort` is still running no longer stops Finish — `add -u` / amend / `--continue` completed and HEAD was rewritten on a Cancel, followed by `--abort -> 128` and three contradictory toasts (verified with a slowed `--abort`; real timing on a tiny fixture wins by ~30 ms).
+- **M6 new (Major) → F12.** `take(startSettled, value => value === attempt)` returns `false` synchronously (mapper semantics in 1001.3.0), so Cancel and `deactivate` in `starting` return before `startFailed` runs `--abort`; reload during a rebase Start can orphan the stopped rebase (verified standalone and through the model).
+- **m11 / m12 → F13.** Cancelled-start branch aborts a rebase Tabthrough did not start when `rebase -i` failed because one was already in progress (verified); Cancel during `finishing` is a silent no-op from palette / view title. Lows: REFERENCE.md `take` prose, ADR 0005 diagram edge, "Closing review…" under the Retry notice.
+- Backlog: P0-N3 → **Fixes requested (second re-review)**; F10 **Reopened**, F12 / F13 filed. T8 unchanged. Phase 14 may proceed in parallel.
+- **Next:** Implementer F10 → F12 → F13 (+ T11 / T12), then §10.6 drills and re-review.
+
+## Implementer — 2026-09-11 — Phase 13 / P0-N3-F10, F12, F13 (008 second re-review)
+
+Closed the three second-re-review items. Finish's pre-write checkpoints require `active` again, so a Cancel whose `--abort` is mid-flight (teardown already holds `finishing`) cannot resume into `add -u` / amend / `--continue`. Cancel in `starting` uses `take(..., value => value === attempt || throwAbort())` and waits for `startFailed` before returning — `deactivate`'s 4 s budget is honest again. A cancelled start aborts only when `rebase -i` exited 0; rebase mode is refused while a rebase or other operation is already in progress. Cancel is gated off during `finishing` via `tabthrough.sessionFinishing`. ADR 0005 gained the `finishing → active` edge. Did not edit the vendored Reatom REFERENCE.md or the Retry-notice spinner copy.
+
+Tests: T11 (Finish vs in-flight Cancel abort), T12 (Cancel waits for `--abort` after a parked guide build), refuse-in-progress (foreign rebase and merge), Cancel enablement during `finishing`. Did not start Phase 14. T8 still open.
+
+- **Next:** Reviewer re-review of 008 F10 / F12 / F13. Do not start Phase 14 from this pass.
+
+## Reviewer (Fable) — 2026-09-11 — Third re-review of 008 (Phase 13 / P0-N3-F10, F12, F13)
+
+[Review 008 § Third re-review](./reviews/008.md#third-re-review--reviewer-fable--2026-09-11): **approve.** Suite re-run in full: lint / typecheck clean, **486 tests / 31 files** green. Five probes through the model from a throwaway file outside the repo, with a `git` shim on `PATH` (1 s `rebase --abort`; a foreign rebase started inside Tabthrough's own `rebase -i`), plus a read of `@reatom/core` 1001.3.0's `take` implementation.
+
+- **F10 confirmed.** Pre-write checkpoints require `active`; the `try/finally` that returns `finishing → active` opens only after Finish's own claim. P6 with the slowed abort: Finish resumed from the pick, saw Cancel's `finishing`, wrote nothing — one `--abort`, "Applied autostash." + "Review cancelled.", HEAD and WIP intact.
+- **F12 confirmed.** `take(startSettled, v => v === attempt || throwAbort())` returns a pending promise (mapper abort-throw leaves `syncResult` unset); Cancel and `deactivate` in `starting` return with `--abort` already logged and `rebase-merge/` gone (31 ms).
+- **F13 confirmed.** Cancelled Start aborts only when `rebase -i` exited 0 (P3: foreign rebase created mid-`rebase -i`, git refused with 128, Cancel landed, no `--abort`, foreign rebase intact); `rebaseRefuseReason` refuses `in-progress` first; Cancel `enablement` / `when` exclude `sessionFinishing`; ADR D7 has `finishing → active`.
+- **Lows filed (non-gating): L1** `deactivate` during Finish's writes returns at once and disposes under them; **L2** Cancel discards Edit-here edits with no hint (design-system §6 has the copy); **L3** cancelled Start emits no "Review cancelled.". REFERENCE.md `take` prose and the Retry-notice spinner copy carried.
+- Backlog: P0-N3 → **Approved**; F10 / F12 / F13 → Confirmed closed; L1–L3 rows added. T8 unchanged (add a reload-mid-Finish drill).
+- **Next:** Implementer T8 drills + tick the Phase 13 / product v0.3 boxes; L1 → L3 → L2 when convenient. Phase 14 may proceed.

@@ -9,13 +9,16 @@ import { describeTarget } from '../git/types'
 import { resolveGuideFile } from '../guide/sidecar'
 import { guideFile, showRationale } from './config'
 import {
+  chosenMode,
   editedPaths,
   editHereEnabled,
   gitState,
   session,
   canStart as sessionCanStart,
+  sessionModeSetting,
   sessionStatus,
   startBlockedReason,
+  startPreview,
   willRun,
 } from './session'
 import {
@@ -172,8 +175,18 @@ export interface SidebarViewModel {
   readonly guideFileName: string
   readonly gitState: GitState | null
   readonly willRun: string
+  readonly willRunNotes: string
   readonly editHereEnabled: boolean
   readonly editedPaths: readonly string[]
+  readonly startEnabled: boolean
+  readonly startHint: string | null
+  readonly showModePicker: boolean
+  readonly showRebase: boolean
+  readonly rebaseApplicable: boolean
+  readonly rebaseHint: string | null
+  readonly chosenMode: SessionMode | null
+  readonly askMode: boolean
+  readonly previewMode: SessionMode
 }
 
 export const sidebarViewModel = computed((): SidebarViewModel => {
@@ -204,7 +217,17 @@ export const sidebarViewModel = computed((): SidebarViewModel => {
     guideFileName: resolveGuideFile(configuredGuide),
     gitState: gitState.data(),
     willRun: willRun(),
+    willRunNotes: startPreview.data().notes,
     editHereEnabled: editHereEnabled(),
     editedPaths: editedPaths.data(),
+    startEnabled: startPreview.data().startEnabled,
+    startHint: startPreview.data().startHint,
+    showModePicker: startPreview.data().showModePicker,
+    showRebase: startPreview.data().showRebase,
+    rebaseApplicable: startPreview.data().rebaseApplicable,
+    rebaseHint: startPreview.data().rebaseHint,
+    chosenMode: chosenMode(),
+    askMode: sessionModeSetting() === 'ask',
+    previewMode: startPreview.data().mode,
   }
 }, 'ui.sidebarViewModel')

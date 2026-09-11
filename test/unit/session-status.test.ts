@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   IllegalTransitionError,
   isSessionActive,
+  isSessionFinishing,
   isSessionOpen,
   LEGAL_TRANSITIONS,
   sessionStatus,
@@ -36,6 +37,7 @@ describe('session status machine', () => {
       expect(sessionStatus()).toBe('idle')
       expect(isSessionActive()).toBe(false)
       expect(isSessionOpen()).toBe(false)
+      expect(isSessionFinishing()).toBe(false)
     })
   })
 
@@ -87,9 +89,11 @@ describe('session status machine', () => {
       moveTo('active')
       expect(isSessionActive()).toBe(true)
       expect(isSessionOpen()).toBe(true)
+      expect(isSessionFinishing()).toBe(false)
       sessionStatus.to('finishing')
       expect(isSessionActive()).toBe(false)
       expect(isSessionOpen()).toBe(true)
+      expect(isSessionFinishing()).toBe(true)
     })
   })
 })

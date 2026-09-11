@@ -67,8 +67,18 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     guideFileName: '.tabthrough-guide.json',
     gitState: null,
     willRun: 'nothing',
+    willRunNotes: 'Read-only — the working tree is not checked out.',
     editHereEnabled: false,
     editedPaths: [],
+    startEnabled: true,
+    startHint: null,
+    showModePicker: false,
+    showRebase: false,
+    rebaseApplicable: false,
+    rebaseHint: null,
+    chosenMode: null,
+    askMode: false,
+    previewMode: 'readonly',
     ...overrides,
   }
 }
@@ -185,6 +195,23 @@ describe('sidebar text boundary', () => {
     expect(html).toContain('data-command="tabthrough.continueRebase"')
     expect(html).toContain('class="primary"')
     expect(html).toContain('data-command="tabthrough.abortRebase"')
+  })
+
+  it('shows the rebase Start line and unsigned note', () => {
+    const html = renderSidebarBody(view({
+      setup: { kind: 'generate', target: { kind: 'commit', rev: 'abc' } },
+      willRun: 'git rebase -i --autostash --no-autosquash --no-verify --no-gpg-sign abc1234',
+      willRunNotes: 'autostash will park 3 files; 2 commits above will be rewritten; replayed commits will be unsigned',
+      showModePicker: true,
+      showRebase: true,
+      rebaseApplicable: true,
+      askMode: true,
+      previewMode: 'rebase',
+    }))
+    expect(html).toContain('Will run: git rebase -i --autostash --no-autosquash --no-verify --no-gpg-sign abc1234')
+    expect(html).toContain('replayed commits will be unsigned')
+    expect(html).toContain('data-command="tabthrough.chooseMode"')
+    expect(html).toContain('data-payload="rebase"')
   })
 
   it('promotes Finish into chrome when the walk is complete', () => {

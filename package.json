@@ -143,6 +143,12 @@
         "enablement": "tabthrough.canStart"
       },
       {
+        "command": "tabthrough.chooseMode",
+        "title": "Choose Session Mode",
+        "category": "Tabthrough",
+        "enablement": "tabthrough.canStart"
+      },
+      {
         "command": "tabthrough.next",
         "title": "Reveal Next Change",
         "category": "Tabthrough",
@@ -176,7 +182,7 @@
         "command": "tabthrough.cancel",
         "title": "Cancel Review",
         "category": "Tabthrough",
-        "enablement": "tabthrough.sessionOpen"
+        "enablement": "tabthrough.sessionOpen && !tabthrough.sessionFinishing"
       },
       {
         "command": "tabthrough.commitHandoff",
@@ -264,7 +270,7 @@
       "view/title": [
         {
           "command": "tabthrough.cancel",
-          "when": "view == tabthrough.sidebar && tabthrough.sessionOpen",
+          "when": "view == tabthrough.sidebar && tabthrough.sessionOpen && !tabthrough.sessionFinishing",
           "group": "navigation@2"
         }
       ],
@@ -299,6 +305,10 @@
         },
         {
           "command": "tabthrough.setupBack",
+          "when": "false"
+        },
+        {
+          "command": "tabthrough.chooseMode",
           "when": "false"
         }
       ]
@@ -394,13 +404,23 @@
             "worktree"
           ],
           "enumDescriptions": [
-            "Ask before each session which git primitive to use. Phase 12 only lands read-only.",
+            "Ask before each session which git primitive to use.",
             "Read-only virtual documents. Working changes get a snapshot ref; commit and range touch nothing.",
-            "Interactive rebase stopped at the reviewed commit (lands in a later phase).",
+            "Interactive rebase stopped at the reviewed commit. Finish amends fixes and replays commits above.",
             "Detached worktree in a new window (lands in a later phase)."
           ],
           "default": "ask",
-          "description": "Which git primitive a session uses. Read-only is the only landed mode."
+          "description": "Which git primitive a session uses. Read-only and rebase are landed; worktree comes later."
+        },
+        "tabthrough.finish.hooks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run git hooks (pre-rebase, pre-commit, commit-msg) when starting and finishing a rebase review. Off by default."
+        },
+        "tabthrough.finish.sign": {
+          "type": "boolean",
+          "default": false,
+          "description": "GPG-sign the amended commit and replayed commits. Off by default; replayed commits stay unsigned unless this is on."
         },
         "tabthrough.guideFile": {
           "type": "string",
@@ -433,7 +453,7 @@
     }
   },
   "scripts": {
-    "build": "tsdown src/index.ts --external vscode",
+    "build": "tsdown src/index.ts src/sequence-editor.ts --external vscode",
     "dev": "nr build --watch --sourcemap",
     "prepare": "nr update",
     "update": "vscode-ext-gen --output src/generated/meta.ts --scope tabthrough",

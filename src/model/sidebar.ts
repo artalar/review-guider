@@ -65,7 +65,7 @@ export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[]
   const current = view.currentStep
   add({
     id: 'session',
-    label: 'Read-only walkthrough',
+    label: view.mode === 'rebase' ? 'Rebase walkthrough' : 'Read-only walkthrough',
     description: progress === null ? view.status : `${progress.index} of ${progress.total}`,
     tooltip: view.entry === null ? undefined : `Reviewing ${view.entry}`,
     icon: 'book',
@@ -319,10 +319,45 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
       label: describeSetupTarget(phase.target),
       description: `Write ${view.guideFileName}, then Start the walkthrough.`,
     })
+    if (view.showModePicker) {
+      add({
+        id: 'mode-readonly',
+        label: 'Read-only',
+        description: 'Virtual documents. The working tree is not checked out.',
+        command: Commands.chooseMode,
+        payload: 'readonly',
+        contextValue: 'action',
+        enabled: view.canStart,
+        accent: view.previewMode === 'readonly' ? 'selected' : undefined,
+      })
+      if (view.showRebase) {
+        add({
+          id: 'mode-rebase',
+          label: 'Rebase',
+          description: view.rebaseApplicable
+            ? 'Stop an interactive rebase at this commit so you can edit the real files.'
+            : (view.rebaseHint ?? 'Not available for this target.'),
+          command: Commands.chooseMode,
+          payload: 'rebase',
+          contextValue: 'action',
+          enabled: view.canStart && view.rebaseApplicable,
+          accent: view.previewMode === 'rebase' ? 'selected' : undefined,
+        })
+      }
+      add({
+        id: 'mode-worktree',
+        label: 'Worktree',
+        description: 'Detached worktree in a new window (lands in a later phase).',
+        command: Commands.chooseMode,
+        payload: 'worktree',
+        contextValue: 'action',
+        enabled: false,
+      })
+    }
     add({
       id: 'will-run',
       label: `Will run: ${view.willRun}`,
-      description: 'Read-only — the working tree is not checked out.',
+      description: view.startHint ?? view.willRunNotes,
       icon: 'terminal',
     })
     add({
@@ -350,7 +385,7 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
         command: Commands.startFromGuide,
         icon: 'play',
         contextValue: 'action',
-        enabled: view.canStart,
+        enabled: view.canStart && view.startEnabled,
       })
     }
     else if (view.focusedGuideMismatch) {

@@ -376,7 +376,7 @@ Philosophy: **P0 = no data loss + honest happy path**; **P1 = common dev frictio
 
 | Edge case | Handling |
 |-----------|----------|
-| Dirty working tree at start | Read-only / Worktree: irrelevant, nothing is touched. Rebase: `--autostash` parks tracked changes; the Start line says how many files |
+| Dirty working tree at start | Read-only / Worktree: irrelevant, nothing is touched. Rebase: `--autostash` parks tracked changes; the Start line says how many files. Staged changes return unstaged — git's autostash apply does not pass `--index` |
 | Editor closed mid-session | Read-only: a snapshot ref, swept after 24 h. Rebase: an ordinary rebase in progress, shown in the sidebar with Continue / Abort. Worktree: a worktree, listed with Remove |
 | Second window or terminal touches the rebase | Ownership watch closes the review with a notice; git's state stays visible |
 | Autostash pop conflicts on Finish / Abort | Git keeps the entry and says so; sidebar shows it with Pop |

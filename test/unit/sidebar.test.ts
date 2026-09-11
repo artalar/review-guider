@@ -81,8 +81,18 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     guideFileName: '.tabthrough-guide.json',
     gitState: null,
     willRun: 'nothing',
+    willRunNotes: 'Read-only — the working tree is not checked out.',
     editHereEnabled: false,
     editedPaths: [],
+    startEnabled: true,
+    startHint: null,
+    showModePicker: false,
+    showRebase: false,
+    rebaseApplicable: false,
+    rebaseHint: null,
+    chosenMode: null,
+    askMode: false,
+    previewMode: 'readonly',
   }
   return { ...base, ...overrides }
 }
@@ -190,6 +200,23 @@ describe('sidebar projection', () => {
     expect(rows.find(row => row.id === 'will-run')?.label).toBe('Will run: nothing')
   })
 
+  it('offers Rebase when asked, and disables Start when the commit is not an ancestor', () => {
+    const rows = sidebarItems(view({
+      setup: { kind: 'generate', target: { kind: 'commit', rev: 'abc' } },
+      showModePicker: true,
+      showRebase: true,
+      rebaseApplicable: false,
+      rebaseHint: 'This commit is not on the current branch. Start in Worktree mode.',
+      startEnabled: false,
+      startHint: 'This commit is not on the current branch. Start in Worktree mode.',
+      willRun: 'nothing',
+      sidecarReady: true,
+    }))
+    expect(rows.find(row => row.id === 'mode-rebase')?.enabled).toBe(false)
+    expect(rows.find(row => row.id === 'mode-rebase')?.description).toContain('Worktree')
+    expect(rows.find(row => row.command === 'tabthrough.startFromGuide')?.enabled).toBe(false)
+  })
+
   it('shows Start in generate when the sidecar is already on disk', () => {
     const rows = sidebarItems(view({
       setup: { kind: 'generate', target: { kind: 'workingTree' } },
@@ -272,6 +299,11 @@ describe('sidebar projection', () => {
     const rows = sidebarItems(view({ status: 'starting', willRun: 'nothing' }))
     expect(rows.find(row => row.id === 'starting')?.description).toBe('Will run: nothing')
     expect(rows.some(row => row.command === 'tabthrough.cancel')).toBe(true)
+  })
+
+  it('hides cancel while finishing', () => {
+    const rows = sidebarItems(view({ status: 'finishing' }))
+    expect(rows.some(row => row.command === 'tabthrough.cancel')).toBe(false)
   })
 
   it('bounds and removes control characters from untrusted guide text', () => {

@@ -1,5 +1,6 @@
 import type { GitOptions } from '../git/exec'
 import type { HeuristicOptions } from '../guide/heuristic'
+import type { GuideFinishDefaults } from '../guide/schema'
 import type { SidecarSource } from '../guide/sidecar'
 import type { Guide, GuideDiagnostic, ReviewDiff } from '../guide/types'
 import { atom } from '@reatom/core'
@@ -99,6 +100,11 @@ export const buildGuideSource: GuideSource = async (request) => {
  * bare function would make Reatom call it as a derivation instead of holding it
  * as state. Tests substitute a scripted source through the same atom.
  */
+export async function peekSidecarFinish(request: GuideRequest): Promise<GuideFinishDefaults | undefined> {
+  const sidecar = request.sidecar ?? await readSidecar(request, { signal: request.signal, exec: request.exec })
+  return loadSidecar(sidecar).finish
+}
+
 export const guideSource = atom<{ readonly build: GuideSource }>(
   { build: buildGuideSource },
   'guide.source',

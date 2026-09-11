@@ -158,6 +158,7 @@ stateDiagram-v2
   starting --> idle: git refused (message shown)
   active --> finishing: finish / cancel
   finishing --> idle
+  finishing --> active: declined retry / finish failed
   active --> idle: rebase ended outside Tabthrough
 ```
 

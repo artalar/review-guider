@@ -24,6 +24,7 @@ export const EDIT_HERE_HINT
 
 export function projectEditHere(input: {
   readonly entryKind: 'workingTree' | 'commit' | 'range'
+  readonly sessionMode?: 'readonly' | 'rebase' | 'worktree'
   readonly file: DiffFile
   readonly step: GuideStep
   readonly baseText: string
@@ -34,7 +35,8 @@ export function projectEditHere(input: {
     .map(group => after.groupRanges.get(group.id))
     .filter(isRange)
 
-  if (input.entryKind !== 'workingTree') {
+  const diskHoldsAfter = input.entryKind === 'workingTree' || input.sessionMode === 'rebase'
+  if (!diskHoldsAfter) {
     return {
       path: input.step.path,
       line: firstLine(snapshotRanges),

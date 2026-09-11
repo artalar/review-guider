@@ -43,4 +43,4 @@ flowchart TD
 
 **v0.2 (stopped)** — apply-with-user track (P0-A3…A6) superseded before ship; guide-quality track (P0-G1–G3) **Done**.
 
-**Next (v0.3 — git-first)** — [ADR 0005](../decisions/0005-git-first-sessions.md) accepted. Phase 12 (P0-N2) **landed**: snapshot read-only, git-state sidebar, isolation deleted. **Next: Implementer P0-N3 (Phase 13, rebase mode).**
+**Next (v0.3 — git-first)** — [ADR 0005](../decisions/0005-git-first-sessions.md) accepted. Phase 12 (P0-N2) **landed**. Phase 13 (P0-N3 rebase) **landed**. **Next: Implementer P0-N4 (Phase 14, worktree mode).**

@@ -5,7 +5,20 @@ import type { StartRequest } from '../../src/model/session'
 import type { Session } from '../../src/model/steps'
 import { access, mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { canStart, gitCapability, gitState, ports, startSession, workspaceRoot } from '../../src/model/session'
+import process from 'node:process'
+import { fileURLToPath } from 'node:url'
+import {
+  canStart,
+  connectOwnershipWatch,
+  gitCapability,
+  gitState,
+  ports,
+  sequenceEditorExecPath,
+  sequenceEditorPath,
+  startPreview,
+  startSession,
+  workspaceRoot,
+} from '../../src/model/session'
 import { setupPhase, sidecarExists, skillInstalled } from '../../src/model/setup'
 import { reviewViewModel } from '../../src/model/view'
 
@@ -39,6 +52,12 @@ export interface ModelHarness {
   scmOpened: number
   saveDocumentsResult: { readonly ok: true } | { readonly ok: false, readonly path: string }
   readonly saveDocumentsCalls: Array<{ readonly repoRoot: string, readonly paths: readonly string[] }>
+  pickedUntracked: readonly string[]
+  pickUntrackedCancelled: boolean
+  pickUntrackedWait: Promise<readonly string[] | undefined> | null
+  onPickUntracked: (() => void) | null
+  notifyWait: Promise<string | undefined> | null
+  onNotify: (() => void) | null
   readonly dispose: () => void
 }
 
@@ -62,6 +81,12 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
     scmOpened: 0,
     saveDocumentsResult: { ok: true },
     saveDocumentsCalls: [],
+    pickedUntracked: [],
+    pickUntrackedCancelled: false,
+    pickUntrackedWait: null,
+    onPickUntracked: null,
+    notifyWait: null,
+    onNotify: null,
     dispose: () => {
       while (unsubscribes.length > 0)
         unsubscribes.pop()?.()
@@ -72,6 +97,9 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
     ui: {
       notify: async (level, message) => {
         notifications.push({ level, message })
+        harness.onNotify?.()
+        if (harness.notifyWait !== null)
+          return await harness.notifyWait
         return harness.answer
       },
       openReview: async () => {},
@@ -111,6 +139,14 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
       logGit: (result) => {
         harness.gitLogs.push({ command: result.command, code: result.code })
       },
+      pickUntracked: async () => {
+        harness.onPickUntracked?.()
+        if (harness.pickUntrackedWait !== null)
+          return await harness.pickUntrackedWait
+        if (harness.pickUntrackedCancelled)
+          return undefined
+        return harness.pickedUntracked
+      },
     },
     clock: {
       sessionId: () => options.sessionId ?? 'entry-session',
@@ -119,10 +155,14 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
 
   ports.set(installed)
   workspaceRoot.set(root)
+  sequenceEditorPath.set(fileURLToPath(new URL('./sequence-editor.cjs', import.meta.url)))
+  sequenceEditorExecPath.set(process.execPath)
 
   unsubscribes.push(
     canStart.subscribe(() => {}),
     gitState.subscribe(() => {}),
+    startPreview.subscribe(() => {}),
+    connectOwnershipWatch(),
     skillInstalled.subscribe(() => {}),
     sidecarExists.subscribe(() => {}),
     setupPhase.subscribe(() => {}),

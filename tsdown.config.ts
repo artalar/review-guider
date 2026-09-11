@@ -4,6 +4,7 @@ import { defineConfig } from 'tsdown'
 export default defineConfig({
   entry: [
     'src/index.ts',
+    'src/sequence-editor.ts',
   ],
   format: ['cjs'],
   shims: false,

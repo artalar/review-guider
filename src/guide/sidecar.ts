@@ -1,4 +1,4 @@
-import type { GuideDoc } from './schema'
+import type { GuideDoc, GuideFinishDefaults } from './schema'
 import type { GuideDiagnostic } from './types'
 import { validateGuideDoc } from './schema'
 
@@ -15,6 +15,7 @@ export interface SidecarSource {
 export interface SidecarLoad {
   readonly doc: GuideDoc | null
   readonly diagnostics: readonly GuideDiagnostic[]
+  readonly finish?: GuideFinishDefaults
 }
 
 /** guide-schema.md §2: setting first, then `.tabthrough-guide.json`, then `.guide.json`. */
@@ -87,5 +88,9 @@ export function loadSidecar(source: SidecarSource | null): SidecarLoad {
     }
   }
 
-  return { doc: result.value.doc, diagnostics: result.value.diagnostics }
+  return {
+    doc: result.value.doc,
+    diagnostics: result.value.diagnostics,
+    ...(result.value.doc.defaults.finish === undefined ? {} : { finish: result.value.doc.defaults.finish }),
+  }
 }

@@ -41,7 +41,7 @@ Git sorts by path. Explanation order is different: types before callers, schema 
 | Mode | What it does | Landed |
 |------|----------------|--------|
 | Read-only | Virtual documents. Working changes get a snapshot ref; commit and range touch nothing. **Edit here** opens the real file for a working-tree review. | Yes |
-| Rebase | Interactive rebase stopped at the reviewed commit | Later |
+| Rebase | Interactive rebase stopped at the reviewed commit. **Edit here** opens the real file. Finish amends and `--continue`; Cancel is `--abort`. | Yes |
 | Worktree | Detached worktree in a new window | Later |
 
 Alt+] and Alt+[ always advance. Ordinary Tab still indents in real file editors. Turn off `tabthrough.keybinding.useTab` to use only the alternate shortcuts. **Alt+Enter** is Edit here while a review document is focused.
@@ -67,7 +67,7 @@ Every action is a git command you could type. Read-only review does not move HEA
 - Two windows can review the same repository at once.
 - A rebase, merge, or leftover autostash started in a terminal shows in the sidebar with **Continue**, **Abort**, **Pop**, and the other named git buttons. Their stdout and stderr go to the Tabthrough output channel.
 
-Rebase and worktree modes will use `git rebase -i --autostash` and `git worktree add --detach` when those phases land. Details: [`work-docs/architecture/overview.md`](work-docs/architecture/overview.md).
+Rebase mode runs `git rebase -i --autostash` stopped at the reviewed commit. Finish is `add -u`, optional `add` of ticked untracked files, `commit --amend --no-edit`, then `rebase --continue`. Cancel is `git rebase --abort`. Worktree mode lands later. Details: [`work-docs/architecture/overview.md`](work-docs/architecture/overview.md).
 
 ## Bring the author’s intent with `.guide.json`
 
@@ -94,7 +94,9 @@ Malformed guides never block a review: every failure falls back to the heuristic
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------- | -------------------------- |
 | `tabthrough.showRationale`       | Show the one-line reason each step was ordered where it is (for example "types before callers") in the status bar.           | `boolean` | `true`                     |
 | `tabthrough.reveal.mode`         | How the reviewed change is revealed as you advance through steps.                                                            | `string`  | `"progressive"`            |
-| `tabthrough.session.mode`        | Which git primitive a session uses. Read-only is the only landed mode.                                                       | `string`  | `"ask"`                    |
+| `tabthrough.session.mode`        | Which git primitive a session uses. Read-only and rebase are landed; worktree comes later.                                   | `string`  | `"ask"`                    |
+| `tabthrough.finish.hooks`        | Run git hooks (pre-rebase, pre-commit, commit-msg) when starting and finishing a rebase review. Off by default.              | `boolean` | `false`                    |
+| `tabthrough.finish.sign`         | GPG-sign the amended commit and replayed commits. Off by default; replayed commits stay unsigned unless this is on.          | `boolean` | `false`                    |
 | `tabthrough.guideFile`           | Repository-relative path of the optional guide sidecar that overrides the heuristic step order.                              | `string`  | `".tabthrough-guide.json"` |
 | `tabthrough.keybinding.useTab`   | Bind Tab to the next review step while a review document is focused. Alt+] and Alt+[ always work regardless of this setting. | `boolean` | `true`                     |
 | `tabthrough.maxLinesPerStep`     | Upper bound on how many low-significance changed lines are coalesced into a single step.                                     | `number`  | `24`                       |
@@ -123,6 +125,7 @@ Malformed guides never block a review: every failure falls back to the heuristic
 | `tabthrough.generateSimple`  | Tabthrough: Generate Simple Guide        |
 | `tabthrough.generateAgent`   | Tabthrough: Generate Agent Guide         |
 | `tabthrough.setupBack`       | Tabthrough: Back                         |
+| `tabthrough.chooseMode`      | Tabthrough: Choose Session Mode          |
 | `tabthrough.next`            | Tabthrough: Reveal Next Change           |
 | `tabthrough.previous`        | Tabthrough: Go Back One Change           |
 | `tabthrough.showStepDetail`  | Tabthrough: Go to Current Step           |

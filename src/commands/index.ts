@@ -6,6 +6,7 @@ import {
   abortRebase,
   cancelSession,
   canStart,
+  chooseMode,
   commitHandoff,
   continueRebase,
   editHere,
@@ -84,6 +85,10 @@ export function useGuideCommands(): void {
       await wrap(generateAgentGuide())
     })),
     [Commands.setupBack]: wrap(() => guard('setupBack', async () => setupBack())),
+    [Commands.chooseMode]: wrap((mode?: unknown) => guard('chooseMode', async () => {
+      if (mode === 'readonly' || mode === 'rebase' || mode === 'worktree')
+        chooseMode(mode)
+    })),
     [Commands.next]: wrap(() => guard('next', advance)),
     [Commands.previous]: wrap(() => guard('previous', retreat)),
     [Commands.showStepDetail]: wrap(() => guard('showStepDetail', revealCurrentStep)),

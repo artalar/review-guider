@@ -2,7 +2,7 @@ import type { GuideDoc } from '../../src/guide/schema'
 import type { Guide, ReviewDiff } from '../../src/guide/types'
 import { describe, expect, it } from 'vitest'
 import { buildHeuristicGuide } from '../../src/guide/heuristic'
-import { mergeGuide } from '../../src/guide/merge'
+import { mergeGuide, resolveFinishPolicy } from '../../src/guide/merge'
 import { parseUnifiedDiff } from '../../src/guide/parse-diff'
 import { validateGuideDoc } from '../../src/guide/schema'
 import { loadSidecar } from '../../src/guide/sidecar'
@@ -358,5 +358,18 @@ describe('mergeGuide — a broken sidecar never breaks the session', () => {
     expect(guide.steps).toEqual(heuristic.steps)
     expect(diagnostics.filter(diagnostic => diagnostic.severity === 'warning')).toHaveLength(1)
     assertI1(guide, diff)
+  })
+})
+
+describe('resolveFinishPolicy', () => {
+  it('uses settings when the guide omits finish', () => {
+    expect(resolveFinishPolicy(undefined, { hooks: false, sign: false })).toEqual({ hooks: false, sign: false })
+    expect(resolveFinishPolicy(undefined, { hooks: true, sign: true })).toEqual({ hooks: true, sign: true })
+  })
+
+  it('lets the guide override each field independently', () => {
+    expect(resolveFinishPolicy({ hooks: true }, { hooks: false, sign: false })).toEqual({ hooks: true, sign: false })
+    expect(resolveFinishPolicy({ sign: true }, { hooks: false, sign: false })).toEqual({ hooks: false, sign: true })
+    expect(resolveFinishPolicy({ hooks: false, sign: false }, { hooks: true, sign: true })).toEqual({ hooks: false, sign: false })
   })
 })

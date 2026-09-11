@@ -72,6 +72,7 @@ MVP reads a single document. Multi-document layouts (`.guide/*.json` keyed by re
 |-------|------|---------|---------|
 | `mergeStrategy` | `"merge" \| "replace"` | `"merge"` | `merge`: heuristic fills whatever the guide does not cover. `replace`: heuristic contributes no ordering, and uncovered groups become one trailing step per file |
 | `maxLinesPerStep` | integer 1–500 | reader setting (`24`) | Sizing bound used when a step is `grouping: "split"` |
+| `finish` | `{ hooks?: boolean, sign?: boolean }` | omitted | Rebase Finish policy for this review. Overrides `tabthrough.finish.hooks` / `tabthrough.finish.sign`. Resolution is guide → setting → `false`. |
 
 `replace` never means "hide the rest". Uncovered lines are always revealed; `replace` only says "do not let the heuristic interleave its own ordering with mine".
 

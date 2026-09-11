@@ -9,6 +9,7 @@ import {
   hasConflicts,
   hasTabthroughWorktree,
   isSessionActive,
+  isSessionFinishing,
   isSessionOpen,
   rebaseInProgress,
   session,
@@ -36,6 +37,7 @@ export function useGuideContextKeys(): void {
   const start = useAtomRef(canStart)
   const active = useAtomRef(isSessionActive)
   const open = useAtomRef(isSessionOpen)
+  const finishing = useAtomRef(isSessionFinishing)
   const model = useAtomRef(session)
   const rebase = useAtomRef(rebaseInProgress)
   const autostash = useAtomRef(hasAutostash)
@@ -48,6 +50,7 @@ export function useGuideContextKeys(): void {
   useVscodeContext('tabthrough.canStart', () => start.value)
   useVscodeContext('tabthrough.sessionActive', () => active.value)
   useVscodeContext('tabthrough.sessionOpen', () => open.value)
+  useVscodeContext('tabthrough.sessionFinishing', () => finishing.value)
   useVscodeContext('tabthrough.sessionMode', () => model.value?.mode ?? '')
   useVscodeContext('tabthrough.rebaseInProgress', () => rebase.value)
   useVscodeContext('tabthrough.hasAutostash', () => autostash.value)

@@ -60,6 +60,7 @@ describe('contributed commands', () => {
     expect(declared).toEqual([
       'tabthrough.abortRebase',
       'tabthrough.cancel',
+      'tabthrough.chooseMode',
       'tabthrough.commitHandoff',
       'tabthrough.continueRebase',
       'tabthrough.editHere',
@@ -95,8 +96,10 @@ describe('contributed commands', () => {
     const { contributes } = await manifest()
     const cancel = contributes.commands.find(entry => entry.command === 'tabthrough.cancel')
 
-    expect(cancel?.enablement).toBe('tabthrough.sessionOpen')
+    expect(cancel?.enablement).toBe('tabthrough.sessionOpen && !tabthrough.sessionFinishing')
     expect(cancel?.title).toBe('Cancel Review')
+    const title = contributes.menus?.['view/title']?.find(entry => entry.command === 'tabthrough.cancel')
+    expect(title?.when).toBe('view == tabthrough.sidebar && tabthrough.sessionOpen && !tabthrough.sessionFinishing')
   })
 
   it('does not ship isolation recovery commands', async () => {
@@ -240,9 +243,13 @@ describe('keybindings', () => {
     const setting = contributes.configuration.properties['tabthrough.session.mode'] as {
       default?: string
       enum?: string[]
+      enumDescriptions?: string[]
     }
     expect(setting.default).toBe('ask')
     expect(setting.enum).toEqual(['ask', 'readonly', 'rebase', 'worktree'])
+    expect(setting.enumDescriptions?.[2]).not.toMatch(/later phase/i)
+    expect(contributes.configuration.properties['tabthrough.finish.hooks']).toMatchObject({ default: false })
+    expect(contributes.configuration.properties['tabthrough.finish.sign']).toMatchObject({ default: false })
   })
 
   it('declares the worktree root setting', async () => {
@@ -277,6 +284,7 @@ describe('keybindings', () => {
       'tabthrough.generateSimple',
       'tabthrough.generateAgent',
       'tabthrough.setupBack',
+      'tabthrough.chooseMode',
     ])
       expect(hidden.has(command), command).toBe(true)
   })

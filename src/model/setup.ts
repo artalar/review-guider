@@ -23,7 +23,7 @@ import { parseUnifiedDiff } from '../guide/parse-diff'
 import { formatGuideJson, serializeGuide } from '../guide/serialize'
 import { resolveSafeSidecarPath } from '../guide/sidecar'
 import { guideFile, heuristicOptions } from './config'
-import { EmptyDiffError, gitCapability, ports, sessionStatus } from './session'
+import { chosenMode, EmptyDiffError, gitCapability, pendingEntry, ports, sessionStatus } from './session'
 
 export interface HistorySetupPhase {
   readonly commits: readonly CommitSummary[]
@@ -141,6 +141,8 @@ export const resetSetup = action(() => {
   rangeFrom.set(null)
   rangeTo.set(null)
   generateTarget.set(null)
+  pendingEntry.set(null)
+  chosenMode.set(null)
   setupKind.set('home')
 }, 'setup.reset')
 
@@ -180,6 +182,7 @@ export const setupBack = action(() => {
 export const pickWorkingTree = action(() => {
   setupError.set(null)
   generateTarget.set({ kind: 'workingTree' })
+  pendingEntry.set({ kind: 'workingTree' })
   setupKind.set('generate')
 }, 'setup.pickWorkingTree')
 
@@ -206,6 +209,7 @@ export const selectCommit = action((rev: string) => {
   }
   setupError.set(null)
   generateTarget.set({ kind: 'commit', rev: rev.trim() })
+  pendingEntry.set({ kind: 'commit', rev: rev.trim() })
   setupKind.set('generate')
 }, 'setup.selectCommit')
 
@@ -238,6 +242,7 @@ export const submitRange = action((raw: string) => {
   }
   setupError.set(null)
   generateTarget.set({ kind: 'range', from: range.from, to: range.to })
+  pendingEntry.set({ kind: 'range', from: range.from, to: range.to })
   setupKind.set('generate')
 }, 'setup.submitRange')
 

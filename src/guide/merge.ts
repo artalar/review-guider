@@ -1,5 +1,5 @@
 import type { HeuristicOptions } from './heuristic'
-import type { Grouping, GuideDoc, GuideRangeDoc, GuideStepDoc } from './schema'
+import type { Grouping, GuideDoc, GuideFinishDefaults, GuideRangeDoc, GuideStepDoc } from './schema'
 import type { Guide, GuideDiagnostic, GuideStep, LineGroup, ReviewDiff } from './types'
 import { groupSize } from './groups'
 import { DEFAULT_HEURISTIC_OPTIONS } from './heuristic'
@@ -16,6 +16,21 @@ export interface MergeArgs {
 export interface MergeResult {
   readonly guide: Guide
   readonly diagnostics: readonly GuideDiagnostic[]
+}
+
+export interface FinishSettings {
+  readonly hooks: boolean
+  readonly sign: boolean
+}
+
+export function resolveFinishPolicy(
+  guide: GuideFinishDefaults | undefined,
+  settings: FinishSettings,
+): FinishSettings {
+  return {
+    hooks: guide?.hooks ?? settings.hooks,
+    sign: guide?.sign ?? settings.sign,
+  }
 }
 
 interface WorkStep {

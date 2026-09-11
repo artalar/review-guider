@@ -37,9 +37,15 @@ export interface GuideScopeDoc {
   readonly diffDigest?: string
 }
 
+export interface GuideFinishDefaults {
+  readonly hooks?: boolean
+  readonly sign?: boolean
+}
+
 export interface GuideDefaultsDoc {
   readonly mergeStrategy: MergeStrategy
   readonly maxLinesPerStep?: number
+  readonly finish?: GuideFinishDefaults
 }
 
 export interface GuideFileOverrideDoc {
@@ -110,7 +116,8 @@ const STEP_KEYS: readonly string[] = [
 ]
 const RANGE_KEYS: readonly string[] = ['start', 'end', 'side']
 const SCOPE_KEYS: readonly string[] = ['kind', 'base', 'head', 'diffDigest']
-const DEFAULTS_KEYS: readonly string[] = ['mergeStrategy', 'maxLinesPerStep']
+const DEFAULTS_KEYS: readonly string[] = ['mergeStrategy', 'maxLinesPerStep', 'finish']
+const FINISH_KEYS: readonly string[] = ['hooks', 'sign']
 const FILE_OVERRIDE_KEYS: readonly string[] = ['significance', 'rationale']
 const GENERATOR_KEYS: readonly string[] = ['name', 'version', 'model']
 
@@ -125,6 +132,7 @@ export const KNOWN_FIELDS = {
   range: RANGE_KEYS,
   scope: SCOPE_KEYS,
   defaults: DEFAULTS_KEYS,
+  finish: FINISH_KEYS,
   fileOverride: FILE_OVERRIDE_KEYS,
   generator: GENERATOR_KEYS,
 } as const
@@ -364,6 +372,40 @@ function validateScope(input: unknown, c: Collector): GuideScopeDoc | undefined 
   }
 }
 
+function validateFinish(input: unknown, c: Collector): GuideFinishDefaults | undefined {
+  if (input === undefined)
+    return undefined
+  if (!isRecord(input)) {
+    c.fail('invalid-document', '`defaults.finish` must be an object', 'defaults.finish')
+    return undefined
+  }
+  c.unknownFields(input, FINISH_KEYS, 'defaults.finish')
+  const hooks = readOptionalBoolean(input, 'hooks', 'defaults.finish', c)
+  const sign = readOptionalBoolean(input, 'sign', 'defaults.finish', c)
+  if (hooks === undefined && sign === undefined)
+    return {}
+  return {
+    ...(hooks === undefined ? {} : { hooks }),
+    ...(sign === undefined ? {} : { sign }),
+  }
+}
+
+function readOptionalBoolean(
+  source: Record<string, unknown>,
+  key: string,
+  at: string,
+  c: Collector,
+): boolean | undefined {
+  const value = source[key]
+  if (value === undefined)
+    return undefined
+  if (typeof value !== 'boolean') {
+    c.fail('invalid-document', `\`${key}\` must be a boolean`, `${at}.${key}`)
+    return undefined
+  }
+  return value
+}
+
 function validateDefaults(input: unknown, c: Collector): GuideDefaultsDoc {
   if (input === undefined)
     return { mergeStrategy: 'merge' }
@@ -380,7 +422,12 @@ function validateDefaults(input: unknown, c: Collector): GuideDefaultsDoc {
     else
       maxLinesPerStep = input.maxLinesPerStep
   }
-  return maxLinesPerStep === undefined ? { mergeStrategy } : { mergeStrategy, maxLinesPerStep }
+  const finish = validateFinish(input.finish, c)
+  return {
+    mergeStrategy,
+    ...(maxLinesPerStep === undefined ? {} : { maxLinesPerStep }),
+    ...(finish === undefined ? {} : { finish }),
+  }
 }
 
 function validateFiles(input: unknown, c: Collector): Record<string, GuideFileOverrideDoc> {

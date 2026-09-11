@@ -2,7 +2,7 @@
 
 **Version:** 1.2 (ADR 0005 git-first)
 **Owner:** Architect
-**Status:** Phase 12 landed — four-state machine, `gitState`, no recovery atoms
+**Status:** Phase 13 landed — rebase start/finish/cancel, `startPreview`, ownership watch
 **Target:** `@reatom/core@1001`
 **Last updated:** 2026-09-10
 **Companions:** [overview.md](overview.md) · [guide-schema.md](guide-schema.md) · [ADR 0002](../decisions/0002-architecture.md) · [ADR 0005](../decisions/0005-git-first-sessions.md)
@@ -53,7 +53,8 @@ session.status.to            action
 session                      atom<Session | null>
 session.isolation            atom<IsolationHandle | null>        after-ref handle
 session.diagnostics          atom<readonly GuideDiagnostic[]>
-session.willRun              computed<string>                    "nothing" in Phase 12
+session.willRun              computed<string>                    "nothing" or the rebase command
+session.startPreview         computed + withAsyncData            mode, notes, ancestor, Start enablement
 session.editedPaths          computed + withAsyncData
 session.editHereEnabled      computed<boolean>
 session.start                action + withAsync({status}) + withAbort('first-in-win')
@@ -66,14 +67,14 @@ ui.gitUsable / canStart / rebaseInProgress / hasAutostash / …
 ui.reviewViewModel           computed<ReviewViewModel | null>
 ui.sidebarViewModel          computed<SidebarViewModel>
 
-session#<id>.mode            plain SessionMode                   Phase 12 always 'readonly'
+session#<id>.mode            plain SessionMode                   readonly | rebase
 session#<id>.cursor          atom<number>
 session#<id>.next / prev / jumpTo   sync actions
 ```
 
 Removed: recovery.*, preflight.*, applyPending, StorePort, heartbeat.
 
-> Sections 5–7 below still contain historical apply / recovery snippets. Treat §2 and §4 as normative for Phase 12.
+> Sections 5–7 below still contain historical apply / recovery snippets. Treat §2 and §4 as normative for Phase 13.
 
 ---
 
@@ -145,7 +146,7 @@ const LEGAL: Readonly<Record<SessionStatus, readonly SessionStatus[]>> = {
   idle: ['starting'],
   starting: ['active', 'idle'],
   active: ['finishing', 'idle'],
-  finishing: ['idle'],
+  finishing: ['idle', 'active'],
 }
 
 export const sessionStatus = atom<SessionStatus>('idle', 'session.status').extend(target => ({

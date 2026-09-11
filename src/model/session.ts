@@ -1,5 +1,6 @@
-import type { IsolationHandle } from '../git/isolate'
+import type { IsolationHandle, IsolationPlan } from '../git/isolate'
 import type { GitCapability, RepoStatus } from '../git/probe'
+import type { RebaseRefuseReason } from '../git/rebase'
 import type { GitCommandResult, GitState } from '../git/state'
 import type { ReviewTarget, SessionMode } from '../git/types'
 import type { SidecarSource } from '../guide/sidecar'
@@ -21,7 +22,8 @@ import {
   withAsyncData,
   wrap,
 } from '@reatom/core'
-import { showBlob } from '../git/diff'
+import { resolveCommit, showBlob } from '../git/diff'
+import { GitCommandError } from '../git/exec'
 import {
   beginReview,
   EntryNotSupportedError,
@@ -31,6 +33,19 @@ import {
   sweepStaleAfterRefs,
 } from '../git/isolate'
 import { probeGit, readStatus } from '../git/probe'
+import {
+  countCommitsAfter,
+  formatRebaseCommand,
+  gitOutput,
+  ownsRebase,
+  readCommitGpgSign,
+  readOwnership,
+  abortRebase as rebaseAbort,
+  rebaseRefuseReason,
+  finishRebase as runFinishRebase,
+  startRebase,
+  stripGitProgress,
+} from '../git/rebase'
 import {
   abortRebase as gitAbortRebase,
   continueRebase as gitContinueRebase,
@@ -43,19 +58,46 @@ import {
 import { describeTarget } from '../git/types'
 import { readWorktreeFile } from '../git/workdir'
 import { projectEditHere } from '../guide/edit-here'
-import { guideFile, heuristicOptions, sessionModeSetting, worktreeDir } from './config'
-import { guideSource } from './guide-source'
+import { resolveFinishPolicy } from '../guide/merge'
+import {
+  finishHooks,
+  finishSign,
+  guideFile,
+  heuristicOptions,
+  sequenceEditorExecPath,
+  sequenceEditorPath,
+  sessionModeSetting,
+  worktreeDir,
+} from './config'
+import { guideSource, peekSidecarFinish } from './guide-source'
 import { inertPorts } from './ports'
 import { reatomSession } from './steps'
 
 export {
+  finishHooks,
+  finishSign,
   guideFile,
   heuristicOptions,
   revealMode,
+  sequenceEditorExecPath,
+  sequenceEditorPath,
   sessionModeSetting,
   showRationale,
   worktreeDir,
 } from './config'
+
+export const WORKTREE_HINT = 'This commit is not on the current branch. Start in Worktree mode.'
+export const MERGE_AFTER_HINT = 'This commit is a merge — start in Worktree mode'
+export const MERGE_ABOVE_HINT = 'There is a merge above this commit — start in Worktree mode'
+export const REBASE_IN_PROGRESS_HINT = 'Finish or abort the rebase in progress first'
+export const CONFLICT_STOP = 'Stopped on a conflict — resolve, then Continue in the sidebar.'
+export const RETRY_WITHOUT_HOOKS = 'Retry without hooks / signing'
+export const OWNERSHIP_LOST = 'The rebase is no longer stopped at the reviewed commit.'
+export const WORKTREE_LATER = 'Worktree mode lands in a later phase.'
+
+export function rebaseCompletedMessage(origHead: string): string {
+  return `The rebase completed instead of stopping at the reviewed commit. ORIG_HEAD is ${origHead}.`
+}
 
 export const workspaceRoot = atom<string | null>(null, 'workspaceRoot')
 export const ports = atom<Ports>(inertPorts, 'ports')
@@ -71,7 +113,7 @@ export const LEGAL_TRANSITIONS: Readonly<Record<SessionStatus, readonly SessionS
   idle: ['starting'],
   starting: ['active', 'idle'],
   active: ['finishing', 'idle'],
-  finishing: ['idle'],
+  finishing: ['idle', 'active'],
 }
 
 export class IllegalTransitionError extends Error {
@@ -120,6 +162,7 @@ export const sessionStatus = atom<SessionStatus>('idle', 'session.status').exten
 
 export const isSessionActive = computed(() => sessionStatus() === 'active', 'session.isActive')
 export const isSessionOpen = computed(() => sessionStatus() !== 'idle', 'session.isOpen')
+export const isSessionFinishing = computed(() => sessionStatus() === 'finishing', 'session.isFinishing')
 
 const NO_WORKSPACE: GitCapability = {
   ok: false,
@@ -129,7 +172,7 @@ const NO_WORKSPACE: GitCapability = {
 
 export const gitCapability = computed(async (): Promise<GitCapability | null> => {
   const root = workspaceRoot()
-  if (sessionStatus() === 'idle')
+  if (!isSessionOpen())
     gitWatchToken()
 
   if (root === null)
@@ -167,13 +210,170 @@ export const gitState = computed(async (): Promise<GitState | null> => {
 export const session = atom<Session | null>(null, 'session')
 export const isolation = atom<IsolationHandle | null>(null, 'session.isolation')
 export const guideDiagnostics = atom<readonly GuideDiagnostic[]>([], 'session.diagnostics')
+export const pendingEntry = atom<ReviewTarget | null>(null, 'session.pendingEntry')
+export const chosenMode = atom<SessionMode | null>(null, 'session.chosenMode')
+export const rebaseOwnership = atom<{ readonly after: string, readonly origHead: string } | null>(null, 'session.rebaseOwnership')
+const pauseOwnership = atom(false, 'session.pauseOwnership')
+const inflightWillRun = atom('nothing', 'session.inflightWillRun')
 
-export const willRun = computed((): string => 'nothing', 'session.willRun')
+export interface StartPreview {
+  readonly mode: SessionMode
+  readonly willRun: string
+  readonly notes: string
+  readonly rebaseApplicable: boolean
+  readonly rebaseHint: string | null
+  readonly startEnabled: boolean
+  readonly startHint: string | null
+  readonly showModePicker: boolean
+  readonly showRebase: boolean
+}
+
+const IDLE_PREVIEW: StartPreview = {
+  mode: 'readonly',
+  willRun: 'nothing',
+  notes: 'Read-only — the working tree is not checked out.',
+  rebaseApplicable: false,
+  rebaseHint: null,
+  startEnabled: true,
+  startHint: null,
+  showModePicker: false,
+  showRebase: false,
+}
+
+export function previewMode(
+  setting: 'ask' | SessionMode,
+  chosen: SessionMode | null,
+  entry: ReviewTarget | null,
+): SessionMode {
+  const requested = setting === 'ask' ? (chosen ?? 'readonly') : setting
+  if (requested === 'worktree')
+    return 'readonly'
+  if (requested === 'rebase' && entry?.kind === 'workingTree')
+    return 'readonly'
+  return requested
+}
+
+export const startPreview = computed(async (): Promise<StartPreview> => {
+  const entry = pendingEntry()
+  const setting = sessionModeSetting()
+  const chosen = chosenMode()
+  const capabilityPromise = gitCapability()
+  const statusPromise = repoStatus()
+  const hooks = finishHooks()
+  const sign = finishSign()
+  const options = heuristicOptions()
+  const guide = guideFile()
+  gitWatchToken()
+
+  const requested = setting === 'ask' ? (chosen ?? 'readonly') : setting
+  const showModePicker = setting === 'ask' && entry !== null
+  const showRebase = entry !== null && entry.kind !== 'workingTree'
+  const mode = previewMode(setting, chosen, entry)
+
+  if (requested === 'worktree') {
+    return {
+      ...IDLE_PREVIEW,
+      mode,
+      showModePicker,
+      showRebase,
+      startEnabled: false,
+      startHint: WORKTREE_LATER,
+    }
+  }
+
+  if (entry === null) {
+    return { ...IDLE_PREVIEW, mode, showModePicker, showRebase }
+  }
+
+  const capability = await wrap(capabilityPromise)
+  if (capability === null || !capability.ok) {
+    return {
+      ...IDLE_PREVIEW,
+      mode,
+      showModePicker,
+      showRebase,
+      startEnabled: false,
+      startHint: capability === null ? 'Checking the repository…' : capability.message,
+    }
+  }
+
+  if (entry.kind === 'workingTree' || mode === 'readonly') {
+    const applicability = entry.kind === 'workingTree'
+      ? { applicable: false, hint: null as string | null, plan: null, after: null }
+      : await wrap(assessRebase(capability.repoRoot, entry))
+    return {
+      ...IDLE_PREVIEW,
+      mode: 'readonly',
+      showModePicker,
+      showRebase,
+      rebaseApplicable: applicability.applicable,
+      rebaseHint: applicability.hint,
+    }
+  }
+
+  const applicability = await wrap(assessRebase(capability.repoRoot, entry))
+  if (applicability.plan === null || applicability.after === null) {
+    return {
+      ...IDLE_PREVIEW,
+      mode: 'readonly',
+      showModePicker,
+      showRebase,
+      startEnabled: false,
+      startHint: applicability.hint ?? 'Could not resolve that revision.',
+    }
+  }
+
+  if (!applicability.applicable) {
+    return {
+      ...IDLE_PREVIEW,
+      mode: 'readonly',
+      showModePicker,
+      showRebase,
+      rebaseApplicable: false,
+      rebaseHint: applicability.hint,
+      startEnabled: requested !== 'rebase',
+      startHint: requested === 'rebase' ? applicability.hint : null,
+    }
+  }
+
+  const guideFinish = await wrap(peekSidecarFinish({
+    repoRoot: capability.repoRoot,
+    baseRev: applicability.plan.baseRev,
+    afterRev: applicability.after,
+    options,
+    guideFile: guide,
+  }))
+  const policy = resolveFinishPolicy(guideFinish, { hooks, sign })
+  const above = await wrap(countCommitsAfter(capability.repoRoot, applicability.after))
+  const gpgsign = await wrap(readCommitGpgSign(capability.repoRoot))
+  const status = await wrap(statusPromise)
+  const dirty = status === null ? 0 : new Set([...status.staged, ...status.unstaged]).size
+  const staged = status?.staged.length ?? 0
+  const notes = rebaseStartNotes(dirty, staged, above, gpgsign && !policy.sign)
+
+  return {
+    mode: 'rebase',
+    willRun: formatRebaseCommand(applicability.plan.baseRev, policy.hooks, policy.sign),
+    notes,
+    rebaseApplicable: true,
+    rebaseHint: null,
+    startEnabled: true,
+    startHint: null,
+    showModePicker,
+    showRebase,
+  }
+}, 'session.startPreview').extend(withAsyncData({ initState: IDLE_PREVIEW }))
+
+export const willRun = computed((): string => {
+  if (sessionStatus() !== 'idle')
+    return inflightWillRun()
+  return startPreview.data().willRun
+}, 'session.willRun')
 
 export const editedPaths = computed(async (): Promise<readonly string[]> => {
   const model = session()
   gitWatchToken()
-  if (model === null || model.entry.kind !== 'workingTree')
+  if (model === null || !diskHoldsAfter(model.entry.kind, model.mode))
     return []
 
   const out: string[] = []
@@ -190,7 +390,7 @@ export const editedPaths = computed(async (): Promise<readonly string[]> => {
 
 export const editHereEnabled = computed((): boolean => {
   const model = session()
-  return model !== null && sessionStatus() === 'active' && model.entry.kind === 'workingTree'
+  return model !== null && sessionStatus() === 'active' && diskHoldsAfter(model.entry.kind, model.mode)
 }, 'session.editHereEnabled')
 
 export interface StartRequest {
@@ -202,24 +402,119 @@ export interface StartRequest {
 
 const startAttempt = atom(0, 'session.startAttempt')
 const cancelledStartAttempt = atom<number | null>(null, 'session.cancelledStartAttempt')
+const startRebaseInFlight = atom(false, 'session.startRebaseInFlight')
 const startSettled = action((attempt: number) => attempt, 'session.startSettled')
 
-function landedMode(requested: SessionMode | undefined): SessionMode {
-  if (requested === 'readonly' || requested === 'rebase' || requested === 'worktree')
-    return 'readonly'
+export const chooseMode = action((mode: SessionMode) => {
+  chosenMode.set(mode)
+}, 'session.chooseMode')
+
+export class RebaseNotApplicableError extends Error {
+  override readonly name = 'RebaseNotApplicableError'
+  constructor(message = WORKTREE_HINT) {
+    super(message)
+  }
+}
+
+export class WorktreeNotReadyError extends Error {
+  override readonly name = 'WorktreeNotReadyError'
+  constructor() {
+    super(WORKTREE_LATER)
+  }
+}
+
+function landedMode(requested: SessionMode | undefined, entry: ReviewTarget): SessionMode {
+  if (requested === 'worktree')
+    throw new WorktreeNotReadyError()
+  if (requested === 'readonly' || requested === 'rebase')
+    return requested
   const setting = peek(sessionModeSetting)
-  return setting === 'ask' ? 'readonly' : 'readonly'
+  return previewMode(setting, peek(chosenMode), entry)
+}
+
+function diskHoldsAfter(entryKind: ReviewTarget['kind'], mode: SessionMode): boolean {
+  return entryKind === 'workingTree' || mode === 'rebase'
+}
+
+function rebaseStartNotes(dirty: number, staged: number, above: number, unsigned: boolean): string {
+  const parts: string[] = []
+  if (dirty > 0)
+    parts.push(`autostash will park ${dirty} file${dirty === 1 ? '' : 's'}`)
+  if (staged > 0)
+    parts.push('staged changes come back unstaged')
+  if (above > 0)
+    parts.push(`${above} commit${above === 1 ? '' : 's'} above will be rewritten`)
+  if (unsigned)
+    parts.push('replayed commits will be unsigned')
+  return parts.length === 0
+    ? 'Rebase stops at the reviewed commit.'
+    : parts.join('; ')
+}
+
+function hintForRefuse(reason: RebaseRefuseReason): string {
+  switch (reason) {
+    case 'not-ancestor':
+      return WORKTREE_HINT
+    case 'merge-after':
+      return MERGE_AFTER_HINT
+    case 'merge-above':
+      return MERGE_ABOVE_HINT
+    case 'in-progress':
+      return REBASE_IN_PROGRESS_HINT
+  }
+}
+
+async function assessRebase(
+  repoRoot: string,
+  entry: ReviewTarget,
+): Promise<{
+  readonly after: string | null
+  readonly plan: IsolationPlan | null
+  readonly applicable: boolean
+  readonly hint: string | null
+}> {
+  try {
+    const plan = await planIsolation(repoRoot, { entry })
+    if (plan.afterRev === null)
+      return { after: null, plan, applicable: false, hint: WORKTREE_HINT }
+    const reason = await rebaseRefuseReason(repoRoot, plan.afterRev, plan.baseRev)
+    return {
+      after: plan.afterRev,
+      plan,
+      applicable: reason === null,
+      hint: reason === null ? null : hintForRefuse(reason),
+    }
+  }
+  catch {
+    return { after: null, plan: null, applicable: false, hint: 'Could not resolve that revision.' }
+  }
+}
+
+function finishSessionStillOpen(model: Session, expected: 'active' | 'finishing'): boolean {
+  return peek(sessionStatus) === expected
+    && peek(session) === model
+    && peek(rebaseOwnership) !== null
 }
 
 interface StartFailure {
   readonly error: unknown
   readonly inherited: IsolationHandle | null
   readonly attempt: number
+  readonly repoRoot: string | null
 }
 
-const startFailed = action(async ({ error, inherited, attempt }: StartFailure): Promise<void> => {
+const startFailed = action(async ({ error, inherited, attempt, repoRoot }: StartFailure): Promise<void> => {
   const handle = peek(isolation)
   try {
+    const owned = peek(rebaseOwnership)
+    if (owned !== null) {
+      const root = repoRoot ?? peek(workspaceRoot)
+      if (root !== null)
+        await wrap(reportGit(await wrap(rebaseAbort(root))))
+      rebaseOwnership.set(null)
+    }
+    inflightWillRun.set('nothing')
+
     if (handle !== null && handle === inherited) {
       if (!isAbort(error))
         await wrap(peek(ports).ui.notify('error', describeStartFailure(error)))
@@ -231,6 +526,8 @@ const startFailed = action(async ({ error, inherited, attempt }: StartFailure): 
 
     isolation.set(null)
     session.set(null)
+    rebaseOwnership.set(null)
+    inflightWillRun.set('nothing')
     if (peek(sessionStatus) !== 'idle')
       sessionStatus.to('idle')
 
@@ -256,7 +553,15 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
   const inherited = peek(isolation)
   const attempt = startAttempt.set(value => value + 1)
   cancelledStartAttempt.set(null)
-  framePromise().catch(error => startFailed({ error, inherited, attempt }))
+  let startRepoRoot: string | null = null
+  framePromise().catch((error) => {
+    abortVar.spawn(() => {
+      void startFailed({ error, inherited, attempt, repoRoot: startRepoRoot }).catch((failure) => {
+        if (!isAbort(failure))
+          void peek(ports).ui.notify('error', describeStartFailure(failure))
+      })
+    })
+  })
   sessionStatus.to('starting')
 
   const signal = abortVar.require().signal
@@ -266,12 +571,15 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
     throw new GitUnavailableError(capability)
 
   const { repoRoot } = capability
-  const resolvedMode = landedMode(request.sessionMode)
+  startRepoRoot = repoRoot
+  const resolvedMode = landedMode(request.sessionMode, request.entry)
+  if (resolvedMode === 'rebase' && request.entry.kind === 'workingTree')
+    throw new RebaseNotApplicableError('Rebase is not offered for working changes.')
 
   if (peek(cancelledStartAttempt) === attempt)
     throwAbort()
 
-  if (request.entry.kind === 'workingTree') {
+  if (request.entry.kind === 'workingTree' || resolvedMode === 'rebase') {
     const saved = await wrap(peek(ports).ui.saveDocuments(repoRoot, []))
     if (!saved.ok) {
       await wrap(peek(ports).ui.notify('warn', `Save ${saved.path} before starting Tabthrough.`))
@@ -286,6 +594,90 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
     throw new EmptyDiffError(request.entry, 'empty')
   if (plan.substantiveLineCount === 0)
     throw new EmptyDiffError(request.entry, 'whitespace')
+
+  const guideFinish = await wrap(peekSidecarFinish({
+    repoRoot,
+    baseRev: plan.baseRev,
+    afterRev: plan.afterRev ?? plan.baseRev,
+    options: peek(heuristicOptions),
+    guideFile: request.guideFile ?? peek(guideFile),
+    ...(request.sidecar === undefined ? {} : { sidecar: request.sidecar }),
+    signal,
+  }))
+  const finish = resolveFinishPolicy(guideFinish, {
+    hooks: peek(finishHooks),
+    sign: peek(finishSign),
+  })
+
+  if (resolvedMode === 'rebase') {
+    if (plan.afterRev === null)
+      throw new RebaseNotApplicableError()
+    const refuse = await wrap(rebaseRefuseReason(repoRoot, plan.afterRev, plan.baseRev, { signal }))
+    if (refuse !== null)
+      throw new RebaseNotApplicableError(hintForRefuse(refuse))
+
+    const origHead = await wrap(resolveCommit(repoRoot, 'HEAD', { signal }))
+    if (origHead === null)
+      throw new GitUnavailableError(capability)
+
+    const editor = peek(sequenceEditorPath)
+    const execPath = peek(sequenceEditorExecPath)
+    if (editor === null || execPath === null)
+      throw new Error('Tabthrough could not find its rebase sequence editor.')
+
+    inflightWillRun.set(formatRebaseCommand(plan.baseRev, finish.hooks, finish.sign))
+    startRebaseInFlight.set(true)
+    let started: GitCommandResult
+    try {
+      started = await wrap(startRebase({
+        repoRoot,
+        base: plan.baseRev,
+        after: plan.afterRev,
+        hooks: finish.hooks,
+        sign: finish.sign,
+        execPath,
+        sequenceEditor: editor,
+      }))
+      peek(ports).ui.logGit(started)
+      gitWatchToken.set(value => value + 1)
+
+      if (started.code === 0)
+        rebaseOwnership.set({ after: plan.afterRev, origHead })
+
+      if (peek(cancelledStartAttempt) === attempt) {
+        if (started.code === 0)
+          await wrap(reportGit(await wrap(rebaseAbort(repoRoot))))
+        rebaseOwnership.set(null)
+        throwAbort()
+      }
+
+      if (started.code !== 0)
+        throw new GitCommandError(['rebase', '-i', '--autostash'], started.code, started.stdout, started.stderr)
+
+      const ownership = await wrap(readOwnership(repoRoot, plan.afterRev, origHead))
+      if (peek(cancelledStartAttempt) === attempt) {
+        if (ownership.rebase !== null)
+          await wrap(reportGit(await wrap(rebaseAbort(repoRoot))))
+        rebaseOwnership.set(null)
+        throwAbort()
+      }
+      if (!ownership.ours) {
+        if (ownership.rebase !== null) {
+          await wrap(reportGit(await wrap(rebaseAbort(repoRoot))))
+          rebaseOwnership.set(null)
+          throw new RebaseNotApplicableError(gitOutput(started))
+        }
+        rebaseOwnership.set(null)
+        throw new RebaseNotApplicableError(rebaseCompletedMessage(origHead))
+      }
+    }
+    finally {
+      startRebaseInFlight.set(false)
+    }
+  }
+  else {
+    inflightWillRun.set('nothing')
+  }
 
   const id = peek(ports).clock.sessionId()
   const handle = await wrap(beginReview({ repoRoot, sessionId: id, plan, signal }))
@@ -327,23 +719,197 @@ export const startSession = action(async (request: StartRequest): Promise<Sessio
   return model
 }, 'session.start').extend(withAsync({ status: true }), withAbort('first-in-win'))
 
-export type CancelReason = 'finish' | 'cancel' | 'deactivate'
+export type CancelReason = 'finish' | 'cancel' | 'deactivate' | 'ownership' | 'conflict'
 
-const teardownSession = action(async ({ reason }: { reason: CancelReason }): Promise<void> => {
+const teardownSession = action(async ({
+  reason,
+  abortOwnedRebase,
+  silent = false,
+}: {
+  reason: CancelReason
+  abortOwnedRebase: boolean
+  silent?: boolean
+}): Promise<void> => {
   const handle = peek(isolation)
+  const owned = peek(rebaseOwnership)
   sessionStatus.to('finishing')
+  if (abortOwnedRebase && owned !== null) {
+    const repoRoot = handle?.repoRoot ?? peek(session)?.repoRoot
+    if (repoRoot === undefined)
+      throw new Error('Tabthrough has no repository to abort.')
+    await wrap(reportGit(await wrap(rebaseAbort(repoRoot))))
+  }
   if (handle !== null)
     await wrap(releaseReview(handle))
   isolation.set(null)
   session.set(null)
+  rebaseOwnership.set(null)
+  inflightWillRun.set('nothing')
+  pauseOwnership.set(false)
   sessionStatus.to('idle')
-  await wrap(peek(ports).ui.notify('info', describeClosed(reason)))
+  if (silent)
+    return
+  if (reason === 'ownership')
+    await wrap(peek(ports).ui.notify('info', OWNERSHIP_LOST))
+  else
+    await wrap(peek(ports).ui.notify('info', describeClosed(reason)))
 }, 'session.teardown').extend(withAsync())
+
+export const syncRebaseOwnership = action(async (): Promise<void> => {
+  if (peek(pauseOwnership))
+    return
+  if (peek(sessionStatus) !== 'active')
+    return
+  const model = peek(session)
+  if (model?.mode !== 'rebase')
+    return
+  const owned = peek(rebaseOwnership)
+  if (owned === null)
+    return
+  const state = peek(gitState.data)
+  if (state === null)
+    return
+  if (ownsRebase(state.rebase, owned.after, owned.origHead))
+    return
+  await wrap(teardownSession({ reason: 'ownership', abortOwnedRebase: false }))
+}, 'session.syncRebaseOwnership').extend(withAsync())
 
 export const finishSession = action(async (): Promise<void> => {
   if (peek(sessionStatus) !== 'active')
     return
-  await wrap(teardownSession({ reason: 'finish' }))
+  const model = peek(session)
+  if (model === null)
+    return
+
+  if (model.mode !== 'rebase') {
+    await wrap(teardownSession({ reason: 'finish', abortOwnedRebase: false }))
+    return
+  }
+
+  const saved = await wrap(peek(ports).ui.saveDocuments(model.repoRoot, []))
+  if (!finishSessionStillOpen(model, 'active'))
+    return
+  if (!saved.ok) {
+    await wrap(peek(ports).ui.notify('warn', `Save ${saved.path} before finishing Tabthrough.`))
+    return
+  }
+
+  const status = await wrap(readStatus(model.repoRoot))
+  if (!finishSessionStillOpen(model, 'active'))
+    return
+  const picked = status.untracked.length === 0
+    ? []
+    : await wrap(peek(ports).ui.pickUntracked(status.untracked))
+  if (picked === undefined)
+    return
+  if (!finishSessionStillOpen(model, 'active'))
+    return
+
+  const guideFinish = await wrap(peekSidecarFinish({
+    repoRoot: model.repoRoot,
+    baseRev: model.baseRev,
+    afterRev: model.afterRev,
+    options: peek(heuristicOptions),
+    guideFile: peek(guideFile),
+  }))
+  if (!finishSessionStillOpen(model, 'active'))
+    return
+  const policy = resolveFinishPolicy(guideFinish, {
+    hooks: peek(finishHooks),
+    sign: peek(finishSign),
+  })
+
+  const owned = peek(rebaseOwnership)
+  if (owned === null)
+    return
+  const ownership = await wrap(readOwnership(model.repoRoot, owned.after, owned.origHead))
+  if (!finishSessionStillOpen(model, 'active'))
+    return
+  if (!ownership.ours) {
+    await wrap(teardownSession({ reason: 'ownership', abortOwnedRebase: false }))
+    return
+  }
+
+  pauseOwnership.set(true)
+  sessionStatus.to('finishing')
+  try {
+    let result = await wrap(runFinishRebase({
+      repoRoot: model.repoRoot,
+      hooks: policy.hooks,
+      sign: policy.sign,
+      stageUntracked: picked,
+    }))
+    for (const command of result.results)
+      peek(ports).ui.logGit(command)
+    gitWatchToken.set(value => value + 1)
+
+    if (!finishSessionStillOpen(model, 'finishing'))
+      return
+
+    if (!result.ok && result.kind === 'hooks-or-sign') {
+      const retry = await wrap(peek(ports).ui.notify('error', gitOutput(result.failed), [RETRY_WITHOUT_HOOKS]))
+      if (retry !== RETRY_WITHOUT_HOOKS)
+        return
+      if (!finishSessionStillOpen(model, 'finishing'))
+        return
+      const retryOwned = peek(rebaseOwnership)
+      if (retryOwned === null)
+        return
+      const retryOwnership = await wrap(readOwnership(model.repoRoot, retryOwned.after, retryOwned.origHead))
+      if (!finishSessionStillOpen(model, 'finishing'))
+        return
+      if (!retryOwnership.ours) {
+        await wrap(teardownSession({ reason: 'ownership', abortOwnedRebase: false }))
+        return
+      }
+      result = await wrap(runFinishRebase({
+        repoRoot: model.repoRoot,
+        hooks: false,
+        sign: false,
+        stageUntracked: [],
+        from: 'amend',
+      }))
+      for (const command of result.results)
+        peek(ports).ui.logGit(command)
+      gitWatchToken.set(value => value + 1)
+      if (!finishSessionStillOpen(model, 'finishing'))
+        return
+    }
+
+    if (!result.ok && result.kind === 'conflict') {
+      await wrap(teardownSession({ reason: 'conflict', abortOwnedRebase: false }))
+      await wrap(peek(ports).ui.notify('error', gitOutput(result.failed)))
+      return
+    }
+
+    if (!result.ok) {
+      await wrap(peek(ports).ui.notify('error', gitOutput(result.failed)))
+      return
+    }
+
+    const continued = result.results.at(-1)
+    const leftover = await wrap(readGitState(model.repoRoot))
+    if (!finishSessionStillOpen(model, 'finishing'))
+      return
+    const leftoverProblem = leftover.conflicts.length > 0 || leftover.autostashes.length > 0
+    if (leftoverProblem) {
+      const leftoverNotice = continued === undefined
+        ? 'Applying autostash resulted in conflicts. Your changes are safe in the stash.'
+        : gitOutput(continued)
+      await wrap(teardownSession({ reason: 'finish', abortOwnedRebase: false, silent: true }))
+      await wrap(peek(ports).ui.notify('warn', leftoverNotice))
+      return
+    }
+
+    await wrap(teardownSession({ reason: 'finish', abortOwnedRebase: false }))
+  }
+  finally {
+    pauseOwnership.set(false)
+    if (peek(sessionStatus) === 'finishing')
+      sessionStatus.to('active')
+    if (peek(sessionStatus) === 'active')
+      await wrap(syncRebaseOwnership())
+  }
 }, 'session.finish').extend(withAsync({ status: true }), withAbort('first-in-win'))
 
 export const commitHandoff = action(async (): Promise<void> => {
@@ -358,8 +924,9 @@ export const cancelSession = action(async (reason: CancelReason = 'cancel'): Pro
   if (status === 'starting') {
     const attempt = peek(startAttempt)
     cancelledStartAttempt.set(attempt)
-    const settled = take(startSettled, value => value === attempt, 'startCancelled')
-    startSession.abort()
+    const settled = take(startSettled, value => value === attempt || throwAbort(), 'startCancelled')
+    if (!peek(startRebaseInFlight))
+      startSession.abort()
     await wrap(settled)
     return
   }
@@ -367,7 +934,9 @@ export const cancelSession = action(async (reason: CancelReason = 'cancel'): Pro
   if (status === 'finishing')
     return
 
-  await wrap(teardownSession({ reason }))
+  const model = peek(session)
+  const abortOwnedRebase = reason === 'cancel' && model?.mode === 'rebase' && peek(rebaseOwnership) !== null
+  await wrap(teardownSession({ reason, abortOwnedRebase }))
 }, 'session.cancel').extend(withAsync({ status: true }), withAbort('first-in-win'))
 
 export const editHere = action(async (): Promise<void> => {
@@ -384,11 +953,12 @@ export const editHere = action(async (): Promise<void> => {
   }
 
   const base = peek(file.baseText.data) ?? ''
-  const disk = model.entry.kind === 'workingTree'
+  const disk = diskHoldsAfter(model.entry.kind, model.mode)
     ? await wrap(readWorktreeFile(model.repoRoot, step.path))
     : null
   const target = projectEditHere({
     entryKind: model.entry.kind,
+    sessionMode: model.mode,
     file: file.file,
     step,
     baseText: base,
@@ -417,7 +987,7 @@ export const sweepOnActivate = action(async (): Promise<void> => {
 async function reportGit(result: GitCommandResult): Promise<void> {
   peek(ports).ui.logGit(result)
   gitWatchToken.set(value => value + 1)
-  const body = [result.stdout.trim(), result.stderr.trim()].filter(part => part !== '').join('\n')
+  const body = [stripGitProgress(result.stdout), stripGitProgress(result.stderr)].filter(part => part !== '').join('\n')
   if (result.code === 0) {
     if (body !== '')
       await wrap(peek(ports).ui.notify('info', body))
@@ -531,6 +1101,10 @@ export function describeStartFailure(error: unknown): string {
     return error.message
   if (error instanceof GitUnavailableError)
     return error.message
+  if (error instanceof RebaseNotApplicableError || error instanceof WorktreeNotReadyError)
+    return error.message
+  if (error instanceof GitCommandError)
+    return error.message
   return `Tabthrough could not start: ${error instanceof Error ? error.message : String(error)}`
 }
 
@@ -542,5 +1116,15 @@ export function describeClosed(reason: CancelReason): string {
       return 'Review cancelled.'
     case 'deactivate':
       return 'Tabthrough closed the review.'
+    case 'ownership':
+      return OWNERSHIP_LOST
+    case 'conflict':
+      return CONFLICT_STOP
   }
+}
+
+export function connectOwnershipWatch(): () => void {
+  return gitState.data.subscribe(() => {
+    void syncRebaseOwnership()
+  })
 }

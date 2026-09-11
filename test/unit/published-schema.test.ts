@@ -147,6 +147,7 @@ describe('the known-field sets match the reader', () => {
     ['range', () => keysOf(range), KNOWN_FIELDS.range],
     ['scope', () => keysOf(prop(schema, 'scope')), KNOWN_FIELDS.scope],
     ['defaults', () => keysOf(prop(schema, 'defaults')), KNOWN_FIELDS.defaults],
+    ['finish', () => keysOf(def('finish')), KNOWN_FIELDS.finish],
     ['files[*]', () => keysOf(fileOverride), KNOWN_FIELDS.fileOverride],
     ['generator', () => keysOf(prop(schema, 'generator')), KNOWN_FIELDS.generator],
   ])('%s', (_level, declared, known) => {
@@ -159,6 +160,7 @@ describe('the known-field sets match the reader', () => {
     expect(range.additionalProperties).toBe(false)
     expect(prop(schema, 'scope').additionalProperties).toBe(false)
     expect(prop(schema, 'defaults').additionalProperties).toBe(false)
+    expect(def('finish').additionalProperties).toBe(false)
     expect(fileOverride.additionalProperties).toBe(false)
     expect(prop(schema, 'generator').additionalProperties).toBe(false)
   })
@@ -271,7 +273,11 @@ describe('every document we publish validates against both', () => {
   function undeclared(value: unknown, node: SchemaNode, at: string): string[] {
     const resolved = node.$ref === '#/$defs/step'
       ? step
-      : node.$ref === '#/$defs/range' ? range : node
+      : node.$ref === '#/$defs/range'
+        ? range
+        : node.$ref === '#/$defs/finish'
+          ? def('finish')
+          : node
 
     if (Array.isArray(value)) {
       return resolved.items === undefined
