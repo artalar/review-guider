@@ -42,12 +42,20 @@ Consequences:
 
 ## Words: title, rationale, notes, summary
 
+The code is the **figure**. `title` + `rationale` is the **caption**. `notes` is the **discussion**. Order is still *what would I draw first at a whiteboard*; the words are not whiteboard shorthand.
+
+Write for a competent teammate who was **not in the room**. Graduate literacy in the stack; zero session vocabulary.
+
 | Field | Job | Shape | Good | Bad |
 |---|---|---|---|---|
 | `title` ≤ 60 | Names the thought — the table-of-contents entry | Noun phrase or short claim in the reviewer's vocabulary | `Only stash@{0} counts` · `The bug, as a test` · `Range phase carries bounds` | `Update setup.ts` · `Changes` · `Fix` |
 | `rationale` ≤ 120 | Why this step is **here**: what the highlighted lines establish and how they link to neighbours | One sentence, relational: "the contract the next two steps fill", "first consumer of the field above" | `The failure the rest of the diff answers` · `Back in setup.ts now that the accent exists` | `Adds a null check` · `Updates the picker` |
-| `notes` ≤ 2000 | The why that is not in the code: invariant, trade-off, edge case, what would break otherwise, where to look in the highlighted lines | 1–3 short sentences, plain text, blank line between points; identifiers in backticks are fine | `Older autostash-named entries belong to finished rebases; counting them made the notice sticky.` | Restating the diff · a paragraph on every step · headers, bold, tables, links |
+| `notes` ≤ 2000 | Discussion of the figure: invariant, trade-off, what would break, rejected alternative | 1–3 short sentences, plain text, blank line between points. Consequence first; then the name if needed | `Without the wait, a save during a checkout refresh can leave the sidebar on the old branch. The checkout tick is recorded first so the wait cannot drop it.` | `A repo-scoped bump sets a flag before the 200ms abortable sleep, so a following index event still promotes HEAD.` · Restating the diff · a paragraph on every step |
 | `summary` ≤ 600, aim ≤ 350 | The map: what the change does, the strands in walk order, what is demoted to the end | 2–3 sentences | `Leftover autostash moves under the actions. The range flow reuses the commit list; two clicks become start and end. Tests are low at the end.` | A bullet list of everything you did |
+
+**Notes in two beats.** (1) Consequence or invariant first — what stays true, or what breaks without this. (2) Then the name, if needed: the plain explanation first, then the identifier in backticks. A sentence that only narrates visible lines ("sets", "adds", "updates", then a chain of internals) is a methods paragraph. Delete it.
+
+**Affirmative claims.** State what is true. Do not open by denying the alternative: "It's not A, it's B", "not X but Y", "this is no longer X". If the old behaviour matters, a second sentence may say what used to happen — the first sentence is the present claim.
 
 **Speed is title + rationale in three seconds.** Spend words by significance:
 
@@ -59,7 +67,7 @@ Consequences:
 | `low` | title + short rationale; may bundle mechanical rest | Fallout, remaining call sites, docs |
 | `skip` via `files` | rationale that says **why** it can be skipped | Lockfiles, generated, snapshots, formatting |
 
-Voice: a colleague at a whiteboard — matter-of-fact, direct, occasionally opinionated about their own code. Never testing the reader.
+Voice: load-bearing journal prose — active, calm, precise. IEEE Software / Nature accessible, not conference-paper density, not telegram. Occasionally opinionated about your own code. Never testing the reader. Never pompous.
 
 ## Procedure (gates — do not skip)
 
@@ -197,6 +205,8 @@ Read the titles top to bottom: a table of contents. Read the rationales: a story
 
 - **No exam.** No questions, "make sure you understand", scores, difficulty, reading-time, or gates.
 - **No restating the diff.** The reviewer sees the code.
+- **No telegram notes.** No stacked implementation tokens without a human-visible outcome.
+- **No antithesis.** No "It's not A, it's B", "not X but Y", or a title that is a denial plus a correction.
 - **No multi-thought panels.** Helper + consumer in one step is the named defect.
 - **No forward references.** Nothing mentions a symbol or step not yet revealed.
 - **No markdown in `notes`.** Plain sentences; backticks around identifiers only.
@@ -214,7 +224,8 @@ Read the titles top to bottom: a table of contents. Read the rationales: a story
 - Titles read top to bottom as a table of contents; rationales read as a story.
 - Every rationale is about position and would be false if the step moved.
 - No rationale or note mentions something a later step introduces.
-- Notes only where the code cannot explain itself; plain text.
+- Notes only where the code cannot explain itself; plain text; consequence or invariant first.
+- A teammate who was not in the room can read every note. No mechanism chains. No antithesis ("It's not A, it's B").
 - `summary` names the strands in walk order and what is demoted.
 
 **Granularity gate**

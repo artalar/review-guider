@@ -94,6 +94,17 @@ Notice what the right-hand column does: each line positions the step relative to
 
 There is one respectable exception. When the code is genuinely non-obvious — a subtle concurrency argument, a workaround for an upstream bug — the *why it is like that* belongs in `notes`, not `rationale`. Keep the one-liner about order; put the explanation in `notes`, which the sidebar shows right under it as plain text. Every sentence there is read on every visit to the step, so write notes only where the code cannot explain itself, and skip markdown — it is rendered literally.
 
+The code is the figure. `title` + `rationale` is the caption. `notes` is the discussion — IEEE Software / Nature accessible prose, not conference-paper density and not whiteboard shorthand. Order is still *what would I draw first at a whiteboard*; the words are not.
+
+Write notes in two beats: consequence or invariant first (what stays true, or what breaks without this), then the name if needed — the plain explanation first, then the identifier in backticks. A sentence that only narrates visible lines ("sets", "adds", "updates", then a chain of internals) is a methods paragraph. Delete it.
+
+State each claim in the affirmative. Do not open by denying the alternative ("It's not A, it's B", "not X but Y", "this is no longer X"). If the old behaviour matters, put it in a second sentence.
+
+| Telegram (useless beside a diff) | Journal discussion (useful) |
+|---|---|
+| "A repo-scoped bump sets a flag before the 200ms abortable sleep, so a following index event still promotes HEAD." | "Without the wait, a save during a checkout refresh can leave the sidebar on the old branch. The checkout tick is recorded first so the wait cannot drop it." |
+| "Adds `isTransient()` returning false for 4xx in the retry helper." | "On the old code this test loops three times and passes by timeout. Client errors cannot succeed on repeat, so retrying them only hid rate-limit bugs behind slow attempts." |
+
 Give every step a `title`. It is the sidebar headline and the "Next" preview; without it the reader sees the file path twice. A title names the thought in the reader's vocabulary — `Only stash@{0} counts`, `The bug, as a test` — not the file or the verb (`Update setup.ts`). Read the titles top to bottom and you should have the table of contents of the change.
 
 ### 2.4 Spend attention like it is finite, because it is
@@ -120,7 +131,7 @@ You have the whole change loaded. They have step one. Everything you write must 
 
 - Do not reference a symbol before the step that introduces it. If step 5 says "the new `RetryPolicy`", `RetryPolicy` had better appear at or before step 5.
 - Do not open with the most subtle thing. Open with the thing that makes the subtle thing legible.
-- Do not use the codenames you invented while working. "The v2 path", "the new orchestrator" — the reader was not in the room.
+- Do not use the codenames you invented while working. "The v2 path", "the new orchestrator", "W5" — the reader was not in the room.
 - `summary` is the one place to set up context before step one, and it stays visible on every step. Use it as a map — the *shape* of the change and the strands in walk order, in two or three sentences — not a bullet list of what you did.
 
 ### 2.6 No exams, no grading, no gates
@@ -129,7 +140,7 @@ This one is a product rule, not a style preference, and it is checked. Tabthroug
 
 Never emit: questions to the reader, "make sure you understand X before continuing", difficulty labels, estimated reading times, checklists of things they should have noticed, scores, streaks, or anything that implies a pass/fail. `significance` is a hint about where *you* think the weight is, not a demand.
 
-The tone that works is a colleague walking you through their change: matter-of-fact, occasionally opinionated about their own code, never testing you.
+The tone that works is load-bearing journal prose: active, calm, precise. A competent teammate who was not in the room should understand every sentence. Occasionally opinionated about your own code. Never testing the reader. Never pompous.
 
 ---
 
@@ -247,7 +258,7 @@ Two telltales: the rationale needs "and", and a whole-file (or whole-hunk) claim
       "significance": "high",
       "title": "Named action helper",
       "rationale": "The contract every later event call site will share",
-      "notes": "`eventActionName` is the naming rule. Read it alone before any call site changes, or the refactor looks like noise."
+      "notes": "Call sites only make sense after you have the naming rule. Read the helper alone, or the refactor looks like noise."
     },
     {
       "id": "jsx-event-adopts",
@@ -276,6 +287,26 @@ Same file, same PR, two Tabs. Line numbers match the golden fixture below — al
 Every rationale restates its hunk, and the order is whatever the diff was in. The reader gets no information they did not already have from scrolling.
 
 **Fix:** for each step, delete the rationale and ask "why here?" If the answer is "because that is where it was in the diff," the step has no position and the guide has no order. Reorder, then write.
+
+### The telegram note
+
+```json
+{ "notes": "A repo-scoped bump sets a flag before the 200ms abortable sleep, so a following index event still promotes HEAD." }
+```
+
+Valid, and worth almost nothing. It stacks implementation tokens the reviewer can already see (`bump`, `flag`, `sleep`, `index event`, `HEAD`) and never says what breaks.
+
+**Fix:** lead with the human-visible outcome, then name the mechanism if needed. `"Without the wait, a save during a checkout refresh can leave the sidebar on the old branch. The checkout tick is recorded first so the wait cannot drop it."`
+
+### The antithesis note
+
+```json
+{ "title": "Capability follows HEAD, not the index", "notes": "This is not a status walk. It is a token bump." }
+```
+
+The correction ("not A, it's B") spends the sentence on what the step is *not*. The reviewer already sees the code.
+
+**Fix:** state the present claim. `"Capability follows HEAD."` / `"A checkout records that HEAD must update before the wait. A save during that wait still lets the checkout finish."`
 
 ### The essay in the rationale
 
@@ -442,6 +473,13 @@ Run these against your own document. They are the checks a reviewer would run, a
 
 - Does every one explain *position*? Delete any that would still be true if the step were moved.
 - Any questions, gates, or grading language?
+
+**Notes**
+
+- Consequence or invariant first, then the name if needed?
+- Would a teammate who was not in the room understand every sentence?
+- Any mechanism chain ("sets X then Y then Z") that only narrates the highlight?
+- Any antithesis ("It's not A, it's B", "not X but Y")? Rewrite as the present claim.
 
 **Budget**
 

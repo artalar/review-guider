@@ -388,6 +388,7 @@ MVP ships the read path only. This section is the contract track E publishes as 
 
 - **One step is one thought.** If the rationale needs "and", it is two steps.
 - **Rationale is about order, not content.** "Types before callers" is a rationale. "Adds a significance field" is a restatement of the diff, which the reader can already see.
+- **Notes are journal discussion, not a methods paragraph.** Consequence or invariant first; then the name if needed. A chain of implementation tokens (`sets`, `bumps`, `sleeps`, `promotes`) restates the highlight. State the present claim; do not open with "It's not A, it's B".
 - **Aim for 8–25 steps** on a typical PR. Above 40, the reader is skimming again and the guide has failed at its job. Use `files` overrides and `significance: "skip"` to spend attention where it matters.
 - **Anchor coarsely.** Ranges intersect groups, so pointing at the enclosing function is enough and is more robust across rebases than exact line numbers.
 - **Order across files, not just within them.** The single most valuable thing a guide adds over the heuristic is knowing that `A` must be read before `B` for a reason no path heuristic can infer. Encode it with `order`, and with `dependsOn` when the reason is a genuine dependency.
