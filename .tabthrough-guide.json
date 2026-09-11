@@ -2,12 +2,16 @@
   "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
   "version": 1,
   "scope": { "kind": "workingTree", "base": "HEAD" },
-  "summary": "The sidebar is composed as chrome, one scrolling body, and a footer. Setup starts on home; range fields name the next bound. The projection supplies slots and copy; the renderer pins controls and draws the timeline.",
+  "summary": "Primary actions move to the header so Use commit, Use range, and Start stay visible on tall screens. A commit list click only selects; the header confirms. End walkthrough sits under Next, not in the footer.",
   "files": {
     ".tabthrough-guide.json": { "significance": "skip", "rationale": "The sidecar this walk is written into" },
     "work-docs/specs/design-system.md": { "significance": "skip", "rationale": "The visual spec this implementation follows" },
     "work-docs/design/mockups/home-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
     "work-docs/design/mockups/home-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/commit-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/commit-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/prepare-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
+    "work-docs/design/mockups/prepare-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
     "work-docs/design/mockups/range-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
     "work-docs/design/mockups/range-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
     "work-docs/design/mockups/range-scrolled-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
@@ -17,112 +21,64 @@
     "work-docs/design/mockups/reading-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
     "work-docs/design/mockups/reading-scrolled-light.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
     "work-docs/design/mockups/reading-scrolled-dark.png": { "significance": "skip", "rationale": "Reference mockup, not runtime code" },
-    "test/unit/setup.test.ts": { "significance": "low", "rationale": "Back from working-tree generate returns to home" },
-    "test/unit/sidebar.test.ts": { "significance": "low", "rationale": "Assertions follow the new slots and copy" },
-    "test/unit/sidebar-html.test.ts": { "significance": "low", "rationale": "Markup checks for chrome fields and choice rows" }
+    "test/unit/setup.test.ts": { "significance": "low", "rationale": "Phase shape still matches" },
+    "test/unit/sidebar.test.ts": { "significance": "low", "rationale": "Assertions follow nav slots and pick payloads" },
+    "test/unit/sidebar-html.test.ts": { "significance": "low", "rationale": "Markup checks that actions sit in chrome" }
   },
   "steps": [
     {
-      "id": "home-start",
+      "id": "commit-selected",
       "order": 10,
       "path": "src/model/setup.ts",
-      "ranges": [{ "start": 154, "end": 185 }],
-      "significance": "high",
-      "title": "Home is the start screen",
-      "rationale": "Review and Back no longer land on a separate targets page"
+      "ranges": [
+        { "start": 34, "end": 37 },
+        { "start": 75, "end": 75 },
+        { "start": 215, "end": 225 }
+      ],
+      "significance": "critical",
+      "title": "A commit pick stays selected",
+      "rationale": "History clicks no longer jump to generate",
+      "notes": "pickCommitRev writes selected. Use commit later calls selectCommit with that rev. Back from generate restores the same pick."
     },
     {
-      "id": "range-pick",
+      "id": "pick-payload",
       "order": 20,
-      "path": "src/model/setup.ts",
-      "ranges": [
-        { "start": 38, "end": 43 },
-        { "start": 71, "end": 73 },
-        { "start": 223, "end": 265 }
-      ],
-      "significance": "critical",
-      "title": "Range phase names the next bound",
-      "rationale": "Focus arms a field; the next history click writes that end",
-      "notes": "pick stays on the phase so the heading can say choose start or end. Click order still fills the empty end when a field is not armed.",
-      "dependsOn": ["home-start"]
-    },
-    {
-      "id": "select-payloads",
-      "order": 30,
       "path": "src/commands/index.ts",
-      "ranges": [{ "start": 63, "end": 80 }],
+      "ranges": [{ "start": 80, "end": 83 }],
       "significance": "high",
-      "title": "selectCommit carries bound payloads",
-      "rationale": "First consumer of focus and from:/to: without new commands",
-      "dependsOn": ["range-pick"]
+      "title": "pick: selects without confirming",
+      "rationale": "The list posts a prefix; the header button posts the bare rev",
+      "dependsOn": ["commit-selected"]
     },
     {
-      "id": "item-slots",
+      "id": "nav-actions",
+      "order": 30,
+      "path": "src/model/sidebar.ts",
+      "ranges": [
+        { "start": 305, "end": 314 },
+        { "start": 545, "end": 592 },
+        { "start": 784, "end": 794 },
+        { "start": 901, "end": 912 }
+      ],
+      "significance": "critical",
+      "title": "Use, Start, and End are nav",
+      "rationale": "The footer is only passive context now",
+      "notes": "Start walkthrough stays in the header even when disabled. End walkthrough is nav so the walk chrome can place it under Next.",
+      "dependsOn": ["commit-selected"]
+    },
+    {
+      "id": "action-row",
       "order": 40,
-      "path": "src/model/sidebar.ts",
-      "ranges": [{ "start": 28, "end": 47 }],
-      "significance": "critical",
-      "title": "Rows declare slot and bound",
-      "rationale": "The renderer parks nav, fields, and footer from these fields",
-      "notes": "slot is nav, header, or footer. trailing is the home chevron. input.bound prefixes typed refs so selectCommit can tell Start from End."
-    },
-    {
-      "id": "reading-copy",
-      "order": 50,
-      "path": "src/model/sidebar.ts",
-      "ranges": [{ "start": 220, "end": 323 }],
-      "significance": "high",
-      "title": "Reading: notes, why, then Open file",
-      "rationale": "The thought is prose first; End walkthrough lives in the footer",
-      "dependsOn": ["item-slots"]
-    },
-    {
-      "id": "home-rows",
-      "order": 60,
-      "path": "src/model/sidebar.ts",
-      "ranges": [
-        { "start": 399, "end": 416 },
-        { "start": 598, "end": 676 }
-      ],
-      "significance": "high",
-      "title": "Home is three list choices",
-      "rationale": "The target rows are the actions; repository counts stay collapsed",
-      "dependsOn": ["item-slots"]
-    },
-    {
-      "id": "range-rows",
-      "order": 70,
-      "path": "src/model/sidebar.ts",
-      "ranges": [{ "start": 834, "end": 924 }],
-      "significance": "high",
-      "title": "Range fields sit above the list",
-      "rationale": "Start and End are header slots; Use range is the footer commitment",
-      "dependsOn": ["range-pick", "item-slots"]
-    },
-    {
-      "id": "timeline-markup",
-      "order": 80,
-      "path": "src/ui/sidebar-html.ts",
-      "ranges": [{ "start": 59, "end": 145 }],
-      "significance": "high",
-      "title": "Commits draw a gutter and bound words",
-      "rationale": "The first consumer of accent and input.bound",
-      "dependsOn": ["range-rows"]
-    },
-    {
-      "id": "frame-layout",
-      "order": 90,
       "path": "src/ui/sidebar-html.ts",
       "ranges": [
-        { "start": 248, "end": 305 },
-        { "start": 323, "end": 358 },
-        { "start": 416, "end": 447 }
+        { "start": 89, "end": 91 },
+        { "start": 260, "end": 292 }
       ],
       "significance": "critical",
-      "title": "One chrome, one body, one footer",
-      "rationale": "Fields pin in the header; only the body scrolls",
-      "notes": "Home keeps its title in the body. Range fields join Back and the title so the divider sits under the inputs.",
-      "dependsOn": ["item-slots", "timeline-markup"]
+      "title": "Chrome is Back, title, action",
+      "rationale": "The commitment stays at the top on a tall sidebar",
+      "notes": "Narrow widths wrap the filled button onto a second pinned row. Reading keeps Previous / count / Next, then a quiet End line.",
+      "dependsOn": ["nav-actions"]
     }
   ]
 }

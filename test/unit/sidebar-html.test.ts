@@ -107,9 +107,12 @@ describe('sidebar text boundary', () => {
     expect(html).toContain('data-bound="to"')
     expect(html).toContain('<form')
     expect(html).toContain('Use range')
+    expect(html).toMatch(/data-id="use-range"[^>]* disabled/)
     expect(html).toContain('<header class="chrome setup">')
     expect(html).toContain('data-command="tabthrough.setupBack"')
-    expect(html).toContain('← Review')
+    expect(html).toContain('aria-label="Review"')
+    expect(html.indexOf('Use range')).toBeGreaterThan(html.indexOf('<header class="chrome setup">'))
+    expect(html.indexOf('Use range')).toBeLessThan(html.indexOf('<main class="body">'))
     expect(html.indexOf('range-fields')).toBeGreaterThan(html.indexOf('<header class="chrome setup">'))
     expect(html.indexOf('range-fields')).toBeLessThan(html.indexOf('<main class="body">'))
   })
@@ -154,12 +157,15 @@ describe('sidebar text boundary', () => {
         kind: 'commits',
         loading: false,
         error: null,
+        selected: null,
         commits: [commitSummary({ sha: 'abc123def456', shortSha: 'abc123d', subject: 'Add types' })],
       },
     }))
     expect(html).toContain('<header class="chrome setup">')
     expect(html).toContain('abc123d Ada · 2 hours ago')
-    expect(html).toContain('Use commit →')
+    expect(html).toContain('Use commit')
+    expect(html).toMatch(/data-id="use-commit"[^>]* disabled/)
+    expect(html.indexOf('Use commit')).toBeLessThan(html.indexOf('<main class="body">'))
     expect(html).toContain('for="field-commit-ref"')
     expect(html).toContain('id="field-commit-ref"')
   })
@@ -187,6 +193,9 @@ describe('sidebar text boundary', () => {
     expect(html).toContain('data-command="tabthrough.previous"')
     expect(html).toContain('data-command="tabthrough.next"')
     expect(html.indexOf('data-command="tabthrough.next"')).toBeLessThan(html.indexOf('State contract'))
+    expect(html).toContain('End walkthrough')
+    expect(html.indexOf('End walkthrough')).toBeLessThan(html.indexOf('State contract'))
+    expect(html).toContain('class="subhead"')
   })
 
   it('makes Continue rebase the primary sidebar action', () => {

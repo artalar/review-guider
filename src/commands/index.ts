@@ -28,6 +28,7 @@ import {
   installWorkspaceSkill,
   loadCommits,
   openTargetPicker,
+  pickCommitRev,
   pickRange,
   pickWorkingTree,
   resetSetup,
@@ -74,6 +75,10 @@ export function useGuideCommands(): void {
           setRangeBound('to', rev.slice(3))
         else
           selectRangeRev(rev)
+        return
+      }
+      if (peek(setupPhase).kind === 'commits' && rev.startsWith('pick:')) {
+        pickCommitRev(rev.slice(5))
         return
       }
       selectCommit(rev)

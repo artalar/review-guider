@@ -133,20 +133,37 @@ describe('sidebar projection', () => {
         loading: false,
         error: null,
         commits: [commitSummary({ sha: 'abc123def456', shortSha: 'abc123d', subject: 'Add types' })],
+        selected: null,
       },
     }))
-    expect(rows.find(row => row.id === 'commit-abc123def456')?.payload).toBe('abc123def456')
+    expect(rows.find(row => row.id === 'commit-abc123def456')?.payload).toBe('pick:abc123def456')
     expect(rows.find(row => row.id === 'commit-abc123def456')?.description).toContain('abc123d')
     expect(rows.find(row => row.id === 'commit-ref')?.input?.placeholder).toBe('HEAD~1')
-    expect(rows.find(row => row.id === 'commit-ref')?.input?.submit).toBe('Use commit →')
-    expect(rows.find(row => row.id === 'commit-ref')?.enabled).toBe(true)
-    expect(rows.find(row => row.id === 'commit-ref')?.slot).toBe('footer')
+    expect(rows.find(row => row.id === 'commit-ref')?.input?.hideSubmit).toBe(true)
+    expect(rows.find(row => row.id === 'use-commit')?.slot).toBe('nav')
+    expect(rows.find(row => row.id === 'use-commit')?.enabled).toBe(false)
     expect(rows.find(row => row.id === 'back')?.slot).toBe('nav')
+  })
+
+  it('enables Use commit after a history row is picked', () => {
+    const commit = commitSummary({ sha: 'abc123def456', shortSha: 'abc123d', subject: 'Add types' })
+    const rows = sidebarItems(view({
+      setup: {
+        kind: 'commits',
+        loading: false,
+        error: null,
+        commits: [commit],
+        selected: commit.sha,
+      },
+    }))
+    expect(rows.find(row => row.id === `commit-${commit.sha}`)?.accent).toBe('selected')
+    expect(rows.find(row => row.id === 'use-commit')?.enabled).toBe(true)
+    expect(rows.find(row => row.id === 'use-commit')?.payload).toBe(commit.sha)
   })
 
   it('surfaces a commit picker error and keeps Back', () => {
     const rows = sidebarItems(view({
-      setup: { kind: 'commits', commits: [], loading: false, error: 'That does not look like a commit, tag, or ref.' },
+      setup: { kind: 'commits', commits: [], loading: false, error: 'That does not look like a commit, tag, or ref.', selected: null },
     }))
     expect(rows.find(row => row.id === 'commit-ref')?.input?.error).toContain('does not look like')
     expect(rows.some(row => row.command === 'tabthrough.setupBack')).toBe(true)
@@ -159,7 +176,7 @@ describe('sidebar projection', () => {
     expect(rows.find(row => row.id === 'range-start')?.input?.error).toContain('main..HEAD')
     expect(rows.find(row => row.id === 'range-start')?.input?.bound).toBe('from')
     expect(rows.find(row => row.id === 'range-end')?.input?.bound).toBe('to')
-    expect(rows.find(row => row.id === 'use-range')?.slot).toBe('footer')
+    expect(rows.find(row => row.id === 'use-range')?.slot).toBe('nav')
     expect(rows.find(row => row.id === 'back')?.slot).toBe('nav')
   })
 
@@ -217,8 +234,11 @@ describe('sidebar projection', () => {
     expect(rows.map(row => row.command).filter(Boolean)).toEqual([
       'tabthrough.generateSimple',
       'tabthrough.generateAgent',
+      'tabthrough.startFromGuide',
       'tabthrough.setupBack',
     ])
+    expect(rows.find(row => row.id === 'start-guide')?.slot).toBe('nav')
+    expect(rows.find(row => row.id === 'start-guide')?.enabled).toBe(false)
     expect(rows.find(row => row.id === 'simple')?.label).toBe('Generate Simple guide')
     expect(rows.find(row => row.id === 'agent')?.label).toBe('Ask editor agent')
     expect(rows.find(row => row.id === 'will-run')?.label).toContain('review snapshot')
@@ -284,7 +304,7 @@ describe('sidebar projection', () => {
       focusedGuideMismatch: true,
     }))
     expect(rows.some(row => row.id === 'guide-mismatch')).toBe(true)
-    expect(rows.some(row => row.command === 'tabthrough.startFromGuide')).toBe(false)
+    expect(rows.find(row => row.id === 'start-guide')?.enabled).toBe(false)
   })
 
   it('hides Agent until skill presence is known', () => {
@@ -331,7 +351,7 @@ describe('sidebar projection', () => {
     expect(byId.get('finish')).toBeUndefined()
     expect(byId.get('cancel')?.command).toBe('tabthrough.cancel')
     expect(byId.get('cancel')?.label).toBe('End walkthrough')
-    expect(byId.get('cancel')?.slot).toBe('footer')
+    expect(byId.get('cancel')?.slot).toBe('nav')
     expect(byId.get('edit-here')?.label).toBe('Open real file')
     expect(byId.get('edit-here')?.enabled).toBe(true)
   })

@@ -45,7 +45,7 @@ Show two editable fields in a row, labeled Start and End, with a small direction
 
 Below the fields, show Recent commits as one continuous list. Use a narrow dot/line gutter for history position. Both the subject and its metadata begin on the same text axis. Subjects are regular weight; reserve a medium weight for the screen heading and action. Endpoint rows receive a subtle, flat selection fill and visible Start/End labels in their metadata. Intermediate rows keep the canvas background; a thin connecting line is enough to suggest continuity. The line shows position in the loaded list, not Git ancestry or exact membership in the computed diff.
 
-Finish with a footer containing quiet selection status and a content-width **Use range →** button. Remove hashes and explanatory paragraphs from the button. Keep that confirmation available while scrolling long history. The updated preview demonstrates a constrained sidebar with independently scrolling content and persistent controls; it does not implement history pagination.
+Place **Use range →** in the persistent header, alongside the Back arrow and Commit range title. Never place a primary action at the bottom of the sidebar. Remove hashes and explanatory paragraphs from the button. Keep that confirmation available while scrolling long history. The updated preview demonstrates a constrained sidebar with independently scrolling content and persistent controls; it does not implement history pagination.
 
 Focusing either endpoint sets the destination for the next history click. After selection, indicate which endpoint is next. Preserve typed refs and their errors. At narrow widths, stack the endpoint fields before reducing the type size.
 
@@ -77,19 +77,27 @@ These values are at default editor scale and must grow with the host. The neutra
 | Section rhythm | 20–24px between purposes; 4–8px within a label/description pair. |
 | Repository context | Small collapsed disclosure; no bold counts in the normal flow. Blocking state is the exception. |
 
+### Action header: the same place on every screen
+
+Primary actions belong in the header even on tall displays. Use a compact row with Back, the current screen title, and the main action aligned right: **Use commit**, **Use range**, or **Start walkthrough**. Keep one instance of the action; remove the bottom action bar entirely. This arrangement supersedes earlier footer-based layouts.
+
+Place endpoint fields directly below the range header at normal heights. Supporting instructions scroll with the content. Prepare has an explicit Start walkthrough action in the header once a guide is ready; selecting a guide source must not silently start the session. Before readiness, keep the same action position disabled with its reason nearby. The preview depicts the ready state.
+
+On narrow panels or with long labels, wrap the action onto a full-width second header row. Preserve the full label and keep both rows pinned. Do not shrink the type or move the action back to the bottom. Reading retains its existing top navigation and adds End walkthrough as a quiet secondary header action, away from Next.
+
 ### Scrolling: stable controls around one scrollable body
 
-Use three layout regions: a persistent control area, one flexible scrollable body, and a persistent action footer where needed. Keep controls in layout rather than floating them over content. Give the middle region `min-height: 0` and vertical overflow; headers and footers do not shrink. The real webview should fill its available height. The preview uses an adjustable 400–800px height to model that constraint.
+Use a persistent action header and one flexible scrollable body. An optional footer contains only passive context; all workflow actions belong at the top. Keep controls in layout rather than floating them over content. Give the middle region `min-height: 0` and vertical overflow; headers and footers do not shrink. The real webview should fill its available height. The preview uses an adjustable 400–800px height to model that constraint.
 
 | Screen | Remains visible | Scrolls |
 | --- | --- | --- |
 | Home | Native panel title; compact collapsed repository footer | Target choices and optional agent setup when height is constrained |
-| Commit/range | Back/title; endpoint inputs at normal heights; Use commit/range footer | History, instructions and optional comparison details |
-| Reading | Previous, position, Next or mode-specific Finish; quiet End walkthrough footer | Thought title, path, reason, notes, next preview, guide overview |
+| Commit/range | Back/title and Use commit/range in one header row; endpoint inputs below at normal heights | History, instructions and optional comparison details |
+| Reading | Previous, position, Next or mode-specific Finish; quiet End walkthrough on a secondary header line | Thought title, path, reason, notes, next preview, guide overview |
 
 Do not pin the entire explanation, repository statistics, or a second copy of the main action. Reading navigation occupies a compact strip. The range header can be larger because editable endpoints are active selection controls. A plain 1px divider separates persistent controls from scrolling text; use an opaque matching canvas with no shadow, gradient, or blur.
 
-Below approximately 520px panel height, move range endpoint fields into the scrolling body and remove the redundant subtitle from the pinned header. Keep Back/title and Use range visible. Below 280px width, stack endpoint fields. In the checked 228px-wide, 400px-high preview, this leaves 185px for scrollable content. Production should respond to measured space and font zoom, not only fixed breakpoints: protect a useful content viewport before retaining optional pinned context.
+Below approximately 520px panel height, move range endpoint fields into the scrolling body and remove the redundant subtitle from the pinned header. Keep Back/title and Use range visible. Below 280px width, stack endpoint fields. In the checked 228px-wide, 400px-high preview, this leaves 257px for scrollable content. Production should respond to measured space and font zoom, not only fixed breakpoints: protect a useful content viewport before retaining optional pinned context.
 
 Scrolling rules for implementation:
 
@@ -109,6 +117,8 @@ Screenshots are rendered from the updated interactive example, not the extension
 | View | Light | Dark |
 | --- | --- | --- |
 | Home | [Home](../design/mockups/home-light.png) | [Home](../design/mockups/home-dark.png) |
+| Commit | [Commit](../design/mockups/commit-light.png) | [Commit](../design/mockups/commit-dark.png) |
+| Ready to start | [Prepare](../design/mockups/prepare-light.png) | [Prepare](../design/mockups/prepare-dark.png) |
 | Range, initial | [Range](../design/mockups/range-light.png) | [Range](../design/mockups/range-dark.png) |
 | Range, scrolled | [Scrolled range](../design/mockups/range-scrolled-light.png) | [Scrolled range](../design/mockups/range-scrolled-dark.png) |
 | Reading, initial | [Reading](../design/mockups/reading-light.png) | [Reading](../design/mockups/reading-dark.png) |

@@ -33,6 +33,7 @@ export interface HistorySetupPhase {
 
 export interface CommitsSetupPhase extends HistorySetupPhase {
   readonly kind: 'commits'
+  readonly selected: string | null
 }
 
 export interface RangeSetupPhase extends HistorySetupPhase {
@@ -71,6 +72,7 @@ const rangeFrom = atom<string | null>(null, 'setup.rangeFrom')
 const rangeTo = atom<string | null>(null, 'setup.rangeTo')
 const rangePick = atom<'from' | 'to'>('from', 'setup.rangePick')
 const rangePickArmed = atom(false, 'setup.rangePickArmed')
+const commitSelected = atom<string | null>(null, 'setup.commitSelected')
 const generateTarget = atom<ReviewTarget | null>(null, 'setup.generateTarget')
 
 export const recentCommits = computed(async (): Promise<readonly CommitSummary[]> => {
@@ -96,7 +98,7 @@ export const setupPhase = computed((): SetupPhase => {
   const error = setupError() ?? (fetchFailed == null ? null : 'Could not load recent history.')
 
   if (kind === 'commits')
-    return { kind: 'commits', commits, loading, error }
+    return { kind: 'commits', commits, loading, error, selected: commitSelected() }
   if (kind === 'range')
     return { kind: 'range', commits, loading, error, from: rangeFrom(), to: rangeTo(), pick: rangePick() }
   if (kind === 'generate') {
@@ -145,6 +147,7 @@ export const resetSetup = action(() => {
   rangeTo.set(null)
   rangePick.set('from')
   rangePickArmed.set(false)
+  commitSelected.set(null)
   generateTarget.set(null)
   pendingEntry.set(null)
   chosenMode.set(null)
@@ -164,6 +167,7 @@ export const setupBack = action(() => {
   if (kind === 'generate' && target !== null) {
     setupError.set(null)
     if (target.kind === 'commit') {
+      commitSelected.set(target.rev)
       setupKind.set('commits')
       return
     }
@@ -193,6 +197,7 @@ export const pickWorkingTree = action(() => {
 
 export const loadCommits = action(async (): Promise<void> => {
   setupError.set(null)
+  commitSelected.set(null)
   setupKind.set('commits')
   await settleRecentCommits()
 }, 'setup.loadCommits')
@@ -206,6 +211,18 @@ export const pickRange = action(async (): Promise<void> => {
   setupKind.set('range')
   await settleRecentCommits()
 }, 'setup.pickRange')
+
+export const pickCommitRev = action((rev: string) => {
+  if (peek(setupKind) !== 'commits')
+    return
+  const error = commitRevError(rev)
+  if (error !== null) {
+    setupError.set(error)
+    return
+  }
+  commitSelected.set(rev.trim())
+  setupError.set(null)
+}, 'setup.pickCommitRev')
 
 export const selectCommit = action((rev: string) => {
   const error = commitRevError(rev)

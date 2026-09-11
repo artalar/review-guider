@@ -86,17 +86,19 @@ function boundWord(accent: SidebarItemData['accent']): string {
   return ''
 }
 
+function isHeaderAction(row: SidebarItemData): boolean {
+  return row.tone === 'primary' && (row.id === 'use-range' || row.id === 'use-commit' || row.id === 'start-guide' || row.id === 'next' || row.id === 'finish')
+}
+
 function buttonInner(row: SidebarItemData): string {
   if (row.id === 'back')
-    return htmlText(row.label, 80)
+    return iconSvg('arrow-left')
   if (row.slot === 'nav' && row.id === 'previous')
     return `${iconSvg('arrow-left')}`
-  if (row.slot === 'nav' && (row.id === 'next' || row.id === 'finish'))
+  if (isHeaderAction(row))
     return `${htmlText(row.label, 80)}${iconSvg('arrow-right')}`
   if (row.slot === 'nav')
     return `${iconSvg(row.icon)}${htmlText(row.label, 200)}`
-  if (row.slot === 'footer' && row.tone === 'primary')
-    return `${htmlText(row.label, 80)}${iconSvg('arrow-right')}`
   if (row.id.startsWith('commit-')) {
     const word = boundWord(row.accent)
     const mark = word === '' ? '' : `<span class="bound-word">${word}</span>`
@@ -115,16 +117,18 @@ function button(row: SidebarItemData): string {
     row.id.startsWith('commit-') ? 'commit-row' : '',
     row.trailing === 'chevron' ? 'has-chevron' : '',
     accentClass(row.accent),
-    row.id === 'previous' ? 'icon-only' : '',
+    row.id === 'previous' || row.id === 'back' ? 'icon-only' : '',
     row.id === 'back' ? 'back' : '',
-    row.id === 'next' || row.id === 'finish' || row.id === 'start-guide' || (row.slot === 'footer' && row.tone === 'primary') ? 'compact' : '',
+    isHeaderAction(row) ? 'compact' : '',
   ].filter(part => part !== '').join(' ')
   const bound = boundWord(row.accent)
   const named = row.id === 'previous'
     ? ' aria-label="Previous"'
-    : bound === ''
-      ? ''
-      : ` aria-label="${bound}"`
+    : row.id === 'back'
+      ? ` aria-label="${htmlAttr(row.label, 80)}"`
+      : bound === ''
+        ? ''
+        : ` aria-label="${bound}"`
   return commandButton(row, extra).replace('<button ', `<button${named} `)
 }
 
@@ -195,7 +199,9 @@ function titleBlock(row: SidebarItemData): string {
 function textRow(row: SidebarItemData): string {
   if (row.id === 'welcome' || row.id === 'pick-range' || row.id === 'pick-commit' || row.id === 'generate')
     return titleBlock(row)
-  if (row.id === 'session' || row.id === 'history-heading' || row.id === 'agent-prompt' || row.id === 'range-status' || row.id === 'guide-provenance')
+  if (row.id.endsWith('-lede'))
+    return `<p class="lede ${htmlAttr(row.id, 80)}" data-id="${htmlAttr(row.id, 80)}">${htmlText(row.label)}</p>`
+  if (row.id === 'session' || row.id === 'history-heading' || row.id === 'agent-prompt' || row.id === 'guide-provenance')
     return `<p class="meta-line ${htmlAttr(row.id, 80)}" data-id="${htmlAttr(row.id, 80)}">${htmlText(row.label)}</p>`
   if (row.id === 'current') {
     const path = row.description === undefined ? '' : `<p class="path">${htmlText(row.description, 400)}</p>`
@@ -251,6 +257,14 @@ function rangeFields(rows: readonly SidebarItemData[]): string {
   return `<div class="range-fields">${rows.map(inputRow).join('<span class="range-arrow" aria-hidden="true">→</span>')}</div>`
 }
 
+function walkModeLabel(view: SidebarViewModel): string {
+  if (view.mode === 'rebase')
+    return 'Rebase'
+  if (view.mode === 'readonly')
+    return 'Read-only'
+  return ''
+}
+
 function chrome(
   view: SidebarViewModel,
   nav: readonly SidebarItemData[],
@@ -262,15 +276,20 @@ function chrome(
   const next = nav.find(row => row.id === 'next')
   const finish = nav.find(row => row.id === 'finish')
   const right = next ?? finish
-  const heading = screenName(view) === 'home' ? '' : titles.map(titleBlock).join('')
+  const end = nav.find(row => row.id === 'cancel')
+  const action = nav.find(row => isHeaderAction(row) && row.id !== 'next' && row.id !== 'finish')
   const fields = rangeFields(headerFields)
   if (previous !== undefined || right !== undefined) {
     const progress = walkProgress(view)
-    return `<header class="chrome walk">${previous === undefined ? '' : button(previous)}<span class="progress">${htmlText(progress, 40)}</span>${right === undefined ? '' : button(right)}</header>`
+    const mode = walkModeLabel(view)
+    const subhead = `<div class="subhead">${mode === '' ? '' : `<span class="meta-line">${htmlText(mode, 40)}</span>`}${end === undefined ? '' : button(end)}</div>`
+    return `<header class="chrome walk"><div class="action-row">${previous === undefined ? '' : button(previous)}<span class="progress">${htmlText(progress, 40)}</span>${right === undefined ? '' : button(right)}</div>${subhead}</header>`
   }
-  if (back === undefined && heading === '' && fields === '')
+  const title = titles[0]
+  const heading = title === undefined ? '' : `<h2 class="screen-title">${htmlText(title.label)}</h2>`
+  if (back === undefined && heading === '' && fields === '' && action === undefined)
     return ''
-  return `<header class="chrome setup">${back === undefined ? '' : button(back)}${heading}${fields}</header>`
+  return `<header class="chrome setup"><div class="action-row">${back === undefined ? '' : button(back)}${heading}${action === undefined ? '' : button(action)}</div>${fields}</header>`
 }
 
 function isChoiceRow(row: SidebarItemData): boolean {
@@ -341,7 +360,8 @@ const SIDEBAR_STYLE = [
   'button:focus-visible{outline:var(--focus-width) solid var(--vscode-focusBorder);outline-offset:2px}',
   'button.primary{color:var(--vscode-button-foreground);background:var(--vscode-button-background);border-color:var(--vscode-button-border,transparent);font-weight:500}',
   'button.primary:hover{background:var(--vscode-button-hoverBackground)}',
-  `button.primary:disabled{color:${DISABLED_FG};background:var(--vscode-button-secondaryBackground);border-color:${SUBTLE_BORDER}}`,
+  `button.primary:disabled{color:${DISABLED_FG};background:transparent;border-color:${SUBTLE_BORDER}}`,
+  `button.primary:disabled:hover{background:transparent;color:${DISABLED_FG}}`,
   'button.secondary{background:transparent;color:inherit;border-color:var(--vscode-button-border,transparent)}',
   'button.quiet,button.consequential{background:transparent;color:var(--vscode-textLink-foreground);border-color:transparent;padding-left:0;padding-right:0}',
   'button.quiet:hover,button.consequential:hover{background:var(--vscode-toolbar-hoverBackground,var(--vscode-list-hoverBackground))}',
@@ -349,10 +369,13 @@ const SIDEBAR_STYLE = [
   'button.compact{min-width:0;margin:0}',
   'button.icon-only{width:32px;justify-content:center;padding:0}',
   'button .glyph{width:16px;height:16px;flex:0 0 16px}',
-  'header.chrome.walk{display:flex;align-items:center;gap:var(--space-2)}',
+  'header.chrome.walk,header.chrome.setup{display:flex;flex-direction:column;align-items:stretch;gap:var(--space-2)}',
+  'header.chrome .action-row{display:flex;align-items:center;gap:var(--space-2)}',
+  'header.chrome .action-row .screen-title{flex:1 1 auto;min-width:0}',
+  'header.chrome .action-row .primary{margin-left:auto;flex:0 0 auto;min-width:max-content;white-space:nowrap}',
+  'header.chrome .subhead{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2)}',
   'header.chrome.walk .progress{flex:1 1 auto;text-align:center;color:var(--vscode-descriptionForeground);font-variant-numeric:tabular-nums;font-size:var(--type-meta)}',
-  'header.chrome.setup{display:flex;flex-direction:column;align-items:stretch}',
-  'header.chrome.setup .back{margin:0 0 var(--space-2);min-height:28px;align-self:flex-start}',
+  'header.chrome.setup .back{margin:0}',
   '.range-fields{display:flex;align-items:flex-end;gap:var(--space-2);margin:0}',
   `.choices{margin:var(--space-4) 0;border-top:var(--border-width) solid ${SUBTLE_BORDER};border-bottom:var(--border-width) solid ${SUBTLE_BORDER}}`,
   `.choices .list-pick{border-bottom:var(--border-width) solid ${SUBTLE_BORDER}}`,
@@ -399,7 +422,7 @@ const SIDEBAR_STYLE = [
   'footer.bar button{margin:0}',
   '.notes-more{margin-top:var(--space-2)}',
   '.notes-more summary{color:var(--vscode-textLink-foreground);cursor:pointer}',
-  '@media (max-width:280px){.body,header.chrome,footer.bar{padding-left:var(--space-3);padding-right:var(--space-3)}.range-fields{flex-direction:column;align-items:stretch}.range-arrow{display:none}footer.bar{flex-wrap:wrap}header.chrome.walk .progress{order:-1;flex:1 0 100%}}',
+  '@media (max-width:280px){.body,header.chrome,footer.bar{padding-left:var(--space-3);padding-right:var(--space-3)}.range-fields{flex-direction:column;align-items:stretch}.range-arrow{display:none}footer.bar{flex-wrap:wrap}header.chrome.setup .action-row{flex-wrap:wrap}header.chrome.setup .action-row .primary{flex:1 0 100%;justify-content:center;margin-left:0}header.chrome.walk .progress{order:-1;flex:1 0 100%}}',
   '@media (max-height:520px){header.chrome .lede{display:none}}',
   '@media (prefers-reduced-motion:reduce){button{transition:none}}',
   '@media (forced-colors:active){button,form.input-row .fields input,header.chrome,footer.bar,.notice{border-color:var(--vscode-contrastBorder)}}',
@@ -430,19 +453,26 @@ export function renderSidebarBody(view: SidebarViewModel): string {
     }
     if (isTitleRow(row) && screenName(view) !== 'home') {
       titles.push(row)
+      if (row.description !== undefined) {
+        main.push({
+          id: `${row.id}-lede`,
+          label: row.description,
+        })
+      }
       continue
     }
     main.push(row)
   }
-  const home = screenName(view) === 'home'
+  const screen = screenName(view)
+  const repoInFooter = screen === 'home' || screen === 'generate'
   const repoSummary = repo.find(row => row.id === 'repository-summary')?.label
     ?? footer.find(row => row.id === 'repository-summary')?.label
     ?? ''
-  const footerItems = footer.filter(row => row.id !== 'repository-summary')
+  const footerItems = footer.filter(row => row.id !== 'repository-summary' && row.command === undefined)
   const repoBlock = repositoryDisclosure(repo, repoSummary)
-  const footerInner = home
+  const footerInner = repoInFooter
     ? repoBlock
-    : `${footerItems.filter(row => row.command === undefined).map(bodyRow).join('')}${footerItems.filter(row => row.command !== undefined).map(bodyRow).join('')}`
-  const bodyRepo = home ? '' : repoBlock
-  return `<div class="frame screen-${screenName(view)}">${chrome(view, nav, titles, headerFields)}${liveRegion(view)}<main class="body">${bodyRows(main)}${bodyRepo}</main>${footerInner === '' ? '' : `<footer class="bar">${footerInner}</footer>`}</div>`
+    : footerItems.map(bodyRow).join('')
+  const bodyRepo = repoInFooter ? '' : repoBlock
+  return `<div class="frame screen-${screen}">${chrome(view, nav, titles, headerFields)}${liveRegion(view)}<main class="body">${bodyRows(main)}${bodyRepo}</main>${footerInner === '' ? '' : `<footer class="bar">${footerInner}</footer>`}</div>`
 }

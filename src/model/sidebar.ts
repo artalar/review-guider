@@ -4,7 +4,6 @@ import type { ReviewTarget, SessionMode } from '../git/types'
 import type { RangeSetupPhase } from './setup'
 import type { SidebarViewModel } from './view'
 import { commands as Commands } from '../generated/meta'
-import { describeSetupTarget } from './setup'
 
 export function safeSidebarText(value: string, max = 500): string {
   const clean = [...value].filter((character) => {
@@ -305,13 +304,13 @@ function addWalkItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
   add({
     id: 'cancel',
     label: exitLabel(view.mode),
-    description: exitConsequence(view.mode),
     command: Commands.cancel,
     icon: 'close',
     contextValue: 'action',
     enabled: true,
-    slot: 'footer',
+    slot: 'nav',
     tone: view.mode === 'rebase' ? 'consequential' : 'quiet',
+    tooltip: exitConsequence(view.mode),
   })
   const provenance = guideProvenanceLabel(view.guideProvenance)
   if (provenance !== null) {
@@ -408,7 +407,7 @@ function addRepositoryDetails(view: SidebarViewModel, add: (item: SidebarItemDat
   const state = view.gitState
   if (state === null)
     return
-  if (view.status === 'idle' && (view.setup.kind === 'home' || view.setup.kind === 'targets')) {
+  if (view.status === 'idle' && (view.setup.kind === 'home' || view.setup.kind === 'targets' || view.setup.kind === 'generate')) {
     add(repo({
       id: 'repository-summary',
       label: repoFooterLabel(state),
@@ -543,32 +542,33 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
   }
 
   if (phase.kind === 'commits') {
-      add({
-        id: 'pick-commit',
-      label: 'A commit',
+    add({
+      id: 'pick-commit',
+      label: 'Commit',
       description: phase.loading
         ? 'Loading recent history…'
-        : 'One commit against its parent.',
+        : 'Review a commit against its parent.',
     })
     if (!phase.loading) {
       add({
         id: 'history-heading',
         label: 'Recent commits',
       })
-      addCommitChoices(phase.commits, add, view.canStart)
+      addCommitChoices(phase.commits, add, view.canStart, (commit) => {
+        return commitMatchesRev(commit, phase.selected) ? 'selected' : undefined
+      }, 'pick:')
       add({
         id: 'commit-ref',
         label: 'Commit',
         command: Commands.selectCommit,
         input: {
           placeholder: 'HEAD~1',
-          submit: 'Use commit →',
+          hideSubmit: true,
+          value: phase.selected === null ? '' : displayRev(phase.selected, phase.commits),
           ...(phase.error === null ? {} : { error: phase.error }),
         },
         contextValue: 'input',
         enabled: view.canStart,
-        slot: 'footer',
-        tone: 'primary',
       })
     }
     else if (phase.error !== null) {
@@ -580,6 +580,16 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
         severity: 'error',
       })
     }
+    add({
+      id: 'use-commit',
+      label: 'Use commit',
+      command: Commands.selectCommit,
+      payload: phase.selected ?? '',
+      contextValue: 'action',
+      enabled: view.canStart && phase.selected !== null && phase.selected !== '',
+      slot: 'nav',
+      tone: 'primary',
+    })
     add(navBack())
     return
   }
@@ -684,7 +694,7 @@ function addGenerateItems(
 ): void {
   add({
     id: 'generate',
-    label: describeSetupTarget(target),
+    label: 'Walkthrough',
     description: view.sidecarReady
       ? `A guide is already in ${view.guideFileName}.`
       : `Write ${view.guideFileName}, then start the walkthrough.`,
@@ -770,19 +780,18 @@ function addGenerateItems(
     })
   }
 
-  if (view.sidecarReady || (view.guideFocused && !view.focusedGuideMismatch)) {
-    add({
-      id: 'start-guide',
-      label: 'Start walkthrough',
-      command: Commands.startFromGuide,
-      icon: 'play',
-      contextValue: 'action',
-      enabled: view.canStart && view.startEnabled,
-      slot: 'footer',
-      tone: 'primary',
-    })
-  }
-  else if (view.focusedGuideMismatch) {
+  const startReady = view.sidecarReady || (view.guideFocused && !view.focusedGuideMismatch)
+  add({
+    id: 'start-guide',
+    label: 'Start walkthrough',
+    command: Commands.startFromGuide,
+    icon: 'play',
+    contextValue: 'action',
+    enabled: view.canStart && view.startEnabled && startReady,
+    slot: 'nav',
+    tone: 'primary',
+  })
+  if (view.focusedGuideMismatch) {
     add({
       id: 'guide-mismatch',
       label: 'Focused guide is for a different target',
@@ -824,7 +833,7 @@ function startConsequence(
 function navBack(): SidebarItemData {
   return {
     id: 'back',
-    label: '← Review',
+    label: 'Review',
     command: Commands.setupBack,
     icon: 'arrow-left',
     contextValue: 'action',
@@ -891,18 +900,13 @@ function addRangePicker(
     })
   }
   add({
-    id: 'range-status',
-    label: rangeReady ? 'Range selected' : rangeStatus(phase),
-    slot: 'footer',
-  })
-  add({
     id: 'use-range',
     label: 'Use range',
     command: Commands.submitRange,
     payload: rangeReady ? `${phase.from}..${phase.to}` : '',
     contextValue: 'action',
     enabled: view.canStart && rangeReady,
-    slot: 'footer',
+    slot: 'nav',
     tone: 'primary',
   })
   add(navBack())
@@ -914,21 +918,12 @@ function rangeHistoryHeading(phase: RangeSetupPhase): string {
     : 'Recent commits · choose start'
 }
 
-function rangeStatus(phase: RangeSetupPhase): string {
-  if (phase.from === null && phase.to === null)
-    return 'Choose start'
-  if (phase.to === null)
-    return 'Choose end'
-  if (phase.from === null)
-    return 'Choose start'
-  return 'Range selected'
-}
-
 function addCommitChoices(
   commits: readonly CommitSummary[],
   add: (item: SidebarItemData) => void,
   enabled: boolean,
   accentOf?: (commit: CommitSummary, index: number) => SidebarItemData['accent'],
+  payloadPrefix = '',
 ): void {
   for (const [index, commit] of commits.entries()) {
     const merge = commit.parentCount > 1 ? ' · merge' : ''
@@ -939,7 +934,7 @@ function addCommitChoices(
       description: `${commit.shortSha} ${commit.author} · ${commit.relativeDate}${merge}`,
       tooltip: commit.subject === '' ? commit.shortSha : commit.subject,
       command: Commands.selectCommit,
-      payload: commit.sha,
+      payload: `${payloadPrefix}${commit.sha}`,
       icon: 'git-commit',
       contextValue: 'action',
       enabled,
@@ -948,6 +943,12 @@ function addCommitChoices(
       ...(accent === undefined ? {} : { accent }),
     })
   }
+}
+
+function commitMatchesRev(commit: CommitSummary, rev: string | null): boolean {
+  if (rev === null)
+    return false
+  return commit.sha === rev || commit.shortSha === rev
 }
 
 function rangeAccent(
