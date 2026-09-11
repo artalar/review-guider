@@ -97,7 +97,7 @@ describe('contributed commands', () => {
     const cancel = contributes.commands.find(entry => entry.command === 'tabthrough.cancel')
 
     expect(cancel?.enablement).toBe('tabthrough.sessionOpen && !tabthrough.sessionFinishing')
-    expect(cancel?.title).toBe('Cancel Review')
+    expect(cancel?.title).toBe('End Walkthrough')
     const title = contributes.menus?.['view/title']?.find(entry => entry.command === 'tabthrough.cancel')
     expect(title?.when).toBe('view == tabthrough.sidebar && tabthrough.sessionOpen && !tabthrough.sessionFinishing')
   })
@@ -153,7 +153,7 @@ describe('contributed commands', () => {
     const fromGuide = contributes.commands.find(entry => entry.command === 'tabthrough.startFromGuide')
 
     expect(fromGuide?.enablement).toBe('tabthrough.canStart && tabthrough.activeGuideValid')
-    expect(fromGuide?.title).toBe('Start Review from This Guide')
+    expect(fromGuide?.title).toBe('Start Walkthrough from This Guide')
     expect(contributes.menus?.['editor/title']?.some(entry => entry.command === 'tabthrough.startFromGuide')).toBe(true)
     expect(contributes.menus?.['editor/context']?.some(entry => entry.command === 'tabthrough.startFromGuide')).toBe(true)
   })
@@ -262,7 +262,7 @@ describe('keybindings', () => {
     const { contributes } = await manifest()
     const finish = contributes.commands.find(entry => entry.command === 'tabthrough.finish')
     expect(finish?.enablement).toBe('tabthrough.sessionActive')
-    expect(finish?.title).toBe('Finish Review')
+    expect(finish?.title).toBe('Finish Walkthrough')
   })
 
   it('hides internal setup commands from the command palette', async () => {

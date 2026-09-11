@@ -13,6 +13,7 @@ import {
   editedPaths,
   editHereEnabled,
   gitState,
+  pendingEntry,
   session,
   canStart as sessionCanStart,
   sessionModeSetting,
@@ -66,8 +67,10 @@ export const statusText = computed((): string | null => {
   if (model === null)
     return null
 
-  if (model.isComplete())
-    return '$(book) Walkthrough complete · Finish'
+  if (model.isComplete()) {
+    const { total } = model.progress()
+    return `$(book) All ${total} steps revealed`
+  }
 
   const { index, total } = model.progress()
   const step = model.currentStep()
@@ -187,6 +190,8 @@ export interface SidebarViewModel {
   readonly chosenMode: SessionMode | null
   readonly askMode: boolean
   readonly previewMode: SessionMode
+  readonly guideProvenance: 'simple' | 'repository' | 'agent' | null
+  readonly guideFallback: boolean
 }
 
 export const sidebarViewModel = computed((): SidebarViewModel => {
@@ -195,11 +200,15 @@ export const sidebarViewModel = computed((): SidebarViewModel => {
   const current = model?.currentStep() ?? null
   const next = model?.nextStep() ?? null
   const configuredGuide = guideFile().trim()
+  const pending = pendingEntry()
+  const diagnostics = model?.guide.diagnostics ?? []
 
   return {
     status,
     mode: model?.mode ?? null,
-    entry: model === null ? null : describeTarget(model.entry),
+    entry: model === null
+      ? (pending === null ? null : describeTarget(pending))
+      : describeTarget(model.entry),
     summary: model?.guide.summary ?? null,
     canStart: sessionCanStart(),
     progress: model?.progress() ?? null,
@@ -229,5 +238,9 @@ export const sidebarViewModel = computed((): SidebarViewModel => {
     chosenMode: chosenMode(),
     askMode: sessionModeSetting() === 'ask',
     previewMode: startPreview.data().mode,
+    guideProvenance: model === null
+      ? null
+      : (model.guide.steps.some(step => step.source === 'sidecar') ? 'repository' : 'simple'),
+    guideFallback: diagnostics.some(entry => entry.severity === 'warning'),
   }
 }, 'ui.sidebarViewModel')

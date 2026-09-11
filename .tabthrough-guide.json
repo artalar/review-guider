@@ -2,41 +2,183 @@
   "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
   "version": 1,
   "scope": { "kind": "workingTree", "base": "HEAD" },
-  "summary": "Read-only and Rebase clicks did nothing because the webview dropped chooseMode. The test names that gap; the extracted allowlists include it in both sets; sidebar.ts forwards the payload again.",
+  "summary": "The sidebar uses host tokens paired to the surface they sit on: sidebar text and borders, list selection for rows, button colors only on primary and secondary actions. Target and mode choices are list rows, not filled buttons. Range icons inherit the row color. The rest of the walk is the design-system contract: tones, mode copy, and refresh that keeps input and focus.",
   "files": {
-    ".tabthrough-guide.json": { "significance": "skip", "rationale": "The sidecar this walk is written into" }
+    ".tabthrough-guide.json": { "significance": "skip", "rationale": "The sidecar this walk is written into" },
+    "test/unit/sidebar.test.ts": { "significance": "low", "rationale": "Assertions follow the new copy and list surfaces" },
+    "test/unit/sidebar-html.test.ts": { "significance": "low", "rationale": "Markup checks for labels, paired tokens, and notes continuation" },
+    "test/unit/view.test.ts": { "significance": "low", "rationale": "Status bar complete string" },
+    "test/unit/contributions.test.ts": { "significance": "low", "rationale": "Command palette titles" },
+    "package.json": { "significance": "low", "rationale": "Visible command titles only" }
   },
   "steps": [
     {
-      "id": "the-gap",
+      "id": "item-roles",
       "order": 10,
-      "path": "test/unit/sidebar.test.ts",
-      "ranges": [{ "start": 221, "end": 243 }],
+      "path": "src/model/sidebar.ts",
+      "ranges": [{ "start": 17, "end": 44 }],
       "significance": "critical",
-      "title": "Mode picker must reach chooseMode",
-      "rationale": "The failure the rest of the diff answers — clicks posted a command the allowlist dropped",
-      "notes": "Both sets are required. SIDEBAR_COMMANDS lets the message through; PAYLOAD_COMMANDS is what actually forwards `readonly` or `rebase`. Missing either one looks like a dead button."
+      "title": "Rows declare tone and surface",
+      "rationale": "The vocabulary the renderer uses instead of inferring primary from command names",
+      "notes": "tone is the immediate-task signal. surface is notice or disclosure. group repository parks git chrome after the explanation."
     },
     {
-      "id": "both-allowlists",
+      "id": "mode-labels",
       "order": 20,
-      "path": "src/ui/sidebar-commands.ts",
-      "ranges": [{ "start": 1, "end": 41 }],
-      "significance": "critical",
-      "title": "chooseMode is on both allowlists",
-      "rationale": "The contract the test above asserts — extracted so the test can import it without vscode",
-      "notes": "`chooseMode` sits with setupBack in the message set and with selectCommit in the payload set. The payload set is the one that was easy to forget: without it the handler runs with no mode and still does nothing.",
-      "dependsOn": ["the-gap"]
+      "path": "src/model/sidebar.ts",
+      "ranges": [{ "start": 46, "end": 71 }],
+      "significance": "high",
+      "title": "Finish and exit name the mode",
+      "rationale": "Read-only and rebase must not share Finish review / Cancel review",
+      "dependsOn": ["item-roles"]
     },
     {
-      "id": "sidebar-forwards",
+      "id": "walk-hierarchy",
       "order": 30,
-      "path": "src/ui/sidebar.ts",
-      "ranges": [{ "start": 11, "end": 11 }],
+      "path": "src/model/sidebar.ts",
+      "ranges": [{ "start": 168, "end": 216 }],
+      "significance": "critical",
+      "title": "Thought first, count only in nav",
+      "rationale": "The session line is mode and target; edited on disk is a path notice, not a title suffix",
+      "notes": "Guide summary moves later as a disclosure. Completion copy is All N steps revealed, not a pass mark.",
+      "dependsOn": ["mode-labels"]
+    },
+    {
+      "id": "blocking-git",
+      "order": 40,
+      "path": "src/model/sidebar.ts",
+      "ranges": [{ "start": 329, "end": 355 }],
       "significance": "high",
-      "title": "Webview imports the shared allowlists",
-      "rationale": "First consumer — the message handler that used to keep the sets inline and omit chooseMode",
-      "dependsOn": ["both-allowlists"]
+      "title": "Owned rebase stays out of the banner",
+      "rationale": "Continue rebase is primary only when the rebase is not the walk itself, or a conflict blocks it",
+      "dependsOn": ["walk-hierarchy"]
+    },
+    {
+      "id": "choice-list",
+      "order": 50,
+      "path": "src/model/sidebar.ts",
+      "ranges": [
+        { "start": 538, "end": 562 },
+        { "start": 718, "end": 735 }
+      ],
+      "significance": "high",
+      "title": "Target and mode are list rows",
+      "rationale": "Choices consume list tokens; they must not render as stacked secondary buttons",
+      "dependsOn": ["item-roles"]
+    },
+    {
+      "id": "consequence",
+      "order": 60,
+      "path": "src/model/sidebar.ts",
+      "ranges": [{ "start": 782, "end": 800 }],
+      "significance": "high",
+      "title": "Start explains the workspace",
+      "rationale": "Will run: nothing is gone — read-only working changes still save and snapshot",
+      "dependsOn": ["walk-hierarchy"]
+    },
+    {
+      "id": "range-words",
+      "order": 70,
+      "path": "src/ui/sidebar-html.ts",
+      "ranges": [{ "start": 68, "end": 75 }],
+      "significance": "normal",
+      "title": "Range bounds are icons only",
+      "rationale": "Start and End stay in aria-label; only commit rows reserve the icon column",
+      "dependsOn": ["consequence"]
+    },
+    {
+      "id": "button-tone",
+      "order": 80,
+      "path": "src/ui/sidebar-html.ts",
+      "ranges": [{ "start": 25, "end": 35 }],
+      "significance": "high",
+      "title": "Primary comes from tone",
+      "rationale": "First consumer of the item contract — Next and Continue no longer share a name heuristic",
+      "dependsOn": ["item-roles"]
+    },
+    {
+      "id": "token-pair",
+      "order": 90,
+      "path": "src/ui/sidebar-html.ts",
+      "ranges": [{ "start": 186, "end": 228 }],
+      "significance": "critical",
+      "title": "Each surface keeps its own tokens",
+      "rationale": "Bare buttons are no longer primary — that leak made GitHub and other themes paint every row accent",
+      "notes": "Canvas text is sideBar.foreground falling back to foreground. Borders are sideBar.border falling back to panel.border. button.* applies only to .primary and .secondary. Consequential is a neutral outline, not editorWarning.",
+      "dependsOn": ["button-tone"]
+    },
+    {
+      "id": "hint-contrast",
+      "order": 95,
+      "path": "src/ui/sidebar-html.ts",
+      "ranges": [{ "start": 232, "end": 232 }],
+      "significance": "critical",
+      "title": "Hints inherit the control color",
+      "rationale": "descriptionForeground is a canvas token — on a secondary fill it vanishes",
+      "notes": "List rows on the canvas still use descriptionForeground. Selected list rows inherit the selection foreground, same pairing rule.",
+      "dependsOn": ["token-pair"]
+    },
+    {
+      "id": "list-tokens",
+      "order": 100,
+      "path": "src/ui/sidebar-html.ts",
+      "ranges": [{ "start": 265, "end": 278 }],
+      "significance": "high",
+      "title": "List rows stay in the list family",
+      "rationale": "Selection, hover, and the between rail must not borrow editor, badge, or focusBorder colors",
+      "notes": "Icons use currentColor. Start and end use inactiveSelection. Between is a list-selection rail on a transparent row so hover still shows.",
+      "dependsOn": ["token-pair", "choice-list"]
+    },
+    {
+      "id": "preserve-state",
+      "order": 110,
+      "path": "src/ui/sidebar-html.ts",
+      "ranges": [{ "start": 281, "end": 281 }],
+      "significance": "high",
+      "title": "Refresh keeps input and focus",
+      "rationale": "The update script restores value, caret, disclosures, and Next-to-Finish focus",
+      "notes": "A queued repeat on Next must not activate Amend and continue when the label swaps.",
+      "dependsOn": ["token-pair"]
+    },
+    {
+      "id": "repo-wrap",
+      "order": 120,
+      "path": "src/ui/sidebar-html.ts",
+      "ranges": [{ "start": 289, "end": 301 }],
+      "significance": "normal",
+      "title": "Repository details after the walk",
+      "rationale": "Informational git state is grouped so it cannot push the thought below the fold",
+      "dependsOn": ["blocking-git"]
+    },
+    {
+      "id": "status-complete",
+      "order": 130,
+      "path": "src/model/view.ts",
+      "ranges": [{ "start": 70, "end": 73 }],
+      "significance": "normal",
+      "title": "Status bar does not grade the code",
+      "rationale": "All N steps revealed replaces Walkthrough complete · Finish",
+      "dependsOn": ["walk-hierarchy"]
+    },
+    {
+      "id": "dim-pending",
+      "order": 140,
+      "path": "src/ui/documents.ts",
+      "ranges": [{ "start": 259, "end": 268 }],
+      "significance": "normal",
+      "title": "Dim mode keeps diff colors",
+      "rationale": "Pending lines use a theme background instead of 0.4 opacity",
+      "dependsOn": ["token-pair"]
+    },
+    {
+      "id": "no-last-toast",
+      "order": 150,
+      "path": "src/commands/index.ts",
+      "ranges": [{ "start": 155, "end": 161 }],
+      "significance": "normal",
+      "title": "Tab past the last step is a no-op",
+      "rationale": "Advancing no longer opens a Review complete toast that offers Finish",
+      "dependsOn": ["status-complete"]
     }
   ]
 }

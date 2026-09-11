@@ -258,7 +258,12 @@ export function useReviewDecorations(): void {
 
   useEditorDecorations(
     editor,
-    { isWholeLine: true, opacity: '0.4' },
+    {
+      isWholeLine: true,
+      backgroundColor: new ThemeColor('editor.inactiveSelectionBackground'),
+      overviewRulerColor: new ThemeColor('editorOverviewRuler.wordHighlightForeground'),
+      overviewRulerLane: OverviewRulerLane.Right,
+    },
     ranges(model => model.pendingRanges),
   )
 }

@@ -84,7 +84,7 @@
       },
       {
         "command": "tabthrough.startFromGuide",
-        "title": "Start Review from This Guide",
+        "title": "Start Walkthrough from This Guide",
         "category": "Tabthrough",
         "enablement": "tabthrough.canStart && tabthrough.activeGuideValid"
       },
@@ -132,7 +132,7 @@
       },
       {
         "command": "tabthrough.generateAgent",
-        "title": "Generate Agent Guide",
+        "title": "Ask Editor Agent",
         "category": "Tabthrough",
         "enablement": "tabthrough.canStart"
       },
@@ -162,7 +162,7 @@
       },
       {
         "command": "tabthrough.showStepDetail",
-        "title": "Go to Current Step",
+        "title": "Go to Current Change",
         "category": "Tabthrough",
         "enablement": "tabthrough.sessionActive"
       },
@@ -174,13 +174,13 @@
       },
       {
         "command": "tabthrough.finish",
-        "title": "Finish Review",
+        "title": "Finish Walkthrough",
         "category": "Tabthrough",
         "enablement": "tabthrough.sessionActive"
       },
       {
         "command": "tabthrough.cancel",
-        "title": "Cancel Review",
+        "title": "End Walkthrough",
         "category": "Tabthrough",
         "enablement": "tabthrough.sessionOpen && !tabthrough.sessionFinishing"
       },

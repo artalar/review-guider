@@ -109,39 +109,39 @@ Malformed guides never block a review: every failure falls back to the heuristic
 
 <!-- commands -->
 
-| Command                      | Title                                    |
-| ---------------------------- | ---------------------------------------- |
-| `tabthrough.review`          | Tabthrough: Review…                      |
-| `tabthrough.start`           | Tabthrough: Review Working Changes       |
-| `tabthrough.startFromCommit` | Tabthrough: Review a Commit...           |
-| `tabthrough.startFromRange`  | Tabthrough: Review a Commit Range...     |
-| `tabthrough.startFromGuide`  | Tabthrough: Start Review from This Guide |
-| `tabthrough.installSkill`    | Tabthrough: Install /tabthrough Skill    |
-| `tabthrough.pickWorkingTree` | Tabthrough: Pick Working Changes         |
-| `tabthrough.pickCommit`      | Tabthrough: Pick a Commit                |
-| `tabthrough.pickRange`       | Tabthrough: Pick a Commit Range          |
-| `tabthrough.selectCommit`    | Tabthrough: Select Commit                |
-| `tabthrough.submitRange`     | Tabthrough: Use Commit Range             |
-| `tabthrough.generateSimple`  | Tabthrough: Generate Simple Guide        |
-| `tabthrough.generateAgent`   | Tabthrough: Generate Agent Guide         |
-| `tabthrough.setupBack`       | Tabthrough: Back                         |
-| `tabthrough.chooseMode`      | Tabthrough: Choose Session Mode          |
-| `tabthrough.next`            | Tabthrough: Reveal Next Change           |
-| `tabthrough.previous`        | Tabthrough: Go Back One Change           |
-| `tabthrough.showStepDetail`  | Tabthrough: Go to Current Step           |
-| `tabthrough.showWalkthrough` | Tabthrough: Show Walkthrough             |
-| `tabthrough.finish`          | Tabthrough: Finish Review                |
-| `tabthrough.cancel`          | Tabthrough: Cancel Review                |
-| `tabthrough.commitHandoff`   | Tabthrough: Open Source Control          |
-| `tabthrough.editHere`        | Tabthrough: Edit Here                    |
-| `tabthrough.continueRebase`  | Tabthrough: Continue Rebase              |
-| `tabthrough.abortRebase`     | Tabthrough: Abort Rebase                 |
-| `tabthrough.popAutostash`    | Tabthrough: Pop Autostash                |
-| `tabthrough.showAutostash`   | Tabthrough: Show Autostash               |
-| `tabthrough.openWorktree`    | Tabthrough: Open Worktree                |
-| `tabthrough.removeWorktree`  | Tabthrough: Remove Worktree              |
-| `tabthrough.pruneWorktrees`  | Tabthrough: Prune Worktrees              |
-| `tabthrough.openConflict`    | Tabthrough: Open Conflicted File         |
+| Command                      | Title                                         |
+| ---------------------------- | --------------------------------------------- |
+| `tabthrough.review`          | Tabthrough: Review…                           |
+| `tabthrough.start`           | Tabthrough: Review Working Changes            |
+| `tabthrough.startFromCommit` | Tabthrough: Review a Commit...                |
+| `tabthrough.startFromRange`  | Tabthrough: Review a Commit Range...          |
+| `tabthrough.startFromGuide`  | Tabthrough: Start Walkthrough from This Guide |
+| `tabthrough.installSkill`    | Tabthrough: Install /tabthrough Skill         |
+| `tabthrough.pickWorkingTree` | Tabthrough: Pick Working Changes              |
+| `tabthrough.pickCommit`      | Tabthrough: Pick a Commit                     |
+| `tabthrough.pickRange`       | Tabthrough: Pick a Commit Range               |
+| `tabthrough.selectCommit`    | Tabthrough: Select Commit                     |
+| `tabthrough.submitRange`     | Tabthrough: Use Commit Range                  |
+| `tabthrough.generateSimple`  | Tabthrough: Generate Simple Guide             |
+| `tabthrough.generateAgent`   | Tabthrough: Ask Editor Agent                  |
+| `tabthrough.setupBack`       | Tabthrough: Back                              |
+| `tabthrough.chooseMode`      | Tabthrough: Choose Session Mode               |
+| `tabthrough.next`            | Tabthrough: Reveal Next Change                |
+| `tabthrough.previous`        | Tabthrough: Go Back One Change                |
+| `tabthrough.showStepDetail`  | Tabthrough: Go to Current Change              |
+| `tabthrough.showWalkthrough` | Tabthrough: Show Walkthrough                  |
+| `tabthrough.finish`          | Tabthrough: Finish Walkthrough                |
+| `tabthrough.cancel`          | Tabthrough: End Walkthrough                   |
+| `tabthrough.commitHandoff`   | Tabthrough: Open Source Control               |
+| `tabthrough.editHere`        | Tabthrough: Edit Here                         |
+| `tabthrough.continueRebase`  | Tabthrough: Continue Rebase                   |
+| `tabthrough.abortRebase`     | Tabthrough: Abort Rebase                      |
+| `tabthrough.popAutostash`    | Tabthrough: Pop Autostash                     |
+| `tabthrough.showAutostash`   | Tabthrough: Show Autostash                    |
+| `tabthrough.openWorktree`    | Tabthrough: Open Worktree                     |
+| `tabthrough.removeWorktree`  | Tabthrough: Remove Worktree                   |
+| `tabthrough.pruneWorktrees`  | Tabthrough: Prune Worktrees                   |
+| `tabthrough.openConflict`    | Tabthrough: Open Conflicted File              |
 
 <!-- commands -->
 

@@ -86,9 +86,9 @@ export {
   worktreeDir,
 } from './config'
 
-export const WORKTREE_HINT = 'This commit is not on the current branch. Start in Worktree mode.'
-export const MERGE_AFTER_HINT = 'This commit is a merge — start in Worktree mode'
-export const MERGE_ABOVE_HINT = 'There is a merge above this commit — start in Worktree mode'
+export const WORKTREE_HINT = 'This commit is not on the current branch, so Rebase is unavailable.'
+export const MERGE_AFTER_HINT = 'This commit is a merge — Rebase cannot stop here.'
+export const MERGE_ABOVE_HINT = 'There is a merge above this commit — Rebase cannot stop here.'
 export const REBASE_IN_PROGRESS_HINT = 'Finish or abort the rebase in progress first'
 export const CONFLICT_STOP = 'Stopped on a conflict — resolve, then Continue in the sidebar.'
 export const RETRY_WITHOUT_HOOKS = 'Retry without hooks / signing'

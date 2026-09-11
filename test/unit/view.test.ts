@@ -99,7 +99,7 @@ describe('status bar composition', () => {
       expect(peek(statusText)).toBe('$(book) 1 of 2 · client.ts')
 
       model.next()
-      expect(peek(statusText)).toBe('$(book) Walkthrough complete · Finish')
+      expect(peek(statusText)).toBe('$(book) All 2 steps revealed')
     })
   })
 

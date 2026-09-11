@@ -94,6 +94,8 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     chosenMode: null,
     askMode: false,
     previewMode: 'readonly',
+    guideProvenance: null,
+    guideFallback: false,
   }
   return { ...base, ...overrides }
 }
@@ -115,6 +117,9 @@ describe('sidebar projection', () => {
       'tabthrough.setupBack',
     ])
     expect(rows.find(row => row.id === 'working-tree')?.description).toContain('Uncommitted')
+    expect(rows.find(row => row.id === 'working-tree')?.surface).toBe('list')
+    expect(rows.find(row => row.id === 'commit')?.surface).toBe('list')
+    expect(rows.find(row => row.id === 'range')?.surface).toBe('list')
     expect(rows.find(row => row.id === 'back')?.slot).toBe('nav')
   })
 
@@ -130,7 +135,7 @@ describe('sidebar projection', () => {
     expect(rows.find(row => row.id === 'commit-abc123def456')?.payload).toBe('abc123def456')
     expect(rows.find(row => row.id === 'commit-abc123def456')?.description).toContain('abc123d')
     expect(rows.find(row => row.id === 'commit-ref')?.input?.placeholder).toBe('HEAD~1')
-    expect(rows.find(row => row.id === 'commit-ref')?.input?.submit).toBe('Go')
+    expect(rows.find(row => row.id === 'commit-ref')?.input?.submit).toBe('Use commit')
     expect(rows.find(row => row.id === 'commit-ref')?.enabled).toBe(true)
     expect(rows.find(row => row.id === 'back')?.slot).toBe('nav')
   })
@@ -139,7 +144,7 @@ describe('sidebar projection', () => {
     const rows = sidebarItems(view({
       setup: { kind: 'commits', commits: [], loading: false, error: 'That does not look like a commit, tag, or ref.' },
     }))
-    expect(rows.find(row => row.id === 'pick-commit')?.description).toContain('does not look like')
+    expect(rows.find(row => row.id === 'commit-ref')?.input?.error).toContain('does not look like')
     expect(rows.some(row => row.command === 'tabthrough.setupBack')).toBe(true)
   })
 
@@ -147,9 +152,9 @@ describe('sidebar projection', () => {
     const rows = sidebarItems(view({
       setup: rangeSetup({ error: 'Enter a commit range, for example main..HEAD.' }),
     }))
-    expect(rows.find(row => row.id === 'pick-range')?.description).toContain('main..HEAD')
+    expect(rows.find(row => row.id === 'range-input')?.input?.error).toContain('main..HEAD')
     expect(rows.find(row => row.id === 'range-input')?.input?.placeholder).toBe('main..HEAD')
-    expect(rows.find(row => row.id === 'range-input')?.input?.submit).toBe('Use')
+    expect(rows.find(row => row.id === 'range-input')?.input?.submit).toBe('Use range')
     expect(rows.find(row => row.id === 'back')?.slot).toBe('nav')
   })
 
@@ -187,9 +192,10 @@ describe('sidebar projection', () => {
       'tabthrough.startFromGuide',
       'tabthrough.review',
     ])
+    expect(rows.find(row => row.id === 'start-guide')?.label).toBe('Start walkthrough')
   })
 
-  it('offers Simple and Agent after a target is picked, and names Will run', () => {
+  it('offers Simple and Agent after a target is picked, and names the workspace consequence', () => {
     const rows = sidebarItems(view({
       setup: { kind: 'generate', target: { kind: 'workingTree' } },
     }))
@@ -198,7 +204,10 @@ describe('sidebar projection', () => {
       'tabthrough.generateAgent',
       'tabthrough.setupBack',
     ])
-    expect(rows.find(row => row.id === 'will-run')?.label).toBe('Will run: nothing')
+    expect(rows.find(row => row.id === 'simple')?.label).toBe('Generate Simple guide')
+    expect(rows.find(row => row.id === 'agent')?.label).toBe('Ask editor agent')
+    expect(rows.find(row => row.id === 'will-run')?.label).toContain('review snapshot')
+    expect(rows.find(row => row.id === 'will-run')?.label).not.toContain('Will run: nothing')
   })
 
   it('offers Rebase when asked, and disables Start when the commit is not an ancestor', () => {
@@ -207,14 +216,15 @@ describe('sidebar projection', () => {
       showModePicker: true,
       showRebase: true,
       rebaseApplicable: false,
-      rebaseHint: 'This commit is not on the current branch. Start in Worktree mode.',
+      rebaseHint: 'This commit is not on the current branch, so Rebase is unavailable.',
       startEnabled: false,
-      startHint: 'This commit is not on the current branch. Start in Worktree mode.',
+      startHint: 'This commit is not on the current branch, so Rebase is unavailable.',
       willRun: 'nothing',
       sidecarReady: true,
     }))
     expect(rows.find(row => row.id === 'mode-rebase')?.enabled).toBe(false)
-    expect(rows.find(row => row.id === 'mode-rebase')?.description).toContain('Worktree')
+    expect(rows.find(row => row.id === 'mode-rebase')?.description).toContain('Rebase is unavailable')
+    expect(rows.find(row => row.id === 'mode-worktree')).toBeUndefined()
     expect(rows.find(row => row.command === 'tabthrough.startFromGuide')?.enabled).toBe(false)
   })
 
@@ -229,7 +239,9 @@ describe('sidebar projection', () => {
     const rebase = rows.find(row => row.id === 'mode-rebase')
     expect(readonly?.command).toBe('tabthrough.chooseMode')
     expect(readonly?.payload).toBe('readonly')
+    expect(readonly?.surface).toBe('list')
     expect(rebase?.command).toBe('tabthrough.chooseMode')
+    expect(rebase?.surface).toBe('list')
     expect(rebase?.payload).toBe('rebase')
     expect(SIDEBAR_COMMANDS.has('tabthrough.chooseMode')).toBe(true)
     expect(PAYLOAD_COMMANDS.has('tabthrough.chooseMode')).toBe(true)
@@ -278,6 +290,7 @@ describe('sidebar projection', () => {
       status: 'active',
       mode: 'readonly',
       entry: 'working tree',
+      guideProvenance: 'repository',
       summary: 'Read the state model before the bridge wiring.',
       progress: { index: 1, total: 2 },
       canAdvance: true,
@@ -287,6 +300,9 @@ describe('sidebar projection', () => {
     }))
     const byId = new Map(rows.map(row => [row.id, row]))
     expect(byId.get('summary')?.description).toContain('state model')
+    expect(byId.get('summary')?.surface).toBe('disclosure')
+    expect(byId.get('session')?.label).toBe('Read-only · Working changes')
+    expect(byId.get('session')?.description).not.toMatch(/\d+ of \d+/)
     expect(byId.get('rationale')?.description).toContain('contract')
     expect(byId.get('notes')?.description).toContain('remain visible')
     expect(byId.get('previous')?.slot).toBe('nav')
@@ -294,7 +310,9 @@ describe('sidebar projection', () => {
     expect(byId.get('next')?.command).toBe('tabthrough.next')
     expect(byId.get('next')?.slot).toBe('nav')
     expect(byId.get('finish')?.slot).toBeUndefined()
+    expect(byId.get('finish')?.label).toBe('Finish walkthrough')
     expect(byId.get('cancel')?.command).toBe('tabthrough.cancel')
+    expect(byId.get('cancel')?.label).toBe('End walkthrough')
     expect(byId.get('edit-here')?.enabled).toBe(true)
   })
 
@@ -305,7 +323,8 @@ describe('sidebar projection', () => {
       currentStep: step({ title: 'State contract' }),
       editedPaths: ['src/app.ts'],
     }))
-    expect(rows.find(row => row.id === 'current')?.label).toContain('edited on disk')
+    expect(rows.find(row => row.id === 'current')?.label).toBe('State contract')
+    expect(rows.find(row => row.id === 'edited')?.label).toBe('Edited on disk')
   })
 
   it('disables Edit here for a commit review', () => {
@@ -317,12 +336,13 @@ describe('sidebar projection', () => {
       currentStep: step(),
     }))
     expect(rows.find(row => row.id === 'edit-here')?.enabled).toBe(false)
-    expect(rows.find(row => row.id === 'edit-here')?.description).toContain('Rebase or Worktree')
+    expect(rows.find(row => row.id === 'edit-here')?.description).toContain('working-changes or rebase')
   })
 
-  it('shows starting with Will run and a cancel', () => {
-    const rows = sidebarItems(view({ status: 'starting', willRun: 'nothing' }))
-    expect(rows.find(row => row.id === 'starting')?.description).toBe('Will run: nothing')
+  it('shows starting with a cancel', () => {
+    const rows = sidebarItems(view({ status: 'starting', willRun: 'nothing', entry: 'working tree' }))
+    expect(rows.find(row => row.id === 'starting')?.label).toBe('Starting walkthrough…')
+    expect(rows.find(row => row.id === 'will-run')?.label).toContain('review snapshot')
     expect(rows.some(row => row.command === 'tabthrough.cancel')).toBe(true)
   })
 
@@ -343,6 +363,7 @@ describe('sidebar projection', () => {
     const rows = sidebarItems(view({ status: 'active', mode: 'readonly', complete: true, currentStep: step({ notes }) }))
     expect(rows.find(row => row.id === 'notes')?.description).toBe(notes)
     expect(rows.find(row => row.id === 'finish')?.slot).toBe('nav')
+    expect(rows.find(row => row.id === 'finish')?.label).toBe('Finish walkthrough')
     expect(rows.some(row => row.id === 'next')).toBe(false)
   })
 
@@ -361,6 +382,8 @@ describe('sidebar projection', () => {
       }),
     }))
     expect(rows.find(row => row.id === 'rebase')?.label).toContain('Rebasing main')
+    expect(rows.find(row => row.id === 'continue-rebase')?.label).toBe('Continue rebase')
+    expect(rows.find(row => row.id === 'abort-rebase')?.label).toBe('Abort rebase')
     expect(rows.map(row => row.command).filter(Boolean)).toEqual(expect.arrayContaining([
       'tabthrough.continueRebase',
       'tabthrough.abortRebase',
@@ -397,6 +420,24 @@ describe('sidebar projection', () => {
     const ids = rows.map(row => row.id)
     expect(ids.indexOf('cancel')).toBeLessThan(ids.indexOf('autostash-stash@{1}'))
     expect(ids.indexOf('edit-here')).toBeLessThan(ids.indexOf('autostash-stash@{1}'))
+  })
+
+  it('uses rebase finish and abort copy on the last step', () => {
+    const rows = sidebarItems(view({
+      status: 'active',
+      mode: 'rebase',
+      entry: 'commit abc',
+      complete: true,
+      progress: { index: 2, total: 2 },
+      canRetreat: true,
+      currentStep: step(),
+    }))
+    expect(rows.find(row => row.id === 'finish')?.label).toBe('Amend and continue')
+    expect(rows.find(row => row.id === 'finish')?.slot).toBe('nav')
+    expect(rows.find(row => row.id === 'cancel')?.label).toBe('Abort rebase')
+    expect(rows.find(row => row.id === 'cancel')?.tone).toBe('consequential')
+    expect(rows.find(row => row.id === 'complete')?.label).toBe('All 2 steps revealed')
+    expect(rows.find(row => row.id === 'session')?.label).toBe('Rebase · selected commit')
   })
 
   it('opens a conflicted path from the banner', () => {

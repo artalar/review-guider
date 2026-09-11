@@ -157,15 +157,7 @@ async function advance(): Promise<void> {
   if (model === null)
     return
 
-  const moved = model.next()
-  if (moved)
-    return
-  if (model.canAdvance())
-    return
-
-  const answer = await wrap(window.showInformationMessage('Review complete.', 'Finish Review'))
-  if (answer === 'Finish Review')
-    await wrap(finishSession())
+  model.next()
 }
 
 async function retreat(): Promise<void> {
