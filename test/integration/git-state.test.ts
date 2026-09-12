@@ -1,6 +1,8 @@
 import { join } from 'node:path'
 import process from 'node:process'
 import { afterAll, describe, expect, it } from 'vitest'
+import { canonicalizeRepoRoot } from '../../src/git/paths'
+import { quoteArg } from '../../src/git/rebase'
 import {
   abortRebase,
   continueRebase,
@@ -25,8 +27,7 @@ async function writeSequenceEditor(repoRoot: string): Promise<void> {
 }
 
 function sequenceEditor(repoRoot: string): string {
-  const node = process.execPath.includes(' ') ? `"${process.execPath}"` : process.execPath
-  return `${node} "${join(repoRoot, 'seq.mjs')}"`
+  return `${quoteArg(process.execPath)} ${quoteArg(join(repoRoot, 'seq.mjs'))}`
 }
 
 describe('readGitState', () => {
@@ -198,7 +199,7 @@ describe('readGitState', () => {
 
     const state = await readGitState(repo.root, { worktreeDir: oursRoot })
     expect(state.worktrees).toHaveLength(1)
-    expect(state.worktrees[0]?.path).toBe(ours)
+    expect(canonicalizeRepoRoot(state.worktrees[0]?.path ?? '')).toBe(canonicalizeRepoRoot(ours))
     expect(state.worktrees[0]?.dirty).toBe(false)
 
     await repo.write('tracked.txt', 'in main\n')

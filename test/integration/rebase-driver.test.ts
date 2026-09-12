@@ -352,6 +352,11 @@ describe('rebase quoting and start env', () => {
     expect(quoteArg(path)).toBe(`"${path.replace(/["$`\\]/g, '\\$&')}"`)
   })
 
+  it('quotes Windows paths so a POSIX sh sequence.editor keeps the backslashes', () => {
+    expect(quoteArg('C:\\hostedtoolcache\\windows\\node.exe'))
+      .toBe('"C:\\\\hostedtoolcache\\\\windows\\\\node.exe"')
+  })
+
   it('sets GIT_EDITOR=true on start', async () => {
     const { repo, after } = await threeCommitRepo()
     const envs: Array<Readonly<Record<string, string>> | undefined> = []
