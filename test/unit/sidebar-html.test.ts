@@ -309,8 +309,8 @@ describe('sidebar text boundary', () => {
       progress: { index: 2, total: 2 },
     }))
     expect(html).toContain('data-command="tabthrough.finish"')
-    expect(html).toContain("event.key!=='Tab'")
-    expect(html).toContain("post('tabthrough.finish')")
+    expect(html).toContain('event.key!==\'Tab\'')
+    expect(html).toContain('post(\'tabthrough.finish\')')
   })
 
   it('uses host theme tokens instead of a private color palette', () => {

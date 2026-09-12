@@ -1,6 +1,6 @@
 import { context, peek } from '@reatom/core'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { gitState, pendingEntry } from '../../src/model/session'
+import { gitState, pendingEntry, sessionModeSetting, sessionStatus, startSession } from '../../src/model/session'
 import {
   defaultBase,
   fetchRemote,
@@ -228,5 +228,29 @@ describe('home setup machine', () => {
     })
     await fetchRemote()
     expect(peek(setupPhase).kind).toBe('home')
+  })
+
+  it('drops home remotes and commits while a session is open', async () => {
+    const repo = await makeTempRepo({ files: { 'README.md': '# fixture\n' } })
+    await repo.write('a.ts', 'a\n')
+    await repo.git('add', 'a.ts')
+    const rev = await repo.commit('change')
+    const harness = await bootstrapModel(repo.root)
+    dispose = harness.dispose
+    await settleHomeHistory()
+    expect(peek(setupPhase)).toMatchObject({
+      kind: 'home',
+      commits: expect.arrayContaining([expect.objectContaining({ sha: rev })]),
+    })
+
+    sessionModeSetting.set('readonly')
+    await startSession({ entry: { kind: 'commit', rev } })
+    expect(peek(sessionStatus)).toBe('active')
+    expect(peek(setupPhase)).toMatchObject({
+      kind: 'home',
+      commits: [],
+      remotes: [],
+      branches: [],
+    })
   })
 })

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
+  "version": 1,
+  "topic": "session-idle-git",
+  "scope": { "kind": "workingTree" },
+  "summary": "Finish names leftover autostash even when continue's last progress line is the rebase success. Home remotes and history disconnect while a session is open. Lint import and quote noise is skipped.",
+  "files": {
+    "test/integration/rebase-driver.test.ts": { "significance": "skip", "rationale": "Coverage for leftoverFinishNotice and the autostash Finish case" },
+    "test/integration/session-lifecycle.test.ts": { "significance": "skip", "rationale": "Named-import sort only" },
+    "test/unit/git-watch-deps.test.ts": { "significance": "skip", "rationale": "Import order only" },
+    "test/unit/home-setup.test.ts": { "significance": "skip", "rationale": "Idle-home disconnect case" },
+    "test/unit/sidebar-html.test.ts": { "significance": "skip", "rationale": "Quote-style assertion only" },
+    ".tabthrough.session-idle-git.guide.json": { "significance": "skip", "rationale": "This walk, written into the tree it describes" }
+  },
+  "steps": [
+    {
+      "id": "leftover-notice",
+      "order": 10,
+      "path": "src/git/rebase.ts",
+      "ranges": [{ "start": 271, "end": 283 }],
+      "significance": "critical",
+      "title": "Leftover stash keeps the autostash sentence",
+      "rationale": "The rule Finish uses when continue's last progress line is the rebase success",
+      "notes": "Carriage-return progress keeps the last segment. A leftover stash still gets Applying autostash resulted in conflicts. Your changes are safe in the stash."
+    },
+    {
+      "id": "finish-warn",
+      "order": 20,
+      "path": "src/model/session.ts",
+      "ranges": [{ "start": 954, "end": 958 }],
+      "significance": "high",
+      "title": "Finish forwards that leftover notice",
+      "rationale": "First consumer — silent close, then the leftoverFinishNotice warn",
+      "dependsOn": ["leftover-notice"]
+    },
+    {
+      "id": "idle-home-phase",
+      "order": 30,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 227, "end": 244 }],
+      "significance": "high",
+      "title": "Home phase is empty while a session is open",
+      "rationale": "setupPhase stays subscribed for the walk; this return drops remotes and commit data reads",
+      "notes": "Reading gitRemotes.data from a live computed keeps the async query connected. The empty home is the disconnect."
+    },
+    {
+      "id": "idle-queries",
+      "order": 40,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 266, "end": 276 }],
+      "significance": "high",
+      "title": "Home queries subscribe only while idle",
+      "rationale": "The effect that calls gitRemotes and git log, gated on idle the same way",
+      "dependsOn": ["idle-home-phase"]
+    }
+  ]
+}

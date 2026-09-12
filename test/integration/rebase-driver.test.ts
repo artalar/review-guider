@@ -12,6 +12,7 @@ import {
   formatSequenceEditor,
   gitOutput,
   isAncestor,
+  leftoverFinishNotice,
   quoteArg,
   readOwnership,
   rebaseBypassFlags,
@@ -160,6 +161,18 @@ describe('rebase driver', () => {
       stdout: '',
       stderr: 'Rebasing (2/3)\rRebasing (3/3)\rSuccessfully rebased and updated refs/heads/main.\n',
     })).toBe('Successfully rebased and updated refs/heads/main.')
+  })
+
+  it('names leftover autostash when continue output is only the success line', () => {
+    expect(leftoverFinishNotice({
+      command: 'git rebase --continue',
+      code: 0,
+      stdout: '',
+      stderr: 'Rebasing (2/3)\rRebasing (3/3)\rSuccessfully rebased and updated refs/heads/main.\n',
+    }, {
+      autostashes: [{ selector: 'stash@{0}', subject: 'On main: autostash' }],
+      conflicts: ['note.ts'],
+    })).toMatch(/autostash/i)
   })
 
   it('finishes without edits: replays above, pops WIP, empties the stash', async () => {

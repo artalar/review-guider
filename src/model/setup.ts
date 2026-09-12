@@ -224,7 +224,25 @@ function homePhase(
   }
 }
 
+const IDLE_HOME_PHASE: HomeSetupPhase = {
+  kind: 'home',
+  commits: EMPTY_COMMITS,
+  loading: false,
+  error: null,
+  remotes: EMPTY_REMOTES,
+  selectedRemote: null,
+  branches: EMPTY_BRANCHES,
+  selectedBranch: null,
+  defaultBase: null,
+  selection: { kind: 'none' },
+  fetching: false,
+  fetchError: null,
+}
+
 export const setupPhase = computed((): SetupPhase => {
+  if (sessionStatus() !== 'idle')
+    return IDLE_HOME_PHASE
+
   const kind = setupKind()
   const commits = recentCommits.data()
   const loading = recentCommits.pending() > 0 && commits.length === 0
@@ -245,12 +263,16 @@ export const setupPhase = computed((): SetupPhase => {
 
 export function connectSetupQueries(): () => void {
   return effect(() => {
-    gitState()
-    if (setupKind() !== 'home')
+    if (sessionStatus() !== 'idle')
       return
-    gitRemotes()
-    gitBranches()
-    defaultBase()
+    if (setupKind() !== 'home' && setupKind() !== 'commits' && setupKind() !== 'range')
+      return
+    gitState()
+    if (setupKind() === 'home') {
+      gitRemotes()
+      gitBranches()
+      defaultBase()
+    }
     recentCommits()
   }, 'setup.connectQueries').unsubscribe
 }
