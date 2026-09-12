@@ -12,6 +12,7 @@ import {
   formatSequenceEditor,
   gitOutput,
   isAncestor,
+  leftoverFinishNotice,
   quoteArg,
   readOwnership,
   rebaseBypassFlags,
@@ -160,6 +161,18 @@ describe('rebase driver', () => {
       stdout: '',
       stderr: 'Rebasing (2/3)\rRebasing (3/3)\rSuccessfully rebased and updated refs/heads/main.\n',
     })).toBe('Successfully rebased and updated refs/heads/main.')
+  })
+
+  it('names leftover autostash when continue output is only the success line', () => {
+    expect(leftoverFinishNotice({
+      command: 'git rebase --continue',
+      code: 0,
+      stdout: '',
+      stderr: 'Rebasing (2/3)\rRebasing (3/3)\rSuccessfully rebased and updated refs/heads/main.\n',
+    }, {
+      autostashes: [{ selector: 'stash@{0}', subject: 'On main: autostash' }],
+      conflicts: ['note.ts'],
+    })).toMatch(/autostash/i)
   })
 
   it('finishes without edits: replays above, pops WIP, empties the stash', async () => {
@@ -337,6 +350,11 @@ describe('rebase quoting and start env', () => {
     const formatted = formatSequenceEditor(path, path, 'abc1234')
     expect(formatted).toContain(quoteArg(path))
     expect(quoteArg(path)).toBe(`"${path.replace(/["$`\\]/g, '\\$&')}"`)
+  })
+
+  it('quotes Windows paths so a POSIX sh sequence.editor keeps the backslashes', () => {
+    expect(quoteArg('C:\\hostedtoolcache\\windows\\node.exe'))
+      .toBe('"C:\\\\hostedtoolcache\\\\windows\\\\node.exe"')
   })
 
   it('sets GIT_EDITOR=true on start', async () => {

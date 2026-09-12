@@ -1,0 +1,133 @@
+{
+  "$schema": "https://raw.githubusercontent.com/artalar/tabthrough/main/schema/guide-v1.json",
+  "version": 1,
+  "topic": "idle-home",
+  "scope": {
+    "kind": "range",
+    "base": "d6fac4df7dc6098bcb63dff1c7a8069d0fff102d",
+    "head": "85261a49b7954d2fc20101d1f35ffa03a2addefc"
+  },
+  "summary": "Idle is one screen. Git lists remotes and a default base; home history follows the listed branch. A second click is a range. Review walks that pick, or the branch against the default base. Working changes attach only to a dirty checkout. Tests and command-id lists are skipped.",
+  "files": {
+    ".gitignore": { "significance": "skip", "rationale": "Local orchestration folder" },
+    "package.json": { "significance": "skip", "rationale": "Command ids and palette hiding" },
+    "src/index.ts": { "significance": "skip", "rationale": "Subscribes the home queries" },
+    "src/ui/sidebar-commands.ts": { "significance": "skip", "rationale": "Allowlists the new payloads" },
+    "test/helpers/model.ts": { "significance": "skip", "rationale": "Harness waits for remotes and history" },
+    "test/integration/entry-points.test.ts": { "significance": "skip", "rationale": "Log-rev coverage" },
+    "test/unit/contributions.test.ts": { "significance": "skip", "rationale": "Manifest list" },
+    "test/unit/home-setup.test.ts": { "significance": "skip", "rationale": "Machine cases for the rules you walk" },
+    "test/unit/home-sidebar.test.ts": { "significance": "skip", "rationale": "Row contract for the home screen" },
+    "test/unit/remotes.test.ts": { "significance": "skip", "rationale": "Git-layer cases for remotes.ts" },
+    "test/unit/setup.test.ts": { "significance": "skip", "rationale": "Working-tree stays on home" },
+    "test/unit/sidebar.test.ts": { "significance": "skip", "rationale": "Projection fixtures" },
+    "test/unit/sidebar-html.test.ts": { "significance": "skip", "rationale": "Markup fixtures" }
+  },
+  "steps": [
+    {
+      "id": "git-remotes",
+      "order": 10,
+      "path": "src/git/remotes.ts",
+      "grouping": "split",
+      "significance": "critical",
+      "title": "Argv remotes and a default base",
+      "rationale": "The git contract every later selector and branch walk uses",
+      "notes": "Hostile names never reach argv. Default base prefers upstream, then origin HEAD/main/master, then local main/master. Fetch is `git fetch -- <remote>`."
+    },
+    {
+      "id": "log-rev",
+      "order": 20,
+      "path": "src/git/log.ts",
+      "ranges": [{ "start": 23, "end": 39 }],
+      "significance": "high",
+      "title": "History of a chosen ref",
+      "rationale": "The list the branch selector will point at this layer",
+      "dependsOn": ["git-remotes"]
+    },
+    {
+      "id": "home-phase",
+      "order": 30,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 52, "end": 68 }],
+      "significance": "high",
+      "title": "Home holds refs and a selection",
+      "rationale": "The idle phase the sidebar will render instead of three wizard rows",
+      "dependsOn": ["git-remotes"]
+    },
+    {
+      "id": "home-history-wip",
+      "order": 40,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 171, "end": 204 }],
+      "significance": "critical",
+      "title": "History follows the listed branch",
+      "rationale": "First consumer of log-rev — and the rule that keeps WIP off a remote ref",
+      "dependsOn": ["log-rev", "home-phase"],
+      "notes": "Working changes are selected only when the listed branch is the dirty checkout. Viewing another ref while main is dirty leaves selection empty so Review does not walk local WIP."
+    },
+    {
+      "id": "home-clicks",
+      "order": 50,
+      "path": "src/model/setup.ts",
+      "ranges": [{ "start": 359, "end": 488 }],
+      "grouping": "split",
+      "significance": "critical",
+      "title": "Clicks become the review target",
+      "rationale": "The machine the header button will start — still on home, no generate wizard",
+      "dependsOn": ["home-history-wip"],
+      "notes": "A second commit click is a range, older from and newer to, same as the leftover range picker. With nothing picked, a non-default branch walks as default-base to that branch. Working changes stay on home."
+    },
+    {
+      "id": "home-rows",
+      "order": 60,
+      "path": "src/model/sidebar.ts",
+      "ranges": [{ "start": 631, "end": 760 }],
+      "grouping": "split",
+      "significance": "high",
+      "title": "One screen: selectors, list, Review",
+      "rationale": "Projects the home phase into rows: native selects, commit clicks, one primary",
+      "dependsOn": ["home-clicks"]
+    },
+    {
+      "id": "header-review",
+      "order": 70,
+      "path": "src/ui/sidebar-html.ts",
+      "ranges": [{ "start": 89, "end": 98 }],
+      "significance": "high",
+      "title": "Review sits in the header",
+      "rationale": "Same chrome slot as Use range and Next — the one filled action",
+      "dependsOn": ["home-rows"]
+    },
+    {
+      "id": "native-selects",
+      "order": 80,
+      "path": "src/ui/sidebar-html.ts",
+      "ranges": [{ "start": 247, "end": 261 }, { "start": 324, "end": 363 }],
+      "grouping": "split",
+      "significance": "high",
+      "title": "Remote and branch are native selects",
+      "rationale": "Back on the HTML, now the compact ref bar the rows asked for",
+      "dependsOn": ["header-review"]
+    },
+    {
+      "id": "review-starts",
+      "order": 90,
+      "path": "src/commands/index.ts",
+      "ranges": [{ "start": 73, "end": 94 }],
+      "significance": "high",
+      "title": "Review starts the walk",
+      "rationale": "The click that leaves idle — pendingEntry then startSession, no sidecar required",
+      "dependsOn": ["home-clicks"]
+    },
+    {
+      "id": "readme-idle",
+      "order": 100,
+      "path": "README.md",
+      "ranges": [{ "start": 35, "end": 61 }],
+      "significance": "low",
+      "title": "Idle path in the docs",
+      "rationale": "Footnote — the screen you just walked, stated for users",
+      "dependsOn": ["home-rows"]
+    }
+  ]
+}

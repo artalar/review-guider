@@ -1,6 +1,6 @@
 import type { CommitSummary } from '../../src/git/log'
 import type { GitState } from '../../src/git/state'
-import type { RangeSetupPhase } from '../../src/model/setup'
+import type { HomeSetupPhase, RangeSetupPhase } from '../../src/model/setup'
 import type { SidebarViewModel } from '../../src/model/view'
 import { describe, expect, it } from 'vitest'
 import { htmlAttr, htmlText, renderSidebarBody, renderSidebarHtml } from '../../src/ui/sidebar-html'
@@ -46,6 +46,24 @@ function rangeSetup(overrides: Partial<Omit<RangeSetupPhase, 'kind'>> = {}): Ran
   }
 }
 
+function idleHome(overrides: Partial<HomeSetupPhase> = {}): HomeSetupPhase {
+  return {
+    kind: 'home',
+    commits: [],
+    loading: false,
+    error: null,
+    remotes: [],
+    selectedRemote: null,
+    branches: [],
+    selectedBranch: 'main',
+    defaultBase: 'main',
+    selection: { kind: 'none' },
+    fetching: false,
+    fetchError: null,
+    ...overrides,
+  }
+}
+
 function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
   return {
     status: 'idle',
@@ -60,7 +78,7 @@ function view(overrides: Partial<SidebarViewModel> = {}): SidebarViewModel {
     canAdvance: false,
     canRetreat: false,
     idleReason: null,
-    setup: { kind: 'home' },
+    setup: idleHome(),
     skillInstalled: true,
     guideFocused: false,
     sidecarReady: false,
@@ -145,6 +163,7 @@ describe('sidebar text boundary', () => {
   it('places leftover autostash copy after the target choices', () => {
     const html = renderSidebarBody(view({
       gitState: gitState({
+        unstaged: 1,
         autostashes: [{ selector: 'stash@{0}', subject: 'On main: autostash' }],
       }),
     }))
@@ -290,8 +309,8 @@ describe('sidebar text boundary', () => {
       progress: { index: 2, total: 2 },
     }))
     expect(html).toContain('data-command="tabthrough.finish"')
-    expect(html).toContain("event.key!=='Tab'")
-    expect(html).toContain("post('tabthrough.finish')")
+    expect(html).toContain('event.key!==\'Tab\'')
+    expect(html).toContain('post(\'tabthrough.finish\')')
   })
 
   it('uses host theme tokens instead of a private color palette', () => {
@@ -310,15 +329,29 @@ describe('sidebar text boundary', () => {
     expect(html).not.toContain('--surface-canvas')
     expect(html).not.toContain('--text-primary')
     expect(html).not.toContain('--action-primary-bg')
-    expect(html).toContain('class="frame screen-home"')
+    expect(html).toContain('--vscode-dropdown-background')
   })
 
-  it('renders target picks as list rows', () => {
-    const html = renderSidebarBody(view({ setup: { kind: 'targets' } }))
+  it('renders home commits, selectors, and Review without a slogan', () => {
+    const html = renderSidebarHtml(view({
+      setup: idleHome({
+        commits: [commitSummary({ sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', shortSha: 'aaaaaaa', subject: 'Tip' })],
+        remotes: [{ name: 'origin', fetchUrl: 'https://example.invalid/tabthrough.git' }],
+        selectedRemote: 'origin',
+        selection: { kind: 'workingTree' },
+      }),
+      gitState: gitState({ unstaged: 1 }),
+    }))
     expect(html).toContain('list-pick')
-    expect(html).toContain('class="choices"')
     expect(html).toContain('data-id="working-tree"')
-    expect(html).toContain('Review a change')
-    expect(html).not.toContain('class="secondary choice"')
+    expect(html).toContain('data-command="tabthrough.reviewSelection"')
+    expect(html).toContain('data-command="tabthrough.selectHomeRev"')
+    expect(html).toContain('data-command="tabthrough.setRemote"')
+    expect(html).toContain('data-command="tabthrough.setBranch"')
+    expect(html).toContain('<select ')
+    expect(html).toContain('select.addEventListener')
+    expect(html).not.toContain('Review a change')
+    expect(html).not.toContain('Choose where to begin')
+    expect(html).not.toContain('data-command="tabthrough.pickCommit"')
   })
 })

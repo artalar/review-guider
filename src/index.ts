@@ -24,6 +24,7 @@ import {
   workspaceRoot,
   worktreeDir,
 } from './model/session'
+import { connectSetupQueries } from './model/setup'
 import { useActiveGuideContext } from './ui/active-guide'
 import { useAtomRef } from './ui/binding'
 import { useReviewDecorations, useReviewDocuments } from './ui/documents'
@@ -45,6 +46,7 @@ const { activate, deactivate: disposeScope } = defineExtension(() => {
   sequenceEditorExecPath.set(process.execPath)
   useDisposable({ dispose: connectOwnershipWatch() })
   useDisposable({ dispose: connectGuideCursorPersist() })
+  useDisposable({ dispose: connectSetupQueries() })
 
   useGuideDiagnostics()
   useReviewDocuments()

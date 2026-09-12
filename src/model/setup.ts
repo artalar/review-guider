@@ -1,4 +1,5 @@
 import type { CommitSummary } from '../git/log'
+import type { GitBranch, GitRemote } from '../git/remotes'
 import type { ReviewTarget } from '../git/types'
 import type { GuideScopeDoc } from '../guide/schema'
 import {
@@ -6,6 +7,7 @@ import {
   action,
   atom,
   computed,
+  effect,
   isAbort,
   peek,
   withAbort,
@@ -16,6 +18,14 @@ import {
 import { readDiff } from '../git/diff'
 import { planIsolation, readHeadPosition } from '../git/isolate'
 import { DEFAULT_COMMIT_LIMIT, readRecentCommits } from '../git/log'
+import {
+  defaultBaseRef,
+  fetchRemote as fetchGitRemote,
+  listBranches,
+  listRemotes,
+  refNameError,
+  remoteNameError,
+} from '../git/remotes'
 import { readWorkingTreeCaptureDiff } from '../git/snapshot'
 import { commitRevError, describeTarget, parseRangeInput, rangeInputError } from '../git/types'
 import { buildHeuristicGuide } from '../guide/heuristic'
@@ -39,6 +49,24 @@ export interface HistorySetupPhase {
   readonly error: string | null
 }
 
+export type HomeSelection
+  = | { readonly kind: 'none' }
+    | { readonly kind: 'workingTree' }
+    | { readonly kind: 'commit', readonly rev: string }
+    | { readonly kind: 'range', readonly from: string, readonly to: string }
+
+export interface HomeSetupPhase extends HistorySetupPhase {
+  readonly kind: 'home'
+  readonly remotes: readonly GitRemote[]
+  readonly selectedRemote: string | null
+  readonly branches: readonly GitBranch[]
+  readonly selectedBranch: string | null
+  readonly defaultBase: string | null
+  readonly selection: HomeSelection
+  readonly fetching: boolean
+  readonly fetchError: string | null
+}
+
 export interface CommitsSetupPhase extends HistorySetupPhase {
   readonly kind: 'commits'
   readonly selected: string | null
@@ -52,7 +80,7 @@ export interface RangeSetupPhase extends HistorySetupPhase {
 }
 
 export type SetupPhase
-  = | { readonly kind: 'home' }
+  = | HomeSetupPhase
     | { readonly kind: 'targets' }
     | CommitsSetupPhase
     | RangeSetupPhase
@@ -82,12 +110,70 @@ const rangePick = atom<'from' | 'to'>('from', 'setup.rangePick')
 const rangePickArmed = atom(false, 'setup.rangePickArmed')
 const commitSelected = atom<string | null>(null, 'setup.commitSelected')
 const generateTarget = atom<ReviewTarget | null>(null, 'setup.generateTarget')
+const selectionOverride = atom<HomeSelection | null>(null, 'setup.selectionOverride')
+const remoteOverride = atom<string | null>(null, 'setup.remoteOverride')
+const branchOverride = atom<string | null>(null, 'setup.branchOverride')
+const fetchingRemote = atom(false, 'setup.fetching')
+const fetchError = atom<string | null>(null, 'setup.fetchError')
+const refsEpoch = atom(0, 'setup.refsEpoch')
+
+const EMPTY_REMOTES: readonly GitRemote[] = []
+const EMPTY_BRANCHES: readonly GitBranch[] = []
+
+export const gitRemotes = computed(async (): Promise<readonly GitRemote[]> => {
+  refsEpoch()
+  const capability = await wrap(gitCapability())
+  if (capability === null || !capability.ok)
+    return EMPTY_REMOTES
+  return await wrap(listRemotes(capability.repoRoot, { signal: abortVar.require().signal }))
+}, 'setup.gitRemotes').extend(withAsyncData({ initState: EMPTY_REMOTES }))
+
+export const selectedRemote = computed((): string | null => {
+  const override = remoteOverride()
+  if (override !== null)
+    return override
+  const remotes = gitRemotes.data()
+  if (remotes.some(remote => remote.name === 'origin'))
+    return 'origin'
+  return remotes[0]?.name ?? null
+}, 'setup.selectedRemote')
+
+export const gitBranches = computed(async (): Promise<readonly GitBranch[]> => {
+  refsEpoch()
+  const capability = await wrap(gitCapability())
+  if (capability === null || !capability.ok)
+    return EMPTY_BRANCHES
+  const remote = selectedRemote()
+  return await wrap(listBranches(capability.repoRoot, {
+    signal: abortVar.require().signal,
+    ...(remote === null ? {} : { remote }),
+  }))
+}, 'setup.gitBranches').extend(withAsyncData({ initState: EMPTY_BRANCHES }))
+
+export const selectedBranch = computed((): string | null => {
+  const override = branchOverride()
+  if (override !== null)
+    return override
+  return gitState.data()?.branch ?? null
+}, 'setup.selectedBranch')
+
+export const defaultBase = computed(async (): Promise<string | null> => {
+  refsEpoch()
+  const capability = await wrap(gitCapability())
+  if (capability === null || !capability.ok)
+    return null
+  return await wrap(defaultBaseRef(capability.repoRoot, {
+    signal: abortVar.require().signal,
+    preferredRemote: selectedRemote(),
+  }))
+}, 'setup.defaultBase').extend(withAsyncData({ initState: null as string | null }))
 
 export const recentCommits = computed(async (): Promise<readonly CommitSummary[]> => {
   const kind = setupKind()
-  if (kind !== 'commits' && kind !== 'range')
+  if (kind !== 'home' && kind !== 'commits' && kind !== 'range')
     return peek(recentCommits.data)
 
+  const rev = kind === 'home' ? (selectedBranch() ?? undefined) : undefined
   const capability = await wrap(gitCapability())
   if (capability === null || !capability.ok)
     return EMPTY_COMMITS
@@ -95,10 +181,68 @@ export const recentCommits = computed(async (): Promise<readonly CommitSummary[]
   return await wrap(readRecentCommits(capability.repoRoot, {
     limit: DEFAULT_COMMIT_LIMIT,
     signal: abortVar.require().signal,
+    ...(rev === undefined || rev === '' ? {} : { rev }),
   }))
 }, 'setup.recentCommits').extend(withAsyncData({ initState: EMPTY_COMMITS }))
 
+function treeIsDirty(): boolean {
+  const state = gitState.data()
+  if (state === null)
+    return false
+  return state.staged > 0 || state.unstaged > 0 || state.untracked > 0
+}
+
+function homeSelection(): HomeSelection {
+  const override = selectionOverride()
+  if (override !== null)
+    return override
+  const branch = selectedBranch()
+  const checkout = gitState.data()?.branch ?? null
+  if (treeIsDirty() && branch !== null && checkout !== null && branch === checkout)
+    return { kind: 'workingTree' }
+  return { kind: 'none' }
+}
+
+function homePhase(
+  commits: readonly CommitSummary[],
+  loading: boolean,
+  error: string | null,
+): HomeSetupPhase {
+  return {
+    kind: 'home',
+    commits,
+    loading,
+    error,
+    remotes: gitRemotes.data(),
+    selectedRemote: selectedRemote(),
+    branches: gitBranches.data(),
+    selectedBranch: selectedBranch(),
+    defaultBase: defaultBase.data(),
+    selection: homeSelection(),
+    fetching: fetchingRemote(),
+    fetchError: fetchError(),
+  }
+}
+
+const IDLE_HOME_PHASE: HomeSetupPhase = {
+  kind: 'home',
+  commits: EMPTY_COMMITS,
+  loading: false,
+  error: null,
+  remotes: EMPTY_REMOTES,
+  selectedRemote: null,
+  branches: EMPTY_BRANCHES,
+  selectedBranch: null,
+  defaultBase: null,
+  selection: { kind: 'none' },
+  fetching: false,
+  fetchError: null,
+}
+
 export const setupPhase = computed((): SetupPhase => {
+  if (sessionStatus() !== 'idle')
+    return IDLE_HOME_PHASE
+
   const kind = setupKind()
   const commits = recentCommits.data()
   const loading = recentCommits.pending() > 0 && commits.length === 0
@@ -114,10 +258,24 @@ export const setupPhase = computed((): SetupPhase => {
     if (target !== null)
       return { kind: 'generate', target }
   }
-  if (kind === 'targets')
-    return { kind: 'targets' }
-  return { kind: 'home' }
+  return homePhase(commits, loading, error)
 }, 'setup.phase')
+
+export function connectSetupQueries(): () => void {
+  return effect(() => {
+    if (sessionStatus() !== 'idle')
+      return
+    if (setupKind() !== 'home' && setupKind() !== 'commits' && setupKind() !== 'range')
+      return
+    gitState()
+    if (setupKind() === 'home') {
+      gitRemotes()
+      gitBranches()
+      defaultBase()
+    }
+    recentCommits()
+  }, 'setup.connectQueries').unsubscribe
+}
 
 export const skillEpoch = atom(0, 'setup.skillEpoch')
 export const sidecarEpoch = atom(0, 'setup.sidecarEpoch')
@@ -166,6 +324,11 @@ export const resetSetup = action(() => {
   rangePickArmed.set(false)
   commitSelected.set(null)
   generateTarget.set(null)
+  selectionOverride.set(null)
+  remoteOverride.set(null)
+  branchOverride.set(null)
+  fetchingRemote.set(false)
+  fetchError.set(null)
   pendingEntry.set(null)
   chosenMode.set(null)
   guideTopic.set(DEFAULT_GUIDE_TOPIC)
@@ -208,11 +371,144 @@ export const setupBack = action(() => {
 
 export const pickWorkingTree = action(async () => {
   setupError.set(null)
-  generateTarget.set({ kind: 'workingTree' })
+  generateTarget.set(null)
   pendingEntry.set({ kind: 'workingTree' })
-  setupKind.set('generate')
+  selectionOverride.set({ kind: 'workingTree' })
+  setupKind.set('home')
   await applyTopicForTarget({ kind: 'workingTree' })
 }, 'setup.pickWorkingTree')
+
+export const setRemote = action((name: string) => {
+  const trimmed = name.trim()
+  if (trimmed === '') {
+    setupError.set(null)
+    fetchError.set(null)
+    remoteOverride.set(null)
+    selectionOverride.set(null)
+    return
+  }
+  const error = remoteNameError(trimmed)
+  if (error !== null) {
+    setupError.set(error)
+    return
+  }
+  setupError.set(null)
+  fetchError.set(null)
+  remoteOverride.set(trimmed)
+  selectionOverride.set(null)
+}, 'setup.setRemote')
+
+export const setBranch = action((ref: string) => {
+  const trimmed = ref.trim()
+  if (trimmed === '') {
+    setupError.set(null)
+    fetchError.set(null)
+    branchOverride.set(null)
+    selectionOverride.set(null)
+    return
+  }
+  const error = refNameError(trimmed)
+  if (error !== null) {
+    setupError.set(error)
+    return
+  }
+  setupError.set(null)
+  fetchError.set(null)
+  branchOverride.set(trimmed)
+  selectionOverride.set(null)
+}, 'setup.setBranch')
+
+export const fetchRemote = action(async () => {
+  const capability = await wrap(gitCapability())
+  if (capability === null || !capability.ok) {
+    fetchError.set(capability === null
+      ? 'Tabthrough is still checking the repository.'
+      : capability.message)
+    return
+  }
+  const remote = peek(selectedRemote)
+  if (remote === null) {
+    fetchError.set('No remotes')
+    return
+  }
+  fetchingRemote.set(true)
+  fetchError.set(null)
+  try {
+    const result = await wrap(fetchGitRemote(capability.repoRoot, remote, {
+      signal: abortVar.require().signal,
+    }))
+    if (!result.ok) {
+      fetchError.set(result.message)
+      return
+    }
+    refsEpoch.set(value => value + 1)
+  }
+  finally {
+    fetchingRemote.set(false)
+  }
+}, 'setup.fetchRemote').extend(withAsync(), withAbort('last-in-win'))
+
+export const selectHomeRev = action((rev: string) => {
+  const error = commitRevError(rev)
+  if (error !== null) {
+    setupError.set(error)
+    return
+  }
+  setupError.set(null)
+  setupKind.set('home')
+  const current = homeSelection()
+  let from: string | null = null
+  let to: string | null = null
+  if (current.kind === 'commit') {
+    from = current.rev
+  }
+  else if (current.kind === 'range') {
+    from = current.from
+    to = current.to
+  }
+  const next = nextRangeSelection(from, to, rev.trim(), peek(recentCommits.data))
+  if (next.from !== null && next.to !== null)
+    selectionOverride.set({ kind: 'range', from: next.from, to: next.to })
+  else if (next.from !== null)
+    selectionOverride.set({ kind: 'commit', rev: next.from })
+  else if (next.to !== null)
+    selectionOverride.set({ kind: 'commit', rev: next.to })
+  else
+    selectionOverride.set({ kind: 'none' })
+}, 'setup.selectHomeRev')
+
+export function reviewTargetFromHome(
+  selection: HomeSelection,
+  selectedBranchName: string | null,
+  base: string | null,
+): ReviewTarget | null {
+  if (selection.kind === 'workingTree')
+    return { kind: 'workingTree' }
+  if (selection.kind === 'commit')
+    return { kind: 'commit', rev: selection.rev }
+  if (selection.kind === 'range')
+    return { kind: 'range', from: selection.from, to: selection.to }
+  if (selectedBranchName !== null && base !== null && selectedBranchName !== base)
+    return { kind: 'range', from: base, to: selectedBranchName }
+  if (selectedBranchName !== null)
+    return { kind: 'commit', rev: selectedBranchName }
+  return null
+}
+
+function targetFromSelection(): ReviewTarget | null {
+  return reviewTargetFromHome(homeSelection(), selectedBranch(), defaultBase.data())
+}
+
+export const reviewSelection = action(async () => {
+  const target = targetFromSelection()
+  if (target === null)
+    return
+  setupError.set(null)
+  pendingEntry.set(target)
+  generateTarget.set(null)
+  setupKind.set('home')
+  await applyTopicForTarget(target)
+}, 'setup.reviewSelection')
 
 export const loadCommits = action(async (): Promise<void> => {
   setupError.set(null)
@@ -397,7 +693,8 @@ async function refuseEmptyPlan(target: ReviewTarget, changedLineCount: number, s
 
 export const generateSimpleGuide = action(async (): Promise<void> => {
   const phase = peek(setupPhase)
-  if (phase.kind !== 'generate')
+  const target = phase.kind === 'generate' ? phase.target : targetFromSelection()
+  if (target === null)
     return
 
   const capability = await wrap(gitCapability())
@@ -418,10 +715,10 @@ export const generateSimpleGuide = action(async (): Promise<void> => {
   const signal = abortVar.require().signal
   const plan = await wrap(planIsolation(
     repoRoot,
-    { entry: phase.target },
+    { entry: target },
     { signal },
   ))
-  if (await refuseEmptyPlan(phase.target, plan.changedLineCount, plan.substantiveLineCount))
+  if (await refuseEmptyPlan(target, plan.changedLineCount, plan.substantiveLineCount))
     return
 
   const raw = plan.afterRev === null
@@ -430,10 +727,10 @@ export const generateSimpleGuide = action(async (): Promise<void> => {
 
   const diff = parseUnifiedDiff(raw.patch, raw.nameStatus, { gap: peek(heuristicOptions).intraHunkGap })
   const heuristic = buildHeuristicGuide(diff, peek(heuristicOptions))
-  const scope = scopeFor(phase.target, plan.baseRev, plan.afterRev)
+  const scope = scopeFor(target, plan.baseRev, plan.afterRev)
   const doc = serializeGuide({
     guide: heuristic,
-    scope: phase.target.kind === 'workingTree' ? scope : { ...scope, diffDigest: diff.digest },
+    scope: target.kind === 'workingTree' ? scope : { ...scope, diffDigest: diff.digest },
     sidecarPath,
     topic: peek(guideTopic),
     createdAt: new Date().toISOString(),
@@ -445,7 +742,8 @@ export const generateSimpleGuide = action(async (): Promise<void> => {
 
 export const generateAgentGuide = action(async (): Promise<void> => {
   const phase = peek(setupPhase)
-  if (phase.kind !== 'generate')
+  const target = phase.kind === 'generate' ? phase.target : targetFromSelection()
+  if (target === null)
     return
 
   const capability = await wrap(gitCapability())
@@ -465,12 +763,12 @@ export const generateAgentGuide = action(async (): Promise<void> => {
   const signal = abortVar.require().signal
   const plan = await wrap(planIsolation(
     capability.repoRoot,
-    { entry: phase.target },
+    { entry: target },
     { signal },
   ))
-  if (await refuseEmptyPlan(phase.target, plan.changedLineCount, plan.substantiveLineCount))
+  if (await refuseEmptyPlan(target, plan.changedLineCount, plan.substantiveLineCount))
     return
-  const prompt = agentPromptFor(phase.target, sidecarPath, plan.baseRev, plan.afterRev, peek(guideTopic))
+  const prompt = agentPromptFor(target, sidecarPath, plan.baseRev, plan.afterRev, peek(guideTopic))
   await wrap(peek(ports).ui.openAgentChat(prompt))
 }, 'setup.generateAgent').extend(withAsync(), withAbort('first-in-win'))
 

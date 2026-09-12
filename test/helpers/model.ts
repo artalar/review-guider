@@ -20,7 +20,7 @@ import {
   startSession,
   workspaceRoot,
 } from '../../src/model/session'
-import { setupPhase, sidecarExists, skillInstalled } from '../../src/model/setup'
+import { connectSetupQueries, defaultBase, gitBranches, gitRemotes, recentCommits, setupPhase, sidecarExists, skillInstalled } from '../../src/model/setup'
 import { reviewViewModel } from '../../src/model/view'
 
 /**
@@ -176,11 +176,17 @@ export async function bootstrapModel(root: string, options: BootstrapOptions = {
     skillInstalled.subscribe(() => {}),
     sidecarExists.subscribe(() => {}),
     setupPhase.subscribe(() => {}),
+    connectSetupQueries(),
   )
   if (options.withReview === true)
     unsubscribes.push(reviewViewModel.subscribe(() => {}))
 
   await gitCapability()
+  await gitState()
+  await gitRemotes()
+  await gitBranches()
+  await defaultBase()
+  await recentCommits()
   await skillInstalled()
   await sidecarExists()
   return harness

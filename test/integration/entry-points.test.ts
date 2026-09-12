@@ -346,6 +346,24 @@ describe('the commit picker source', () => {
     const repo = await linearRepo()
     expect(await readRecentCommits(repo.root, { limit: 1 })).toHaveLength(1)
   })
+
+  it('lists another branch newest first when rev is set', async () => {
+    const repo = await linearRepo()
+    await repo.git('checkout', '-q', '-b', 'feature')
+    await repo.write('src/feature.ts', 'export const feature = 1\n')
+    await repo.git('add', '-A')
+    const featureSha = await repo.commit('feature work')
+    await repo.git('checkout', '-q', 'main')
+
+    const feature = await readRecentCommits(repo.root, { rev: 'feature' })
+    expect(feature.map(commit => commit.subject)).toEqual([
+      'feature work',
+      'add app',
+      'add types',
+      'initial commit',
+    ])
+    expect(feature[0]?.sha).toBe(featureSha)
+  })
 })
 
 describe('start never isolates', () => {

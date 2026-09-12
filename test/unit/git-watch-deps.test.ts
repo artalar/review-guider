@@ -1,6 +1,5 @@
 import { context, peek, sleep, wrap } from '@reatom/core'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { sidebarViewModel } from '../../src/model/view'
 import {
   bumpGitWatch,
   gitCapability,
@@ -14,6 +13,7 @@ import {
   startPreview,
   workspaceRoot,
 } from '../../src/model/session'
+import { sidebarViewModel } from '../../src/model/view'
 import { cleanupTempRepos, makeTempRepo } from '../helpers/tmp-repo'
 
 beforeEach(() => context.reset())

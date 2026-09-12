@@ -1,9 +1,10 @@
 import type { CommitSummary } from '../git/log'
 import type { GitState } from '../git/state'
 import type { ReviewTarget, SessionMode } from '../git/types'
-import type { RangeSetupPhase } from './setup'
+import type { HomeSetupPhase, RangeSetupPhase } from './setup'
 import type { SidebarViewModel } from './view'
 import { commands as Commands } from '../generated/meta'
+import { reviewTargetFromHome } from './setup'
 
 export function safeSidebarText(value: string, max = 500): string {
   const clean = [...value].filter((character) => {
@@ -44,6 +45,10 @@ export interface SidebarItemData {
   readonly expanded?: boolean
   readonly group?: SidebarGroup
   readonly trailing?: 'chevron'
+  readonly choices?: readonly {
+    readonly value: string
+    readonly label: string
+  }[]
 }
 
 export function finishLabel(mode: SessionMode | null): string {
@@ -100,6 +105,14 @@ export function sidebarItems(view: SidebarViewModel): readonly SidebarItemData[]
               ...item.input,
               error: safeSidebarText(item.input.error, 400),
             },
+          }),
+      ...(item.choices === undefined
+        ? {}
+        : {
+            choices: item.choices.map(choice => ({
+              value: safeSidebarText(choice.value, 200),
+              label: safeSidebarText(choice.label, 200),
+            })),
           }),
     })
   }
@@ -530,11 +543,26 @@ function operationLabel(operation: NonNullable<GitState['operation']>): string {
   }
 }
 
+const EMPTY_HOME_PHASE: HomeSetupPhase = {
+  kind: 'home',
+  commits: [],
+  loading: false,
+  error: null,
+  remotes: [],
+  selectedRemote: null,
+  branches: [],
+  selectedBranch: null,
+  defaultBase: null,
+  selection: { kind: 'none' },
+  fetching: false,
+  fetchError: null,
+}
+
 function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => void): void {
   const phase = view.setup
 
   if (phase.kind === 'home' || phase.kind === 'targets') {
-    addHomeItems(view, add)
+    addHomeItems(view, add, phase.kind === 'home' ? phase : EMPTY_HOME_PHASE)
     return
   }
 
@@ -596,16 +624,18 @@ function addIdleItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
     return
   }
 
-  if (phase.kind === 'generate') {
+  if (phase.kind === 'generate')
     addGenerateItems(phase.target, view, add)
-    return
-  }
 }
 
-function addHomeItems(view: SidebarViewModel, add: (item: SidebarItemData) => void): void {
+function addHomeItems(
+  view: SidebarViewModel,
+  add: (item: SidebarItemData) => void,
+  phase: HomeSetupPhase,
+): void {
   if (!view.canStart && view.idleReason !== null) {
     add({
-      id: 'welcome',
+      id: 'repo-required',
       label: 'A repository is required',
       description: view.idleReason,
       surface: 'notice',
@@ -616,11 +646,18 @@ function addHomeItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
     return
   }
 
+  const reviewTarget = reviewTargetFromHome(phase.selection, phase.selectedBranch, phase.defaultBase)
   add({
-    id: 'welcome',
-    label: 'Review a change',
-    description: 'Choose where to begin.',
+    id: 'review',
+    label: homeReviewLabel(phase),
+    command: Commands.reviewSelection,
+    icon: 'play',
+    contextValue: 'action',
+    enabled: view.canStart && reviewTarget !== null,
+    slot: 'nav',
+    tone: 'primary',
   })
+
   if (view.guideFocused) {
     add({
       id: 'start-guide',
@@ -629,50 +666,95 @@ function addHomeItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
       icon: 'play',
       contextValue: 'action',
       enabled: view.canStart,
-      tone: 'primary',
+      tone: 'quiet',
     })
   }
-  add({
-    id: 'working-tree',
-    label: 'Working changes',
-    description: 'Staged, unstaged and new files',
-    command: Commands.pickWorkingTree,
-    icon: 'diff',
-    contextValue: 'action',
-    enabled: view.canStart,
-    surface: 'list',
-    trailing: 'chevron',
-    tone: 'secondary',
-  })
-  add({
-    id: 'commit',
-    label: 'A commit',
-    description: 'One commit against its parent',
-    command: Commands.pickCommit,
-    icon: 'git-commit',
-    contextValue: 'action',
-    enabled: view.canStart,
-    surface: 'list',
-    trailing: 'chevron',
-    tone: 'secondary',
-  })
-  add({
-    id: 'range',
-    label: 'A commit range',
-    description: 'Changes between two revisions',
-    command: Commands.pickRange,
-    icon: 'git-compare',
-    contextValue: 'action',
-    enabled: view.canStart,
-    surface: 'list',
-    trailing: 'chevron',
-    tone: 'secondary',
-  })
-  if (view.skillInstalled === false) {
+
+  if (phase.remotes.length > 0) {
     add({
-      id: 'agent-prompt',
-      label: 'Want an agent-authored guide?',
+      id: 'remote',
+      label: 'Remote',
+      command: Commands.setRemote,
+      payload: phase.selectedRemote ?? '',
+      choices: selectChoices(phase.remotes.map(remote => remote.name), phase.selectedRemote),
+      enabled: view.canStart && !phase.fetching,
     })
+  }
+
+  add({
+    id: 'branch',
+    label: 'Branch',
+    command: Commands.setBranch,
+    payload: phase.selectedBranch ?? '',
+    choices: selectChoices(
+      phase.branches.map(branch => branch.current ? `${branch.name} · current` : branch.name),
+      phase.selectedBranch,
+      phase.branches.map(branch => branch.name),
+    ),
+    enabled: view.canStart && !phase.fetching,
+  })
+
+  add({
+    id: 'fetch',
+    label: phase.fetching ? 'Fetching…' : 'Fetch',
+    command: Commands.fetchRemote,
+    contextValue: 'action',
+    enabled: view.canStart && phase.remotes.length > 0 && !phase.fetching,
+    tone: 'quiet',
+  })
+
+  if (phase.loading) {
+    add({
+      id: 'history-loading',
+      label: 'Loading recent history…',
+    })
+  }
+
+  if (phase.error !== null) {
+    add({
+      id: 'home-error',
+      label: phase.error,
+      surface: 'notice',
+      severity: 'error',
+    })
+  }
+
+  if (phase.fetchError !== null) {
+    add({
+      id: 'fetch-error',
+      label: phase.fetchError,
+      surface: 'notice',
+      severity: 'warning',
+    })
+  }
+
+  const dirty = treeIsDirty(view.gitState)
+  if (dirty) {
+    add({
+      id: 'working-tree',
+      label: 'Working changes',
+      command: Commands.pickWorkingTree,
+      icon: 'diff',
+      contextValue: 'action',
+      enabled: view.canStart,
+      surface: 'list',
+      tone: 'secondary',
+      ...(phase.selection.kind === 'workingTree' ? { accent: 'selected' as const } : {}),
+    })
+  }
+
+  if (!phase.loading) {
+    addCommitChoices(
+      phase.commits,
+      add,
+      view.canStart,
+      commit => homeCommitAccent(phase, commit),
+      '',
+      Commands.selectHomeRev,
+    )
+  }
+
+  if (view.skillInstalled === false) {
     add({
       id: 'install-skill',
       label: 'Set up editor agent',
@@ -682,6 +764,63 @@ function addHomeItems(view: SidebarViewModel, add: (item: SidebarItemData) => vo
       tone: 'quiet',
     })
   }
+}
+
+function treeIsDirty(state: GitState | null): boolean {
+  if (state === null)
+    return false
+  return state.staged > 0 || state.unstaged > 0 || state.untracked > 0
+}
+
+function selectChoices(
+  labels: readonly string[],
+  selected: string | null,
+  values: readonly string[] = labels,
+): { readonly value: string, readonly label: string }[] {
+  const choices = values.map((value, index) => ({
+    value,
+    label: labels[index] ?? value,
+  }))
+  if (selected !== null && selected !== '' && !choices.some(choice => choice.value === selected))
+    choices.unshift({ value: selected, label: selected })
+  return choices
+}
+
+function homeReviewLabel(phase: HomeSetupPhase): string {
+  const selection = phase.selection
+  if (selection.kind === 'workingTree')
+    return 'Review working changes'
+  if (selection.kind === 'commit') {
+    const commit = phase.commits.find(entry => commitMatchesRev(entry, selection.rev))
+    return `Review ${commit?.shortSha ?? displayRev(selection.rev, phase.commits)}`
+  }
+  if (selection.kind === 'range')
+    return 'Review range'
+  if (phase.selectedBranch !== null && phase.defaultBase !== null && phase.selectedBranch !== phase.defaultBase)
+    return `Review vs ${phase.defaultBase}`
+  if (phase.selectedBranch !== null)
+    return `Review ${phase.selectedBranch}`
+  return 'Review'
+}
+
+function homeCommitAccent(phase: HomeSetupPhase, commit: CommitSummary): SidebarItemData['accent'] {
+  const selection = phase.selection
+  if (selection.kind === 'commit' && commitMatchesRev(commit, selection.rev))
+    return 'selected'
+  if (selection.kind !== 'range')
+    return undefined
+  const index = phase.commits.findIndex(entry => entry.sha === commit.sha)
+  if (index < 0)
+    return undefined
+  return rangeAccent({
+    kind: 'range',
+    commits: phase.commits,
+    loading: phase.loading,
+    error: null,
+    from: selection.from,
+    to: selection.to,
+    pick: 'from',
+  }, index)
 }
 
 function addGenerateItems(
@@ -932,6 +1071,7 @@ function addCommitChoices(
   enabled: boolean,
   accentOf?: (commit: CommitSummary, index: number) => SidebarItemData['accent'],
   payloadPrefix = '',
+  command: string = Commands.selectCommit,
 ): void {
   for (const [index, commit] of commits.entries()) {
     const merge = commit.parentCount > 1 ? ' · merge' : ''
@@ -941,7 +1081,7 @@ function addCommitChoices(
       label: commit.subject === '' ? commit.shortSha : commit.subject,
       description: `${commit.shortSha} ${commit.author} · ${commit.relativeDate}${merge}`,
       tooltip: commit.subject === '' ? commit.shortSha : commit.subject,
-      command: Commands.selectCommit,
+      command,
       payload: `${payloadPrefix}${commit.sha}`,
       icon: 'git-commit',
       contextValue: 'action',

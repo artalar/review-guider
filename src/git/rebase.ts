@@ -268,6 +268,20 @@ export function gitOutput(result: GitCommandResult): string {
   return body === '' ? `${result.command} exited ${result.code}` : body
 }
 
+export const AUTOSTASH_POP_CONFLICT = 'Applying autostash resulted in conflicts. Your changes are safe in the stash.'
+
+export function leftoverFinishNotice(
+  continued: GitCommandResult | undefined,
+  leftover: Pick<GitState, 'autostashes' | 'conflicts'>,
+): string {
+  const fromGit = continued === undefined ? '' : gitOutput(continued)
+  if (/autostash/i.test(fromGit))
+    return fromGit
+  if (leftover.autostashes.length > 0)
+    return AUTOSTASH_POP_CONFLICT
+  return fromGit === '' ? AUTOSTASH_POP_CONFLICT : fromGit
+}
+
 function fail(
   results: readonly GitCommandResult[],
   failed: GitCommandResult,

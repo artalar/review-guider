@@ -6,8 +6,6 @@ import type { GitCommandResult, GitState } from '../git/state'
 import type { ReviewTarget, SessionMode } from '../git/types'
 import type { SidecarSource } from '../guide/sidecar'
 import type { GuideDiagnostic } from '../guide/types'
-import { isSafeRepoPath } from '../guide/sidecar'
-import { applyGuideCursor, isTabthroughGuideFileName } from '../guide/topic'
 import type { Ports } from './ports'
 import type { Session } from './steps'
 import {
@@ -42,6 +40,7 @@ import {
   countCommitsAfter,
   formatRebaseCommand,
   gitOutput,
+  leftoverFinishNotice,
   ownsRebase,
   readCommitGpgSign,
   readOwnership,
@@ -64,6 +63,8 @@ import { describeTarget } from '../git/types'
 import { readWorktreeFile } from '../git/workdir'
 import { EDIT_HERE_HINT, projectEditHere } from '../guide/edit-here'
 import { resolveFinishPolicy } from '../guide/merge'
+import { isSafeRepoPath } from '../guide/sidecar'
+import { applyGuideCursor, isTabthroughGuideFileName } from '../guide/topic'
 import {
   finishHooks,
   finishSign,
@@ -188,6 +189,7 @@ export const sessionStatus = atom<SessionStatus>('idle', 'session.status').exten
 export const isSessionActive = computed(() => sessionStatus() === 'active', 'session.isActive')
 export const isSessionOpen = computed(() => sessionStatus() !== 'idle', 'session.isOpen')
 export const isSessionFinishing = computed(() => sessionStatus() === 'finishing', 'session.isFinishing')
+export const session = atom<Session | null>(null, 'session')
 export const gitSurfaceLive = computed(
   () => sidebarLive() || session()?.mode === 'rebase',
   'ui.gitSurfaceLive',
@@ -236,7 +238,6 @@ export const gitState = computed(async (): Promise<GitState | null> => {
   }))
 }, 'git.state').extend(withAsyncData({ initState: null }))
 
-export const session = atom<Session | null>(null, 'session')
 export const isolation = atom<IsolationHandle | null>(null, 'session.isolation')
 export const guideDiagnostics = atom<readonly GuideDiagnostic[]>([], 'session.diagnostics')
 export const pendingEntry = atom<ReviewTarget | null>(null, 'session.pendingEntry')
@@ -952,11 +953,8 @@ export const finishSession = action(async (): Promise<void> => {
       return
     const leftoverProblem = leftover.conflicts.length > 0 || leftover.autostashes.length > 0
     if (leftoverProblem) {
-      const leftoverNotice = continued === undefined
-        ? 'Applying autostash resulted in conflicts. Your changes are safe in the stash.'
-        : gitOutput(continued)
       await wrap(teardownSession({ reason: 'finish', abortOwnedRebase: false, silent: true }))
-      await wrap(peek(ports).ui.notify('warn', leftoverNotice))
+      await wrap(peek(ports).ui.notify('warn', leftoverFinishNotice(continued, leftover)))
       return
     }
 
